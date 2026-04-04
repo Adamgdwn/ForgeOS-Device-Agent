@@ -8,5 +8,7 @@ def test_bootstrap_creates_workspace_and_master(tmp_path: Path) -> None:
 
     assert (tmp_path / "forgeos.code-workspace").exists()
     assert (tmp_path / "master" / "policies" / "default_policy.json").exists()
+    assert (tmp_path / "knowledge" / "support_matrix.json").exists()
+    assert (tmp_path / "promotion" / "promotion_rules.json").exists()
     assert (tmp_path / "output").exists()
     assert Path(details["bootstrap_report"]).exists()

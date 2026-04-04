@@ -9,6 +9,7 @@ ForgeOS Device Agent is a Pop!_OS desktop-launchable control environment for ass
 - Safety-first execution with dry-run destructive tooling by default.
 - Connectivity-first probing so transport, recovery, and restore viability are established before build ambition.
 - Structured JSON artifacts and JSON Schema contracts for auditability and crash recovery.
+- Controlled learning through `knowledge/` and `promotion/`, where session evidence improves support guidance without silently mutating policy.
 
 ## Repo Structure
 
@@ -22,6 +23,8 @@ forgeos/
     integrations/
     schemas/
   master/
+  knowledge/
+  promotion/
   devices/
   logs/
   output/
@@ -50,6 +53,12 @@ Use the desktop launcher in `launcher/forgeos.desktop` or start the app manually
 python -m app.main
 ```
 
+## Operator Guide
+
+For launch, testing, and first-device workflow instructions, see [USER_GUIDE.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/USER_GUIDE.md).
+
 ## Current Scope
 
 This scaffold is runnable and auditable. Live Android build, signing, and flashing implementations remain stubbed behind explicit tool contracts so they can be integrated without collapsing the safety model.
+
+The learning layer now records session outcomes, builds a device-family support matrix, and generates review-only promotion candidates for the master framework.

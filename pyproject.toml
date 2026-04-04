@@ -12,6 +12,7 @@ authors = [
   { name = "ForgeOS" }
 ]
 dependencies = [
+  "PySide6>=6.11,<7",
 ]
 
 [project.optional-dependencies]

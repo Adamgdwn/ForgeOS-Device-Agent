@@ -17,6 +17,13 @@ from app.watchers.fastboot_watcher import FastbootWatcher
 from app.watchers.usb_watcher import USBWatcher
 
 
+def should_open_vscode(policy_default: bool) -> bool:
+    override = os.environ.get("FORGEOS_OPEN_VSCODE")
+    if override is None:
+        return policy_default
+    return override.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
     configure_logging(root / "logs", os.environ.get("FORGEOS_LOG_LEVEL", "INFO"))
@@ -24,7 +31,7 @@ def main() -> None:
 
     bootstrap_report = run_bootstrap(root)
     policy = PolicyEngine(root / "master" / "policies" / "default_policy.json").load()
-    if policy.open_vscode_on_launch:
+    if should_open_vscode(policy.open_vscode_on_launch):
         VSCodeOpenerTool(root).execute(
             {
                 "target_path": bootstrap_report["workspace_file"],

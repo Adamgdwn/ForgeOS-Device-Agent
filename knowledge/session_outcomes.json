@@ -1,0 +1,25 @@
+{
+  "outcomes": {
+    "google-pixel-8-19c21d1a-20260404": {
+      "session_id": "google-pixel-8-19c21d1a-20260404",
+      "recorded_at": "2026-04-04T21:55:15.987729+00:00",
+      "family_key": "google:pixel-8",
+      "canonical_name": "google-pixel-8-19c21d1a-20260404",
+      "device_codename": "google-19c2",
+      "manufacturer": "Google",
+      "model": "Pixel 8",
+      "transport": "usb-adb",
+      "android_version": null,
+      "bootloader_locked": null,
+      "verified_boot_state": null,
+      "support_status": "actionable",
+      "selected_strategy": "hardened_existing_os",
+      "current_state": "PATH_SELECT",
+      "restore_path_feasible": true,
+      "assessment_summary": "Assessment passed initial feasibility gates for non-destructive planning.",
+      "notes": [
+        "Assessment passed initial feasibility gates for non-destructive planning."
+      ]
+    }
+  }
+}

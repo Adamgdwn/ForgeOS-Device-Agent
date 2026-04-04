@@ -20,7 +20,7 @@ MASTER_SEEDS: dict[str, dict] = {
         "default_dry_run": True,
         "require_restore_path": True,
         "allow_bootloader_relock": False,
-        "open_vscode_on_launch": True,
+        "open_vscode_on_launch": False,
         "open_vscode_on_session_create": True,
         "priority_order": [
             "restore_path",
@@ -74,6 +74,31 @@ MASTER_SEEDS: dict[str, dict] = {
     },
 }
 
+KNOWLEDGE_SEEDS: dict[str, dict] = {
+    "support_matrix.json": {
+        "generated_at": None,
+        "families": {},
+    },
+    "session_outcomes.json": {
+        "outcomes": {},
+    },
+}
+
+PROMOTION_SEEDS: dict[str, dict] = {
+    "promotion_rules.json": {
+        "min_observations_for_candidate": 3,
+        "min_confidence_for_candidate": 0.75,
+        "require_restore_path_ratio": 0.5,
+        "require_non_research_strategy": True,
+        "auto_apply_master_changes": False,
+    },
+    "candidates.json": {
+        "generated_at": None,
+        "rules": {},
+        "candidates": [],
+    },
+}
+
 
 def ensure_workspace_file(root: Path) -> Path:
     workspace_path = root / WORKSPACE_FILE
@@ -105,14 +130,29 @@ def seed_master_framework(root: Path) -> None:
         (master_dir / extra_dir).mkdir(parents=True, exist_ok=True)
 
 
+def seed_runtime_learning_framework(root: Path) -> None:
+    for base_dir, seeds in [
+        (root / "knowledge", KNOWLEDGE_SEEDS),
+        (root / "promotion", PROMOTION_SEEDS),
+    ]:
+        base_dir.mkdir(parents=True, exist_ok=True)
+        for relative_path, payload in seeds.items():
+            file_path = base_dir / relative_path
+            if file_path.exists():
+                continue
+            file_path.write_text(json.dumps(payload, indent=2))
+
+
 def build_paths(root: Path) -> ForgePaths:
     return ForgePaths(
         root=root,
         app=root / "app",
         devices=root / "devices",
+        knowledge=root / "knowledge",
         logs=root / "logs",
         master=root / "master",
         output=root / "output",
+        promotion=root / "promotion",
         launcher=root / "launcher",
     )
 
@@ -121,14 +161,17 @@ def run_bootstrap(root: Path) -> dict[str, object]:
     paths = build_paths(root)
     for path in [
         paths.devices,
+        paths.knowledge,
         paths.logs,
         paths.master,
         paths.output,
+        paths.promotion,
         root / "tests",
     ]:
         path.mkdir(parents=True, exist_ok=True)
 
     seed_master_framework(root)
+    seed_runtime_learning_framework(root)
     workspace_path = ensure_workspace_file(root)
 
     policy = PolicyEngine(paths.master / "policies" / "default_policy.json").load()
@@ -144,6 +187,8 @@ def run_bootstrap(root: Path) -> dict[str, object]:
         "usb_access_likely": os.access("/dev", os.R_OK),
         "workspace_file": str(workspace_path),
         "policy_file": str(paths.master / "policies" / "default_policy.json"),
+        "knowledge_dir": str(paths.knowledge),
+        "promotion_dir": str(paths.promotion),
         "default_dry_run": policy.default_dry_run,
     }
 

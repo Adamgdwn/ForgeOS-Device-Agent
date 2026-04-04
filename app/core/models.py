@@ -155,9 +155,11 @@ class ForgePaths:
     root: Path
     app: Path
     devices: Path
+    knowledge: Path
     logs: Path
     master: Path
     output: Path
+    promotion: Path
     launcher: Path
 
 

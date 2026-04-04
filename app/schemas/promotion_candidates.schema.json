@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeOS Promotion Candidates",
+  "type": "object",
+  "required": ["generated_at", "rules", "candidates"],
+  "properties": {
+    "generated_at": { "type": ["string", "null"] },
+    "rules": { "type": "object" },
+    "candidates": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "additionalProperties": true
+}

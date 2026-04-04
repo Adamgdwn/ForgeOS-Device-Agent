@@ -12,11 +12,8 @@ if [ -d "${LOCAL_PLATFORM_TOOLS}" ]; then
   export PATH="${LOCAL_PLATFORM_TOOLS}:${PATH}"
 fi
 
-if command -v code >/dev/null 2>&1; then
-  code "${PROJECT_ROOT}/forgeos.code-workspace" >/dev/null 2>&1 || true
-else
-  printf 'ForgeOS note: VS Code CLI `code` not found; continuing without workspace open.\n'
-fi
+# Desktop launches should prioritize the guided GUI, not a developer workspace.
+export FORGEOS_OPEN_VSCODE="${FORGEOS_OPEN_VSCODE:-0}"
 
 if [ -x "${VENV_PYTHON}" ]; then
   exec "${VENV_PYTHON}" -m app.main

@@ -14,3 +14,4 @@
 1. Add a richer desktop UI in `app/gui/` for approval prompts, device session status, and audit log review.
 2. Package the launcher and Python environment for Pop!_OS with a stable install target under `~/.local/share/applications`.
 3. Add a background service mode for continuous monitoring outside the foreground app lifecycle.
+4. Expand the controlled learning layer so promotion candidates can attach validation evidence, regression notes, and human review outcomes before master updates are accepted.

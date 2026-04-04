@@ -4,8 +4,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from app.core.knowledge import KnowledgeEngine
 from app.core.reporting import ReportWriter
 from app.core.policy import PolicyEngine
+from app.core.promotion import PromotionEngine
 from app.core.session_manager import SessionManager
 from app.core.state_machine import is_transition_allowed
 from app.tools.device_probe import DeviceProbeTool
@@ -21,6 +23,8 @@ class ForgeOrchestrator:
         self.sessions = SessionManager(root)
         self.reports = ReportWriter(root / "output")
         self.policy = PolicyEngine(root / "master" / "policies" / "default_policy.json").load()
+        self.knowledge = KnowledgeEngine(root)
+        self.promotion = PromotionEngine(root)
         self.device_probe = DeviceProbeTool(root)
         self.assessor = FeasibilityAssessorTool(root)
         self.strategy_selector = BuildStrategySelectorTool(root)
@@ -53,6 +57,16 @@ class ForgeOrchestrator:
                     f"Selected strategy {strategy['strategy_id']}",
                 )
 
+        current_profile = self.sessions.load_device_profile(session_dir)
+        current_state = self.sessions.load_session_state(session_dir)
+        learning_summary = self.knowledge.record_session_outcome(
+            current_profile,
+            current_state,
+            assessment,
+        )
+        support_matrix = self.knowledge.rebuild_support_matrix()
+        promotion_candidates = self.promotion.evaluate(support_matrix)
+
         self.reports.write_session_report(
             session_dir,
             report_type="assessment",
@@ -61,6 +75,16 @@ class ForgeOrchestrator:
             details={
                 "event": event,
                 "assessment": assessment,
+            },
+        )
+        self.reports.write_session_report(
+            session_dir,
+            report_type="learning",
+            status="ok",
+            summary="Knowledge base and support matrix updated for this device session.",
+            details={
+                "learning_summary": learning_summary,
+                "promotion_candidate_count": len(promotion_candidates.get("candidates", [])),
             },
         )
         self.logger.info("Handled device event for session %s", session_dir.name)
