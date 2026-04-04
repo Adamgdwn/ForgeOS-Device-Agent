@@ -1,0 +1,11 @@
+{
+  "checks": [
+    "usb_connectivity",
+    "adb_reachability",
+    "fastboot_reachability",
+    "wifi_basic",
+    "bluetooth_basic",
+    "charging_state",
+    "storage_health"
+  ]
+}

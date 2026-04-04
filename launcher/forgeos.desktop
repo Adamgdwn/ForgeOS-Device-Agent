@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ForgeOS Device Agent
+Comment=Assess and orchestrate Android device build sessions
+Exec="__FORGEOS_EXEC__"
+Icon=__FORGEOS_ICON__
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true

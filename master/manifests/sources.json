@@ -1,0 +1,14 @@
+{
+  "sources": [
+    {
+      "name": "aosp",
+      "status": "reference",
+      "notes": "Attach trusted upstream manifests and per-device support metadata."
+    },
+    {
+      "name": "factory_images",
+      "status": "required_for_restore",
+      "notes": "Use to prove rollback and restore feasibility before destructive flows."
+    }
+  ]
+}

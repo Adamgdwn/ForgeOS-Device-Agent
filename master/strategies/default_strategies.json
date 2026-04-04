@@ -1,0 +1,19 @@
+{
+  "strategies": [
+    {
+      "id": "research_only",
+      "priority": 0,
+      "description": "Use when restore or support confidence is insufficient."
+    },
+    {
+      "id": "hardened_existing_os",
+      "priority": 1,
+      "description": "Prefer a maintainable, security-aware path over novelty."
+    },
+    {
+      "id": "device_specific_build",
+      "priority": 2,
+      "description": "Use only when device support and restore path are proven."
+    }
+  ]
+}

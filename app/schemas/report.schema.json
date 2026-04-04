@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeOS Report",
+  "type": "object",
+  "required": ["report_type", "generated_at", "status", "summary"],
+  "properties": {
+    "report_type": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "status": { "type": "string" },
+    "summary": { "type": "string" },
+    "details": { "type": "object" }
+  },
+  "additionalProperties": true
+}

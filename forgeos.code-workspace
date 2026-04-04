@@ -1,0 +1,16 @@
+{
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "master"
+    },
+    {
+      "path": "devices"
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "python3"
+  }
+}

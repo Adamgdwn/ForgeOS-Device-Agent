@@ -1,0 +1,20 @@
+{
+  "policy_version": "1.0",
+  "default_dry_run": true,
+  "require_restore_path": true,
+  "allow_bootloader_relock": false,
+  "open_vscode_on_launch": true,
+  "open_vscode_on_session_create": true,
+  "priority_order": [
+    "restore_path",
+    "security",
+    "connectivity",
+    "core_operability",
+    "functionality_expansion"
+  ],
+  "host_requirements": {
+    "platforms": ["linux"],
+    "preferred_desktop": "Pop!_OS",
+    "tools": ["adb", "fastboot"]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "report_type": "template",
+  "status": "draft",
+  "summary": "Base ForgeOS report template",
+  "details": {
+    "safety": {},
+    "security": {},
+    "connectivity": {},
+    "validation": {}
+  }
+}

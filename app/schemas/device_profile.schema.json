@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeOS Device Profile",
+  "type": "object",
+  "required": [
+    "session_id",
+    "canonical_name",
+    "device_codename",
+    "fingerprint",
+    "transport"
+  ],
+  "properties": {
+    "session_id": { "type": "string" },
+    "canonical_name": { "type": "string" },
+    "device_codename": { "type": "string" },
+    "fingerprint": { "type": "string" },
+    "manufacturer": { "type": ["string", "null"] },
+    "model": { "type": ["string", "null"] },
+    "serial": { "type": ["string", "null"] },
+    "android_version": { "type": ["string", "null"] },
+    "transport": {
+      "type": "string",
+      "enum": ["usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery", "unknown"]
+    },
+    "bootloader_locked": { "type": ["boolean", "null"] },
+    "verified_boot_state": { "type": ["string", "null"] },
+    "slot_info": { "type": ["object", "null"] },
+    "battery": { "type": ["object", "null"] },
+    "raw_probe_data": { "type": "object" }
+  },
+  "additionalProperties": true
+}
