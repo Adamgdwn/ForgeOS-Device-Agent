@@ -70,6 +70,9 @@ class ForgeControlApp:
         self.last_refresh_reason = "Startup"
         self.show_advanced = False
         self.last_live_sync_at = 0.0
+        self.profile_form_dirty = False
+        self.profile_form_syncing = False
+        self.profile_form_session: Path | None = None
 
         self.qt_app = QApplication.instance() or QApplication(sys.argv)
         self.qt_app.setApplicationName("ForgeOS Device Agent")
@@ -391,6 +394,7 @@ class ForgeControlApp:
         save_button = QPushButton("Save Profile And Recompute Strategy")
         save_button.clicked.connect(self.save_profile_and_recompute)
         layout.addWidget(save_button)
+        self._bind_profile_form_signals()
         return group
 
     def _build_connection_help_card(self) -> QGroupBox:
@@ -492,6 +496,31 @@ class ForgeControlApp:
     def _toggle_advanced_mode(self, checked: bool) -> None:
         self.show_advanced = checked
         self.refresh_ui("Advanced view changed")
+
+    def _mark_profile_form_dirty(self, *_args: object) -> None:
+        if self.profile_form_syncing:
+            return
+        self.profile_form_dirty = True
+
+    def _bind_profile_form_signals(self) -> None:
+        for combo in [
+            self.persona_combo,
+            self.comfort_combo,
+            self.priority_combo,
+            self.google_combo,
+            self.autonomy_combo,
+            self.risk_combo,
+            self.restore_combo,
+            self.use_case_combo,
+            self.secondary_goal_combo,
+        ]:
+            combo.currentIndexChanged.connect(self._mark_profile_form_dirty)
+        for checkbox in [
+            self.updates_check,
+            self.battery_check,
+            self.lockdown_check,
+        ]:
+            checkbox.toggled.connect(self._mark_profile_form_dirty)
 
     def _interaction_in_progress(self) -> bool:
         focus = self.qt_app.focusWidget()
@@ -1064,20 +1093,28 @@ class ForgeControlApp:
                 return
 
     def _load_profile_form(self, session_dir: Path) -> None:
+        if self.profile_form_dirty and self.profile_form_session == session_dir:
+            return
         profile = self.sessions.load_user_profile(session_dir)
         goals = self.sessions.load_os_goals(session_dir)
-        self._set_combo_by_value(self.persona_combo, profile.persona.value)
-        self._set_combo_by_value(self.comfort_combo, profile.technical_comfort.value)
-        self._set_combo_by_value(self.priority_combo, profile.primary_priority.value)
-        self._set_combo_by_value(self.google_combo, profile.google_services_preference.value)
-        self._set_combo_by_value(self.autonomy_combo, profile.autonomy_limit.value)
-        self._set_combo_by_value(self.risk_combo, profile.risk_tolerance.value)
-        self._set_combo_by_value(self.restore_combo, profile.restore_expectation.value)
-        self._set_combo_by_value(self.use_case_combo, profile.target_use_case.value)
-        self._set_combo_by_value(self.secondary_goal_combo, goals.secondary_goal.value)
-        self.updates_check.setChecked(goals.requires_reliable_updates)
-        self.battery_check.setChecked(goals.prefers_long_battery_life)
-        self.lockdown_check.setChecked(goals.prefers_lockdown_defaults)
+        self.profile_form_syncing = True
+        try:
+            self._set_combo_by_value(self.persona_combo, profile.persona.value)
+            self._set_combo_by_value(self.comfort_combo, profile.technical_comfort.value)
+            self._set_combo_by_value(self.priority_combo, profile.primary_priority.value)
+            self._set_combo_by_value(self.google_combo, profile.google_services_preference.value)
+            self._set_combo_by_value(self.autonomy_combo, profile.autonomy_limit.value)
+            self._set_combo_by_value(self.risk_combo, profile.risk_tolerance.value)
+            self._set_combo_by_value(self.restore_combo, profile.restore_expectation.value)
+            self._set_combo_by_value(self.use_case_combo, profile.target_use_case.value)
+            self._set_combo_by_value(self.secondary_goal_combo, goals.secondary_goal.value)
+            self.updates_check.setChecked(goals.requires_reliable_updates)
+            self.battery_check.setChecked(goals.prefers_long_battery_life)
+            self.lockdown_check.setChecked(goals.prefers_lockdown_defaults)
+        finally:
+            self.profile_form_syncing = False
+        self.profile_form_dirty = False
+        self.profile_form_session = session_dir
 
     def save_profile_and_recompute(self) -> None:
         if not self.current_session_dir:
@@ -1104,6 +1141,8 @@ class ForgeControlApp:
         os_goals.prefers_long_battery_life = self.battery_check.isChecked()
         os_goals.prefers_lockdown_defaults = self.lockdown_check.isChecked()
         self.sessions.write_os_goals(self.current_session_dir, os_goals)
+        self.profile_form_dirty = False
+        self.profile_form_session = self.current_session_dir
 
         assessment_path = self.current_session_dir / "reports" / "assessment.json"
         assessment_report = json.loads(assessment_path.read_text()) if assessment_path.exists() else {
