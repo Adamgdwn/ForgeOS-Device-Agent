@@ -35,6 +35,7 @@ class FlashExecutorTool(BaseTool):
         support_status = assessment.get("support_status", "research_only")
         restore_path_available = support_status == "actionable"
         transport = device.get("transport", Transport.UNKNOWN.value)
+        install_deferred = support_status != "actionable" or build_plan.get("os_path") == "research_only_path"
         steps = [
             {
                 "name": "preflight_checks",
@@ -88,9 +89,11 @@ class FlashExecutorTool(BaseTool):
             step_count=len(steps),
             steps=steps,
             artifact_hints=build_plan.get("artifact_requirements", []),
-            status="planned",
+            status="deferred" if install_deferred else "planned",
             summary=(
-                "Prepared a conservative flash plan with preflight, backup verification, restore checkpoint, wipe, flash, and validation phases."
+                "Install planning is deferred while ForgeOS continues research, recommendation, preview, and verification."
+                if install_deferred
+                else "Prepared a conservative flash plan with preflight, backup verification, restore checkpoint, wipe, flash, and validation phases."
             ),
         )
 

@@ -65,9 +65,17 @@ class RuntimePlanner:
     ) -> dict[str, str]:
         plan = RuntimeSessionPlan(
             session_id=state.session_id,
-            phase=self._phase_for_state(state),
+            phase=self._phase_for_state(
+                state,
+                assessment=assessment,
+                build_plan=build_plan,
+                backup_plan=backup_plan,
+                install_gate=install_gate,
+                preview_execution=preview_execution,
+                verification_execution=verification_execution,
+            ),
             mission="Rehabilitate this device into a safe, useful, restorable system with the least-risk path available.",
-            operator_summary=self._operator_summary(assessment, blocker, install_gate),
+            operator_summary=self._operator_summary(assessment, build_plan, blocker, install_gate),
             recommended_use_case=recommendation.get("recommended_use_case", "research_hold"),
             recommended_path=build_plan.get("os_path", "research_only_path"),
             worker_routes=worker_routes,
@@ -113,15 +121,48 @@ class RuntimePlanner:
         }
         return files
 
-    def _phase_for_state(self, state: SessionState) -> RuntimePhase:
-        return STATE_TO_PHASE.get(state.state, RuntimePhase.BLOCKED if state.current_blocker_type else RuntimePhase.DISCOVERY)
+    def _phase_for_state(
+        self,
+        state: SessionState,
+        *,
+        assessment: dict[str, Any],
+        build_plan: dict[str, Any],
+        backup_plan: dict[str, Any],
+        install_gate: ApprovalGate,
+        preview_execution: PreviewExecution,
+        verification_execution: VerificationExecution,
+    ) -> RuntimePhase:
+        direct_phase = STATE_TO_PHASE.get(state.state)
+        if direct_phase and direct_phase not in {RuntimePhase.BLOCKED, RuntimePhase.DISCOVERY}:
+            return direct_phase
+
+        support_status = assessment.get("support_status", "unknown")
+        recommended_path = build_plan.get("os_path", "research_only_path")
+        backup_ready = bool(backup_plan.get("backup_bundle_path"))
+
+        if support_status == "blocked":
+            return RuntimePhase.BLOCKED
+        if recommended_path == "research_only_path" or support_status == "research_only":
+            return RuntimePhase.RECOMMENDATION
+        if not backup_ready:
+            return RuntimePhase.BACKUP
+        if preview_execution.status != "executed":
+            return RuntimePhase.PREVIEW
+        if verification_execution.status != "executed":
+            return RuntimePhase.VERIFICATION
+        if install_gate.missing_requirements or not install_gate.allowed:
+            return RuntimePhase.VERIFICATION
+        return RuntimePhase.INSTALL
 
     def _operator_summary(
         self,
         assessment: dict[str, Any],
+        build_plan: dict[str, Any],
         blocker: dict[str, Any],
         install_gate: ApprovalGate,
     ) -> str:
+        if build_plan.get("os_path") == "research_only_path" or assessment.get("support_status") == "research_only":
+            return "ForgeOS is still researching the safest attainable path. Wipe and rebuild remain deferred until transport, feasibility, and restore confidence improve."
         if blocker.get("blocker_type") and blocker.get("blocker_type") != "none":
             return blocker.get("summary", assessment.get("summary", "ForgeOS is gathering more evidence."))
         if not install_gate.allowed:

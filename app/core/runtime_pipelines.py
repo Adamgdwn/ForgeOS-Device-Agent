@@ -119,6 +119,38 @@ class PreviewPipeline:
         execution.generated_files.append(str(execution_path))
         return execution
 
+    def defer(
+        self,
+        session_dir: Path,
+        *,
+        reason: str,
+        build_plan: dict[str, Any],
+        recommendation: dict[str, Any],
+        assessment: dict[str, Any],
+        connection_plan: dict[str, Any],
+    ) -> PreviewExecution:
+        preview_dir = session_dir / "runtime" / "preview"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        capability_matrix = {
+            "resolved_path": build_plan.get("os_path", "unknown"),
+            "recommended_use_case": recommendation.get("recommended_use_case", "unknown"),
+            "support_status": assessment.get("support_status", "unknown"),
+            "transport_readiness": connection_plan.get("recommended_adapter", {}).get("adapter_id", "unknown"),
+            "deferred_reason": reason,
+        }
+        execution = PreviewExecution(
+            status="deferred",
+            summary=reason,
+            mode="deferred",
+            generated_files=[],
+            steps=[{"name": "preview_gate", "status": "deferred", "detail": reason}],
+            capability_matrix=capability_matrix,
+        )
+        execution_path = preview_dir / "preview-execution.json"
+        execution_path.write_text(json.dumps(to_dict(execution), indent=2))
+        execution.generated_files.append(str(execution_path))
+        return execution
+
 
 class VerificationPipeline:
     def __init__(self, root: Path) -> None:
@@ -241,6 +273,32 @@ class VerificationPipeline:
             summary="ForgeOS executed host-side and transport-aware verification checks and recorded operator review items.",
             checkpoints=checkpoints,
             interactive_checks=interactive_checks,
+            generated_files=[],
+        )
+        execution_path = verification_dir / "verification-execution.json"
+        execution_path.write_text(json.dumps(to_dict(execution), indent=2))
+        execution.generated_files.append(str(execution_path))
+        return execution
+
+    def defer(
+        self,
+        session_dir: Path,
+        *,
+        reason: str,
+    ) -> VerificationExecution:
+        verification_dir = session_dir / "runtime" / "verification"
+        verification_dir.mkdir(parents=True, exist_ok=True)
+        execution = VerificationExecution(
+            status="deferred",
+            summary=reason,
+            checkpoints=[
+                {
+                    "name": "verification_gate",
+                    "status": "deferred",
+                    "detail": reason,
+                }
+            ],
+            interactive_checks=[],
             generated_files=[],
         )
         execution_path = verification_dir / "verification-execution.json"

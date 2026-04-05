@@ -33,6 +33,8 @@ from app.tools.use_case_recommender import UseCaseRecommenderTool
 from app.tools.vscode_opener import VSCodeOpenerTool
 from app.core.blocker_engine import BlockerEngine
 
+MANAGEABLE_TRANSPORTS = {"usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery"}
+
 
 class ForgeOrchestrator:
     def __init__(self, root: Path) -> None:
@@ -76,6 +78,7 @@ class ForgeOrchestrator:
         self._safe_transition(session_dir, "PROFILE_SYNTHESIS", "Device profile synthesis started")
 
         device_payload = probe_result["device"]
+        self._safe_transition(session_dir, "ASSESS", "Device assessment started")
         assessment = self.assessor.execute({"device": device_payload, "session_dir": str(session_dir)})
         self.sessions.annotate(session_dir, assessment["summary"])
         engagement = self.autonomous_engagement.execute(
@@ -337,6 +340,74 @@ class ForgeOrchestrator:
         self.logger.info("Handled device event for session %s", session_dir.name)
         return session_dir
 
+    def recompute_session_runtime(self, session_dir: Path) -> dict[str, Any]:
+        profile = self.sessions.load_device_profile(session_dir)
+        user_profile = self.sessions.load_user_profile(session_dir)
+        os_goals = self.sessions.load_os_goals(session_dir)
+        assessment_report = self._load_report_details(session_dir, "assessment")
+        engagement_report = self._load_report_details(session_dir, "engagement")
+        assessment = assessment_report.get("assessment", {}) or {
+            "support_status": self.sessions.load_session_state(session_dir).support_status.value,
+            "summary": "ForgeOS is recomputing the runtime with the updated profile.",
+            "recommended_path": "research_only_path",
+            "restore_path_feasible": False,
+        }
+        engagement = {
+            "engagement_status": engagement_report.get("engagement_status", engagement_report.get("status", "unknown")),
+            "summary": engagement_report.get("summary", "No engagement summary available."),
+            **engagement_report,
+        }
+        device_payload = {
+            "manufacturer": profile.manufacturer,
+            "model": profile.model,
+            "serial": profile.serial,
+            "android_version": profile.android_version,
+            "bootloader_locked": profile.bootloader_locked,
+            "verified_boot_state": profile.verified_boot_state,
+            "slot_info": profile.slot_info or {},
+            "battery": profile.battery or {},
+            "transport": profile.transport,
+            "device_codename": profile.device_codename,
+            "raw_event": profile.raw_probe_data.get("raw_event", profile.raw_probe_data),
+        }
+        runtime_result = self._run_runtime_cycle(
+            session_dir=session_dir,
+            device_payload=device_payload,
+            assessment=assessment,
+            engagement=engagement,
+            user_profile=user_profile,
+            os_goals=os_goals,
+        )
+        self.connection_engine.write_plan(session_dir, runtime_result["connection_plan"])
+        self.blockers.write(session_dir, runtime_result["blocker"])
+        self.sessions.write_flash_plan(session_dir, runtime_result["flash_plan"])
+        self.retry_planner.write(session_dir, runtime_result["retry_plan"])
+        self.reports.write_session_report(
+            session_dir,
+            report_type="build_plan",
+            status="ready",
+            summary=runtime_result["build_plan"]["reason"],
+            details=runtime_result["build_plan"],
+        )
+        self.reports.write_session_report(
+            session_dir,
+            report_type="runtime",
+            status=runtime_result["runtime_gate"].action,
+            summary="ForgeOS recomputed the runtime after profile or session updates.",
+            details={
+                "runtime_files": runtime_result["runtime_files"],
+                "worker_routes": [to_dict(route) for route in runtime_result["worker_routes"]],
+                "worker_executions": [to_dict(execution) for execution in runtime_result["worker_executions"]],
+                "recommendation": runtime_result["recommendation"],
+                "install_gate": to_dict(runtime_result["install_gate"]),
+                "runtime_gate": to_dict(runtime_result["runtime_gate"]),
+                "preview_execution": to_dict(runtime_result["preview_execution"]),
+                "verification_execution": to_dict(runtime_result["verification_execution"]),
+                "worker_inventory": self.worker_registry.inventory(),
+            },
+        )
+        return runtime_result
+
     def _run_runtime_cycle(
         self,
         session_dir: Path,
@@ -411,6 +482,7 @@ class ForgeOrchestrator:
                 "connection_plan": connection_plan,
             }
         )
+        self._safe_transition(session_dir, "RECOMMEND", "ForgeOS is converting evidence into a recommended use case and build path")
         flash_plan = self.flash_executor.build_plan(
             session_id=current_state.session_id,
             device={
@@ -612,20 +684,70 @@ class ForgeOrchestrator:
             backup_plan=backup_plan["plan"],
         )
         runtime_gate = self.policy_guard.evaluate_research_gate(blocker)
-        preview_execution = self.preview_pipeline.execute(
-            session_dir=session_dir,
-            build_plan=build_plan,
-            recommendation=recommendation,
-            assessment=assessment,
-            connection_plan=connection_plan,
+        self._safe_transition(session_dir, "BACKUP_READY", "Backup and restore readiness recorded for this session")
+        transport_value = (
+            current_profile.transport.value
+            if hasattr(current_profile.transport, "value")
+            else str(current_profile.transport)
         )
-        verification_execution = self.verification_pipeline.execute(
-            session_dir=session_dir,
-            assessment=assessment,
-            backup_plan=backup_plan["plan"],
-            restore_plan=restore_plan,
-            flash_plan=to_dict(flash_plan),
+        manageable_transport = transport_value in MANAGEABLE_TRANSPORTS
+        install_candidate = (
+            assessment.get("support_status") == "actionable"
+            and build_plan.get("os_path") != "research_only_path"
+            and flash_plan.status != "deferred"
+            and manageable_transport
         )
+        preview_ready = install_candidate
+        verification_ready = install_candidate and backup_plan["plan"].get("restore_path_feasible", False)
+
+        if preview_ready:
+            self._safe_transition(session_dir, "PREVIEW_BUILD", "ForgeOS is generating a preview for the proposed path")
+            preview_execution = self.preview_pipeline.execute(
+                session_dir=session_dir,
+                build_plan=build_plan,
+                recommendation=recommendation,
+                assessment=assessment,
+                connection_plan=connection_plan,
+            )
+            self._safe_transition(session_dir, "PREVIEW_REVIEW", "Preview output is ready for review")
+        else:
+            preview_execution = self.preview_pipeline.defer(
+                session_dir=session_dir,
+                reason=(
+                    "Preview is deferred until ForgeOS has a manageable transport, an actionable assessment, "
+                    "and a non-research replacement path."
+                ),
+                build_plan=build_plan,
+                recommendation=recommendation,
+                assessment=assessment,
+                connection_plan=connection_plan,
+            )
+
+        if verification_ready:
+            self._safe_transition(session_dir, "INTERACTIVE_VERIFY", "ForgeOS is running verification before any install decision")
+            verification_execution = self.verification_pipeline.execute(
+                session_dir=session_dir,
+                assessment=assessment,
+                backup_plan=backup_plan["plan"],
+                restore_plan=restore_plan,
+                flash_plan=to_dict(flash_plan),
+            )
+        else:
+            verification_execution = self.verification_pipeline.defer(
+                session_dir=session_dir,
+                reason=(
+                    "Verification is deferred until preview and backup readiness are complete and ForgeOS has a viable install candidate."
+                ),
+            )
+
+        install_ready = (
+            flash_plan.status != "deferred"
+            and preview_execution.status == "executed"
+            and verification_execution.status == "executed"
+            and manageable_transport
+        )
+        if install_ready:
+            self._safe_transition(session_dir, "INSTALL_APPROVAL", "The session is ready for operator install review")
         runtime_files = self.runtime_planner.materialize(
             session_dir=session_dir,
             state=self.sessions.load_session_state(session_dir),
@@ -820,6 +942,16 @@ class ForgeOrchestrator:
         target = state.state.__class__[target_name]
         if is_transition_allowed(state.state, target):
             self.sessions.transition(session_dir, target, reason)
+
+    def _load_report_details(self, session_dir: Path, report_name: str) -> dict[str, Any]:
+        path = session_dir / "reports" / f"{report_name}.json"
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            return {}
+        return payload.get("details", {})
 
 
 def json_safe(payload: Any) -> str:

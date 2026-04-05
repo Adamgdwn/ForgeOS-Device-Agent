@@ -416,11 +416,11 @@ class ForgeControlApp:
         return group
 
     def _build_approval_card(self) -> QGroupBox:
-        group = QGroupBox("2. Install Approval Gate")
+        group = QGroupBox("Install Gate")
         layout = QVBoxLayout(group)
 
         self.approval_status = QLabel(
-            "Destructive execution is blocked until you explicitly approve wipe and rebuild for the current session."
+            "This panel stays inactive until ForgeOS finishes research, preview, verification, and install preparation."
         )
         self.approval_status.setWordWrap(True)
         self.approval_status.setProperty("role", "body")
@@ -429,7 +429,7 @@ class ForgeControlApp:
         self.restore_confirm_check = QCheckBox("I confirm the restore path has been reviewed")
         layout.addWidget(self.restore_confirm_check)
 
-        phrase_label = QLabel("Type WIPE_AND_REBUILD to allow destructive execution")
+        phrase_label = QLabel("Type WIPE_AND_REBUILD only when ForgeOS says install is ready")
         phrase_label.setProperty("role", "hint")
         layout.addWidget(phrase_label)
         self.confirmation_input = QLineEdit()
@@ -444,7 +444,7 @@ class ForgeControlApp:
         layout.addWidget(self.approval_notes)
 
         buttons = QHBoxLayout()
-        self.approve_button = QPushButton("Record Wipe Approval")
+        self.approve_button = QPushButton("Record Install Approval")
         self.approve_button.clicked.connect(self.record_wipe_approval)
         self.dry_run_button = QPushButton("Run Approved Dry Run")
         self.dry_run_button.clicked.connect(lambda: self.execute_flash(live_mode=False))
@@ -556,7 +556,10 @@ class ForgeControlApp:
             if value and value != "Unknown" and value != current:
                 setattr(profile_model, key, value)
                 changed = True
-        profile_model.transport = profile_model.transport.__class__(live_profile.get("transport", profile_model.transport.value))
+        live_transport = live_profile.get("transport", profile_model.transport.value)
+        if live_transport != profile_model.transport.value:
+            changed = True
+        profile_model.transport = profile_model.transport.__class__(live_transport)
         profile_model.raw_probe_data |= {
             **live_profile,
             "hardware_snapshot": hardware,
@@ -643,6 +646,9 @@ class ForgeControlApp:
             changed = True
         if changed:
             self.sessions.write_session_state(session_dir, state_model)
+        runtime_plan_path = session_dir / "runtime" / "session-plan.json"
+        if changed or not runtime_plan_path.exists():
+            self.orchestrator.recompute_session_runtime(session_dir)
 
     def _usb_only_device_summary(self) -> dict[str, str] | None:
         active_serials = self._active_serials()
@@ -729,25 +735,100 @@ class ForgeControlApp:
         metadata_backup: dict[str, Any],
         approval: dict[str, Any],
         flash_plan_available: bool,
+        runtime_plan: dict[str, Any] | None,
         playbook: dict[str, object] | None,
     ) -> str:
+        runtime_plan = runtime_plan or {}
         manufacturer = profile.get("manufacturer") or "device"
         model = profile.get("model") or ""
         device_name = f"{manufacturer} {model}".strip()
+        phase = runtime_plan.get("phase", "unknown")
         if engagement_status == "usb_only_detected":
             steps = list((playbook or {}).get("steps", []))[:2]
             return " ".join(steps) if steps else f"Unlock the {device_name}, enable USB debugging, and approve the trust prompt."
         if engagement_status == "awaiting_user_approval":
             return f"Unlock the {device_name} and approve the USB debugging trust prompt."
+        if phase in {"deep_scan", "guided_access_enablement"}:
+            return "Keep the phone connected while ForgeOS deep-scans the device and gathers transport and hardware evidence."
+        if phase == "recommendation":
+            return "Wait while ForgeOS turns the device evidence and your profile into a recommended rehabilitation path."
+        if phase == "backup_restore":
+            return "Wait while ForgeOS finalizes backup and restore readiness before any install work is considered."
+        if phase == "build_preview":
+            return "Wait while ForgeOS generates and records the preview path for the proposed build."
+        if phase == "interactive_verification":
+            return "Review the verification output and expected limitations before any destructive install step is considered."
+        if phase == "wipe_install" and not approval.get("approved"):
+            return "Review the install plan and restore notes, then approve install only if you want ForgeOS to proceed."
         if not backup_plan:
             return "Wait while ForgeOS finishes the host recovery bundle."
         if not metadata_backup.get("adb_metadata_available"):
             return "Keep the phone unlocked and connected while ForgeOS retries the live device metadata backup."
         if not flash_plan_available:
-            return "Wait while ForgeOS finishes the flash plan."
+            return "Wait while ForgeOS finishes the current research and planning stage."
         if not approval.get("approved"):
-            return "Set the user profile if needed, then type WIPE_AND_REBUILD and click Record Wipe Approval only when you want ForgeOS to proceed."
+            return "Approval is not needed yet unless ForgeOS explicitly moves the session into install readiness."
         return "Click Run Approved Dry Run to rehearse the wipe-and-flash plan without touching the phone."
+
+    def _phase_copy(
+        self,
+        runtime_plan: dict[str, Any],
+        support: str,
+        backup_ready: bool,
+        metadata_ready: bool,
+        blocker_summary: str,
+    ) -> tuple[str, str, str]:
+        phase = runtime_plan.get("phase", "unknown")
+        recommended_path = runtime_plan.get("recommended_path", "research_only_path")
+        recommended_use_case = runtime_plan.get("recommended_use_case", "unknown")
+
+        if phase in {"guided_access_enablement", "deep_scan"}:
+            return (
+                "ForgeOS is actively assessing the connected device.",
+                "Deep scan is in progress. ForgeOS is gathering transport, hardware, and system evidence before making any build decision.",
+                "Collecting live device evidence, updating the assessment, and holding all destructive work behind the evidence gate.",
+            )
+        if phase == "recommendation":
+            summary = (
+                f"Research is in progress. ForgeOS is comparing device evidence and your profile to choose the best attainable outcome. "
+                f"Current recommendation: {recommended_use_case.replace('_', ' ')}."
+            )
+            if recommended_path == "research_only_path":
+                summary += " Install planning stays deferred until transport and feasibility improve."
+            return (
+                "ForgeOS is researching the best rehabilitation path.",
+                summary,
+                "Reviewing support evidence, scoring attainable use cases, and deferring wipe/install until the path is credible.",
+            )
+        if phase == "backup_restore":
+            return (
+                "ForgeOS is preparing backup and restore readiness.",
+                f"Assessment status is {support}. Restore evidence is {'ready' if backup_ready else 'still being built'}, and live metadata is {'ready' if metadata_ready else 'still improving'}.",
+                "Recording the host recovery bundle, restore notes, and rollback evidence before any later-stage build work.",
+            )
+        if phase == "build_preview":
+            return (
+                "ForgeOS is generating a preview of the proposed build.",
+                "The runtime has a candidate path and is building preview artifacts before install is even considered.",
+                "Producing preview output, preserving restore visibility, and keeping install gated.",
+            )
+        if phase == "interactive_verification":
+            return (
+                "ForgeOS is verifying the proposed outcome.",
+                "Preview and verification are underway so the user can inspect limitations and recovery assumptions before any wipe/install decision.",
+                "Running verification checkpoints and collecting operator-facing review items.",
+            )
+        if phase == "wipe_install":
+            return (
+                "ForgeOS has reached install review readiness.",
+                "Research, preview, and verification are complete enough for an operator install decision. Wipe/install still requires explicit approval.",
+                "Holding the destructive plan behind the install gate and waiting for operator review.",
+            )
+        return (
+            f"ForgeOS is tracking the current session state: {phase}.",
+            f"Assessment status is {support}. Restore evidence is {'ready' if backup_ready else 'still being built'}, and live metadata is {'ready' if metadata_ready else 'still improving'}.",
+            f"Tracking the next blocker and keeping the session current. Current blocker: {blocker_summary}",
+        )
 
     def _format_device_text(self, session_dir: Path) -> str:
         profile_path = session_dir / "device-profile.json"
@@ -1077,8 +1158,9 @@ class ForgeControlApp:
             engagement,
             plan,
         )
+        self.orchestrator.recompute_session_runtime(self.current_session_dir)
         self.profile_status.setText(
-            f"Saved profile. Recommended OS path is now `{strategy['strategy_id']}`."
+            f"Saved profile. ForgeOS is recomputing recommendation, build, preview, verification, and install readiness for `{strategy['strategy_id']}`."
         )
         self.refresh_ui("Profile updated")
 
@@ -1155,6 +1237,7 @@ class ForgeControlApp:
                         {},
                         {"approved": False},
                         False,
+                        {"phase": "guided_access_enablement"},
                         playbook,
                     ),
                 )
@@ -1164,6 +1247,7 @@ class ForgeControlApp:
                         "model": "phone",
                     },
                     state={"state": "QUESTION_GATE", "support_status": "research_only"},
+                    runtime_plan={"phase": "guided_access_enablement"},
                     engagement={"status": "usb_only_detected"},
                     playbook=playbook,
                     flash_plan=None,
@@ -1182,6 +1266,7 @@ class ForgeControlApp:
                 title, checklist, agent_status = self._build_execution_checklist(
                     profile=None,
                     state=None,
+                    runtime_plan=None,
                     engagement=None,
                     playbook=None,
                     flash_plan=None,
@@ -1247,6 +1332,7 @@ class ForgeControlApp:
         engagement_report = json.loads(engagement_path.read_text()) if engagement_path.exists() else {}
         engagement_status = engagement_report.get("status", engagement_report.get("engagement_status", "unknown"))
         assessment_report = self._read_json(self.current_session_dir / "reports" / "assessment.json")
+        runtime_plan = self._read_json(self.current_session_dir / "runtime" / "session-plan.json")
         backup_plan = self._read_json(self.current_session_dir / "backup" / "backup-plan.json")
         metadata_backup = self._read_json(self.current_session_dir / "backup" / "device-metadata-backup.json")
         blocker_report = self._read_json(self.current_session_dir / "reports" / "blocker.json")
@@ -1263,6 +1349,13 @@ class ForgeControlApp:
             blocker_summary = blocker_report.get("summary") or "No active blocker summary yet."
             session_flash_plan = self.sessions.load_flash_plan(self.current_session_dir)
             approval = self.sessions.load_destructive_approval(self.current_session_dir)
+            objective_title, objective_summary, agent_action = self._phase_copy(
+                runtime_plan,
+                support,
+                bool(backup_plan),
+                metadata_ready,
+                blocker_summary,
+            )
             next_action = self._next_operator_action(
                 profile,
                 engagement_status,
@@ -1270,18 +1363,17 @@ class ForgeControlApp:
                 metadata_backup,
                 {"approved": approval.approved},
                 bool(session_flash_plan),
+                runtime_plan,
                 playbook,
             )
             self._set_objective_panel(
-                f"Live device connected: {profile.get('manufacturer') or 'Unknown'} {profile.get('model') or 'device'}"
+                objective_title
+                + " "
+                + f"Live device: {profile.get('manufacturer') or 'Unknown'} {profile.get('model') or 'device'}"
                 + (f" on Android {profile.get('android_version')}" if profile.get("android_version") else ""),
-                f"Assessment status: {support}. Host recovery bundle is {'ready' if backup_plan else 'missing'}, "
-                f"and live device metadata backup is {'ready' if metadata_ready else 'still being improved'}.",
+                objective_summary,
                 playbook=playbook,
-                agent_action=(
-                    "Assessment and backup preparation are complete for the current transport. ForgeOS is keeping the session current and tracking the next blocker. "
-                    f"Current blocker: {blocker_summary}"
-                ),
+                agent_action=agent_action,
                 next_action=next_action,
             )
         elif usb_only_device:
@@ -1290,7 +1382,7 @@ class ForgeControlApp:
                 "ForgeOS is showing the latest saved session for reference while it keeps retrying safe host-side engagement.",
                 playbook=playbook,
                 agent_action="Retrying adb engagement, watching for transport changes, and keeping the device session ready to resume automatically.",
-                next_action=self._next_operator_action(profile, engagement_status, backup_plan, metadata_backup, {"approved": False}, False, playbook),
+                next_action=self._next_operator_action(profile, engagement_status, backup_plan, metadata_backup, {"approved": False}, False, runtime_plan, playbook),
             )
         else:
             latest_profile = json.loads((latest_saved / "device-profile.json").read_text())
@@ -1321,6 +1413,7 @@ class ForgeControlApp:
         checklist_title, checklist, agent_status = self._build_execution_checklist(
             profile=profile,
             state=state,
+            runtime_plan=runtime_plan,
             engagement=engagement_report,
             playbook=playbook,
             flash_plan={
@@ -1467,6 +1560,7 @@ class ForgeControlApp:
         self,
         profile: dict[str, object] | None,
         state: dict[str, object] | None,
+        runtime_plan: dict[str, object] | None,
         engagement: dict[str, object] | None,
         playbook: dict[str, object] | None,
         flash_plan: dict[str, object] | None,
@@ -1476,6 +1570,7 @@ class ForgeControlApp:
     ) -> tuple[str, list[str], list[str]]:
         profile = profile or {}
         state = state or {}
+        runtime_plan = runtime_plan or {}
         engagement = engagement or {}
         playbook = playbook or {}
         flash_plan = flash_plan or {}
@@ -1486,6 +1581,7 @@ class ForgeControlApp:
         engagement_status = engagement.get("status", engagement.get("engagement_status", "unknown"))
         support_status = state.get("support_status", "unknown")
         state_name = state.get("state", "unknown")
+        phase = str(runtime_plan.get("phase", "unknown"))
         metadata_backup = self._read_json(self.current_session_dir / "backup" / "device-metadata-backup.json") if self.current_session_dir else {}
         backup_with_adb = bool(metadata_backup.get("adb_metadata_available"))
 
@@ -1528,20 +1624,56 @@ class ForgeControlApp:
             )
 
         if live_session and support_status in {"actionable", "research_only"}:
+            phase_labels = {
+                "deep_scan": "deep scan",
+                "recommendation": "research and recommendation",
+                "backup_restore": "backup and restore readiness",
+                "build_preview": "preview generation",
+                "interactive_verification": "interactive verification",
+                "wipe_install": "install decision",
+            }
             checklist: list[str] = []
-            if not backup_plan:
-                checklist.append("Wait for ForgeOS to capture the pre-wipe backup bundle before considering destructive actions.")
-            elif not backup_with_adb:
-                checklist.append("Leave the phone unlocked while ForgeOS retries live device metadata capture for easier recovery.")
-            elif flash_plan and not approval.get("approved"):
-                checklist.append("Review the flash plan and restore notes in the wipe panel.")
-                checklist.append("Set the user profile if needed, then type WIPE_AND_REBUILD and click Record Wipe Approval only if you want ForgeOS to proceed.")
+            if phase in {"deep_scan", "guided_access_enablement"}:
+                checklist.extend(
+                    [
+                        "Keep the phone connected and unlocked while ForgeOS collects hardware, transport, and partition evidence.",
+                        "Wait for the assessment and recommendation outputs to update.",
+                    ]
+                )
+            elif phase == "recommendation":
+                checklist.extend(
+                    [
+                        "Wait while ForgeOS compares device evidence, your profile, and support data.",
+                        "Review the recommended rehabilitation target when it appears.",
+                    ]
+                )
+            elif phase == "backup_restore":
+                checklist.extend(
+                    [
+                        "Wait for ForgeOS to capture backup and restore readiness before any install work is considered.",
+                        "Keep the device connected so recovery evidence remains current.",
+                    ]
+                )
+            elif phase in {"build_preview", "interactive_verification"}:
+                checklist.extend(
+                    [
+                        "Review the preview and verification outputs for the proposed build path.",
+                        "Confirm expected limitations and restore assumptions before install is considered.",
+                    ]
+                )
+            elif phase == "wipe_install" and flash_plan and not approval.get("approved"):
+                checklist.extend(
+                    [
+                        "Review the install plan and restore notes in the install panel.",
+                        "Approve install only if you want ForgeOS to move from planning into destructive execution.",
+                    ]
+                )
             elif approval.get("approved"):
                 checklist.append("Run an approved dry run first. Use live wipe and flash only when policy explicitly allows it.")
             else:
-                checklist.append("ForgeOS has finished the current automated preparation step.")
+                checklist.append("ForgeOS has finished the current non-destructive preparation step.")
             return (
-                f"Current stage for {manufacturer} {model}: operator decision",
+                f"Current stage for {manufacturer} {model}: {phase_labels.get(phase, state_name.replace('_', ' ').lower())}",
                 checklist,
                 agent_status + [
                     "No wipe or destructive flash has happened."
@@ -1563,6 +1695,9 @@ class ForgeControlApp:
     def _refresh_approval_panel(self, session_dir: Path) -> None:
         approval = self.sessions.load_destructive_approval(session_dir)
         flash_plan = self.sessions.load_flash_plan(session_dir)
+        runtime_plan = self._read_json(session_dir / "runtime" / "session-plan.json")
+        phase = runtime_plan.get("phase", "unknown")
+        install_ready = phase == "wipe_install" and flash_plan is not None and flash_plan.status != "deferred"
         if not self.confirmation_input.hasFocus():
             if approval.confirmation_phrase:
                 self.confirmation_input.setText(approval.confirmation_phrase)
@@ -1573,11 +1708,33 @@ class ForgeControlApp:
         if not self.approval_notes.hasFocus():
             self.approval_notes.setPlainText(approval.notes)
 
-        if flash_plan is None:
+        if flash_plan is None or flash_plan.status == "deferred" or not install_ready:
             self.approval_status.setText(
-                "No flash plan has been generated for this session yet. Complete assessment and planning first."
+                "Install approval is not active yet. ForgeOS is still in research, preview, verification, or non-destructive planning."
             )
-            self._set_text_preserve_scroll(self.flash_plan_text, "No flash plan available.")
+            summary_lines = [
+                f"Current runtime phase: {phase}",
+                "",
+                "Install approval stays hidden from the critical path until ForgeOS reaches install readiness.",
+                "What ForgeOS should complete first:",
+                "- assessment and recommendation",
+                "- backup and restore readiness",
+                "- preview generation",
+                "- verification review",
+            ]
+            if flash_plan is not None:
+                summary_lines.extend(
+                    [
+                        "",
+                        f"Current install plan status: {flash_plan.status}",
+                        f"Current build path: {flash_plan.build_path}",
+                        flash_plan.summary,
+                    ]
+                )
+            self._set_text_preserve_scroll(self.flash_plan_text, "\n".join(summary_lines))
+            self.approve_button.setEnabled(False)
+            self.dry_run_button.setEnabled(False)
+            self.live_button.setEnabled(False)
             return
 
         live_mode_text = (
@@ -1592,7 +1749,7 @@ class ForgeControlApp:
         self.approval_status.setText(
             f"Approval state: {approval_text}. Live destructive execution is currently {live_mode_text}."
         )
-        can_record_approval = bool(flash_plan)
+        can_record_approval = bool(flash_plan) and install_ready
         can_dry_run = (
             bool(flash_plan)
             and approval.approved
@@ -1648,9 +1805,13 @@ class ForgeControlApp:
         usb_only_device: bool,
         engagement_status: str,
     ) -> None:
+        runtime_plan = self._read_json(self.current_session_dir / "runtime" / "session-plan.json") if self.current_session_dir else {}
+        phase = runtime_plan.get("phase", "unknown")
+        flash_plan = self.sessions.load_flash_plan(self.current_session_dir) if self.current_session_dir else None
+        install_visible = has_session and phase == "wipe_install" and flash_plan is not None and flash_plan.status != "deferred"
         show_connection_help = usb_only_device or engagement_status in {"usb_only_detected", "awaiting_user_approval"}
         self.connection_help_card.setVisible(show_connection_help)
-        self.approval_card.setVisible(has_session)
+        self.approval_card.setVisible(install_visible)
         self.profile_card.setVisible(has_session)
         self.help_card.setVisible(has_session or usb_only_device)
         self.device_card.setVisible(self.show_advanced and has_session)
@@ -1683,31 +1844,31 @@ class ForgeControlApp:
 
         if mode == "narrow":
             self.content_grid.addWidget(self.now_card, 0, 0)
-            self.content_grid.addWidget(self.host_card, 1, 0)
-            self.content_grid.addWidget(self.profile_card, 2, 0)
-            self.content_grid.addWidget(self.connection_help_card, 3, 0)
-            self.content_grid.addWidget(self.approval_card, 4, 0)
-            self.content_grid.addWidget(self.steps_card, 5, 0)
+            self.content_grid.addWidget(self.steps_card, 1, 0)
+            self.content_grid.addWidget(self.host_card, 2, 0)
+            self.content_grid.addWidget(self.profile_card, 3, 0)
+            self.content_grid.addWidget(self.connection_help_card, 4, 0)
+            self.content_grid.addWidget(self.device_card, 5, 0)
             self.content_grid.addWidget(self.autonomous_card, 6, 0)
-            self.content_grid.addWidget(self.device_card, 7, 0)
+            self.content_grid.addWidget(self.approval_card, 7, 0)
             self.content_grid.addWidget(self.help_card, 8, 0)
             self.content_grid.setColumnStretch(0, 1)
             self.content_grid.setColumnStretch(1, 0)
         else:
             self.content_grid.addWidget(self.now_card, 0, 0)
-            self.content_grid.addWidget(self.steps_card, 0, 1, 2, 1)
-            self.content_grid.addWidget(self.host_card, 1, 0)
-            self.content_grid.addWidget(self.profile_card, 2, 0)
-            self.content_grid.addWidget(self.connection_help_card, 2, 1)
-            self.content_grid.addWidget(self.approval_card, 3, 1)
-            self.content_grid.addWidget(self.autonomous_card, 4, 1)
-            self.content_grid.addWidget(self.device_card, 3, 0, 2, 1)
-            self.content_grid.addWidget(self.help_card, 5, 1)
+            self.content_grid.addWidget(self.host_card, 0, 1)
+            self.content_grid.addWidget(self.profile_card, 1, 0)
+            self.content_grid.addWidget(self.steps_card, 1, 1)
+            self.content_grid.addWidget(self.connection_help_card, 2, 0)
+            self.content_grid.addWidget(self.device_card, 2, 1)
+            self.content_grid.addWidget(self.autonomous_card, 3, 0)
+            self.content_grid.addWidget(self.help_card, 3, 1)
+            self.content_grid.addWidget(self.approval_card, 4, 0, 1, 2)
             self.content_grid.setColumnStretch(0, 5)
-            self.content_grid.setColumnStretch(1, 4)
-        self.content_grid.setRowStretch(0, 0)
-        self.content_grid.setRowStretch(1, 0)
-        self.content_grid.setRowStretch(2, 1)
+            self.content_grid.setColumnStretch(1, 5)
+        for row in range(6):
+            self.content_grid.setRowStretch(row, 0)
+        self.content_grid.setRowStretch(5, 1)
 
     def _handle_resize(self, event) -> None:
         width = self.window.width()
