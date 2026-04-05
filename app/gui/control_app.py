@@ -663,6 +663,7 @@ class ForgeControlApp:
             f"Goose: {'ready' if host.get('goose_ready') else 'limited'}",
             f"Aider: {'ready' if host.get('aider_ready') else 'limited'}",
             f"Ollama: {'ready' if host.get('ollama_model_available') else 'limited'}",
+            f"Android emulator: {'ready' if host.get('emulator_available') and host.get('available_avds') else 'limited'}",
             f"Local model: {host.get('local_model', 'unknown')}",
             f"udev support: {'present' if details.get('udev_present') else 'missing'}",
             f"Workspace file: {details.get('workspace_file')}",

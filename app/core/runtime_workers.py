@@ -103,7 +103,7 @@ class AiderAdapter:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.executable = os.environ.get("FORGEOS_AIDER_EXECUTABLE", "aider")
-        self.model = os.environ.get("FORGEOS_AIDER_MODEL", "")
+        self.model = os.environ.get("FORGEOS_AIDER_MODEL", "ollama_chat/qwen3:8b")
         self.available = shutil.which(self.executable) is not None
 
     def build_command(self, task: WorkerTask, session_dir: Path) -> list[str]:
@@ -326,7 +326,7 @@ class WorkerRuntime:
                 task=task,
                 session_dir=session_dir,
                 command=self.aider.build_command(task, session_dir),
-                env={},
+                env={"OLLAMA_API_BASE": str(self.capabilities.get("ollama_api_base", "http://127.0.0.1:11434"))},
                 escalation_triggers=route.escalation_triggers,
             )
 

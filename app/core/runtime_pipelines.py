@@ -1,10 +1,34 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
+from app.core.host_capabilities import discover_host_capabilities
 from app.core.models import PreviewExecution, VerificationExecution, to_dict
+from app.integrations import adb, fastboot
+
+
+def _safe_run(command: list[str], cwd: Path | None = None, timeout: int = 30) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+        return {
+            "ok": completed.returncode == 0,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout.strip(),
+            "stderr": completed.stderr.strip(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "returncode": -1, "stdout": "", "stderr": str(exc)}
 
 
 class PreviewPipeline:
@@ -21,16 +45,47 @@ class PreviewPipeline:
     ) -> PreviewExecution:
         preview_dir = session_dir / "runtime" / "preview"
         preview_dir.mkdir(parents=True, exist_ok=True)
+        host = discover_host_capabilities(self.root)
 
         capability_matrix = {
             "resolved_path": build_plan.get("os_path", "unknown"),
             "recommended_use_case": recommendation.get("recommended_use_case", "unknown"),
             "support_status": assessment.get("support_status", "unknown"),
             "transport_readiness": connection_plan.get("recommended_adapter", {}).get("adapter_id", "unknown"),
-            "preview_type": "simulated",
+            "host_emulator_available": host.get("emulator_available", False),
+            "available_avds": host.get("available_avds", []),
         }
         matrix_path = preview_dir / "capability-matrix.json"
         matrix_path.write_text(json.dumps(capability_matrix, indent=2))
+
+        steps: list[dict[str, Any]] = []
+        generated_files = [str(matrix_path)]
+        mode = "simulated"
+        summary = "ForgeOS executed a simulated preview pipeline."
+
+        if host.get("emulator_available") and host.get("available_avds"):
+            avd = host["available_avds"][0]
+            emulator_exec = shutil.which("emulator")
+            launch_probe = _safe_run([emulator_exec, "-list-avds"]) if emulator_exec else {"ok": False, "stderr": "emulator unavailable"}
+            steps.append(
+                {
+                    "name": "emulator_probe",
+                    "status": "completed" if launch_probe.get("ok") else "failed",
+                    "detail": launch_probe.get("stdout") or launch_probe.get("stderr", ""),
+                    "avd": avd,
+                }
+            )
+            if launch_probe.get("ok"):
+                mode = "emulator_probe"
+                summary = "ForgeOS executed an emulator-backed preview probe and generated companion preview artifacts."
+        else:
+            steps.append(
+                {
+                    "name": "emulator_probe",
+                    "status": "skipped",
+                    "detail": host.get("reasons", {}).get("emulator", "Emulator unavailable."),
+                }
+            )
 
         walkthrough_lines = [
             "# ForgeOS Preview",
@@ -38,8 +93,9 @@ class PreviewPipeline:
             f"Recommended use case: {recommendation.get('recommended_use_case', 'unknown')}",
             f"Resolved path: {build_plan.get('os_path', 'unknown')}",
             f"Support status: {assessment.get('support_status', 'unknown')}",
+            f"Preview mode: {mode}",
             "",
-            "## Simulated UX",
+            "## Operator-facing simulation",
             "",
             "1. Device boots into a simplified, task-oriented experience.",
             "2. Recovery and restore notes remain visible to the operator.",
@@ -47,16 +103,15 @@ class PreviewPipeline:
         ]
         walkthrough_path = preview_dir / "simulated-walkthrough.md"
         walkthrough_path.write_text("\n".join(walkthrough_lines))
+        generated_files.append(str(walkthrough_path))
+        steps.append({"name": "simulated_walkthrough", "status": "completed"})
 
         execution = PreviewExecution(
             status="executed",
-            summary="ForgeOS executed the first preview pipeline and generated a simulated walkthrough plus capability matrix.",
-            mode="simulated",
-            generated_files=[str(matrix_path), str(walkthrough_path)],
-            steps=[
-                {"name": "capability_matrix", "status": "completed"},
-                {"name": "simulated_walkthrough", "status": "completed"},
-            ],
+            summary=summary,
+            mode=mode,
+            generated_files=generated_files,
+            steps=steps,
             capability_matrix=capability_matrix,
         )
         execution_path = preview_dir / "preview-execution.json"
@@ -80,50 +135,110 @@ class VerificationPipeline:
         verification_dir = session_dir / "runtime" / "verification"
         verification_dir.mkdir(parents=True, exist_ok=True)
 
-        backup_bundle = bool(backup_plan.get("backup_bundle_path"))
-        restore_ready = bool(restore_plan.get("restore_plan_path") or restore_plan.get("details"))
-        flash_ready = bool(flash_plan.get("build_path"))
+        host = discover_host_capabilities(self.root)
+        checkpoints: list[dict[str, Any]] = []
+        interactive_checks: list[dict[str, Any]] = []
 
-        checkpoints = [
+        checkpoints.append(
             {
                 "name": "support_status",
                 "status": "passed" if assessment.get("support_status") != "blocked" else "warning",
                 "detail": assessment.get("summary", "No assessment summary available."),
-            },
+            }
+        )
+        checkpoints.append(
+            {
+                "name": "host_adb",
+                "status": "passed" if host.get("adb_available") else "warning",
+                "detail": "adb is available." if host.get("adb_available") else "adb is unavailable on this host.",
+            }
+        )
+        checkpoints.append(
+            {
+                "name": "host_fastboot",
+                "status": "passed" if host.get("fastboot_available") else "warning",
+                "detail": "fastboot is available." if host.get("fastboot_available") else "fastboot is unavailable on this host.",
+            }
+        )
+        checkpoints.append(
             {
                 "name": "backup_bundle",
-                "status": "passed" if backup_bundle else "warning",
-                "detail": "Pre-wipe backup bundle captured." if backup_bundle else "Backup bundle is missing.",
-            },
+                "status": "passed" if backup_plan.get("backup_bundle_path") else "warning",
+                "detail": "Pre-wipe backup bundle captured." if backup_plan.get("backup_bundle_path") else "Backup bundle is missing.",
+            }
+        )
+        checkpoints.append(
             {
                 "name": "restore_readiness",
-                "status": "passed" if restore_ready else "warning",
-                "detail": "Restore plan is recorded." if restore_ready else "Restore plan is missing.",
-            },
+                "status": "passed" if (restore_plan.get("restore_plan_path") or restore_plan.get("details")) else "warning",
+                "detail": "Restore plan is recorded." if (restore_plan.get("restore_plan_path") or restore_plan.get("details")) else "Restore plan is missing.",
+            }
+        )
+        checkpoints.append(
             {
                 "name": "flash_path",
-                "status": "passed" if flash_ready else "pending",
-                "detail": "Flash path is recorded." if flash_ready else "Flash path is not ready yet.",
-            },
-        ]
-        interactive_checks = [
+                "status": "passed" if flash_plan.get("build_path") else "pending",
+                "detail": "Flash path is recorded." if flash_plan.get("build_path") else "Flash path is not ready yet.",
+            }
+        )
+
+        adb_devices = adb.list_devices()
+        raw_adb = adb.raw_devices()
+        fastboot_devices = fastboot.list_devices()
+        checkpoints.append(
             {
-                "prompt": "Confirm the recommended use case still matches the intended user.",
-                "status": "pending_operator_review",
-            },
+                "name": "adb_transport",
+                "status": "passed" if adb_devices else ("warning" if raw_adb else "pending"),
+                "detail": f"adb device count: {len(adb_devices)}; raw entries: {len(raw_adb)}",
+            }
+        )
+        checkpoints.append(
             {
-                "prompt": "Confirm restore notes are understandable before install.",
-                "status": "pending_operator_review",
-            },
-            {
-                "prompt": "Review known limitations before destructive actions.",
-                "status": "pending_operator_review",
-            },
-        ]
+                "name": "fastboot_transport",
+                "status": "passed" if fastboot_devices else "pending",
+                "detail": f"fastboot device count: {len(fastboot_devices)}",
+            }
+        )
+
+        if adb_devices:
+            serial = adb_devices[0]["serial"]
+            getprop = adb.shell(serial, ["getprop", "ro.build.fingerprint"])
+            battery = adb.shell(serial, ["dumpsys", "battery"])
+            checkpoints.append(
+                {
+                    "name": "adb_getprop_probe",
+                    "status": "passed" if getprop.get("ok") else "warning",
+                    "detail": getprop.get("stdout", "")[:240] or getprop.get("stderr", ""),
+                }
+            )
+            checkpoints.append(
+                {
+                    "name": "adb_battery_probe",
+                    "status": "passed" if battery.get("ok") else "warning",
+                    "detail": battery.get("stdout", "")[:240] or battery.get("stderr", ""),
+                }
+            )
+
+        interactive_checks.extend(
+            [
+                {
+                    "prompt": "Confirm the recommended use case still matches the intended user.",
+                    "status": "pending_operator_review",
+                },
+                {
+                    "prompt": "Confirm restore notes are understandable before install.",
+                    "status": "pending_operator_review",
+                },
+                {
+                    "prompt": "Review known limitations before destructive actions.",
+                    "status": "pending_operator_review",
+                },
+            ]
+        )
 
         execution = VerificationExecution(
             status="executed",
-            summary="ForgeOS executed the first verification pipeline and recorded deterministic pre-install checks plus operator review items.",
+            summary="ForgeOS executed host-side and transport-aware verification checks and recorded operator review items.",
             checkpoints=checkpoints,
             interactive_checks=interactive_checks,
             generated_files=[],

@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from app.integrations import adb, fastboot
+
 
 def _safe_run(command: list[str]) -> dict[str, Any]:
     try:
@@ -38,6 +40,10 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
     codex_exec = os.environ.get("FORGEOS_FRONTIER_EXECUTABLE", "codex")
     ollama_model = os.environ.get("FORGEOS_OLLAMA_MODEL", "qwen3:8b")
     aider_model = os.environ.get("FORGEOS_AIDER_MODEL", "")
+    ollama_api_base = os.environ.get("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+    emulator_exec = shutil.which("emulator")
+    avdmanager_exec = shutil.which("avdmanager")
+    sdkmanager_exec = shutil.which("sdkmanager")
 
     tool_records = []
     for name, executable, version_args in [
@@ -67,13 +73,19 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
         or os.environ.get("AIDER_MODEL")
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("ANTHROPIC_API_KEY")
+        or (bool(shutil.which(ollama_exec)) and model_available)
     )
     goose_ready = bool(shutil.which(goose_exec)) and (bool(shutil.which(ollama_exec)) and model_available)
+    emulator_list = _safe_run([emulator_exec, "-list-avds"]) if emulator_exec else {"ok": False, "stdout": "", "stderr": "emulator unavailable"}
+    avd_names = [line.strip() for line in emulator_list.get("stdout", "").splitlines() if line.strip()]
 
     return {
         "workspace_root": str(root),
         "local_model": ollama_model,
+        "ollama_api_base": ollama_api_base,
         "tools": tool_records,
+        "adb_available": adb.adb_available(),
+        "fastboot_available": fastboot.fastboot_available(),
         "goose_available": bool(shutil.which(goose_exec)),
         "goose_ready": goose_ready,
         "aider_available": bool(shutil.which(aider_exec)),
@@ -82,6 +94,10 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
         "ollama_model_available": model_available,
         "ollama_models_output": ollama_models.get("stdout", ""),
         "codex_available": bool(shutil.which(codex_exec)),
+        "emulator_available": bool(emulator_exec),
+        "avdmanager_available": bool(avdmanager_exec),
+        "sdkmanager_available": bool(sdkmanager_exec),
+        "available_avds": avd_names,
         "reasons": {
             "goose": (
                 "ready"
@@ -91,7 +107,7 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
             "aider": (
                 "ready"
                 if aider_ready
-                else "Aider needs the CLI plus a configured model/provider."
+                else "Aider needs the CLI plus either a configured provider or a ready local Ollama model."
             ),
             "ollama": (
                 "ready"
@@ -100,5 +116,10 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
             ),
             "codex": "ready" if bool(shutil.which(codex_exec)) else "Codex CLI is unavailable on this host.",
             "policy_guard": "ready",
+            "emulator": (
+                "ready"
+                if emulator_exec and avd_names
+                else "Android emulator or AVD definitions are unavailable on this host."
+            ),
         },
     }
