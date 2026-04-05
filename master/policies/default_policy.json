@@ -6,7 +6,7 @@
   "require_explicit_wipe_phrase": true,
   "allow_bootloader_relock": false,
   "open_vscode_on_launch": false,
-  "open_vscode_on_session_create": true,
+  "open_vscode_on_session_create": false,
   "enable_codex_handoff": false,
   "priority_order": [
     "restore_path",

@@ -260,8 +260,8 @@ class PolicyModel:
     allow_live_destructive_actions: bool = False
     require_explicit_wipe_phrase: bool = True
     allow_bootloader_relock: bool = False
-    open_vscode_on_launch: bool = True
-    open_vscode_on_session_create: bool = True
+    open_vscode_on_launch: bool = False
+    open_vscode_on_session_create: bool = False
     enable_codex_handoff: bool = True
     priority_order: list[str] = field(
         default_factory=lambda: [

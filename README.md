@@ -18,7 +18,7 @@ The current build includes a runtime-first session model, a GUI control surface,
 - Blocker-driven remediation so machine-solvable blockers create runtime tasks instead of stopping at guidance.
 - Session-local codegen, execution, and patch registration for remediation artifacts.
 - Explicit worker routing across frontier reasoning, local general execution, local editing, and deterministic policy checks.
-- Best-effort VS Code sidecar opening on launch and on session activation, without making VS Code the center of the product.
+- VS Code integration is optional and should be operator-invoked, not opened automatically as part of the runtime path.
 - Simplified operator monitor UI that surfaces runtime state, approvals, evidence, and worker routing.
 - Explicit destructive approval capture plus approved dry-run flash execution planning.
 - Pre-wipe recovery bundle, live device metadata backup, and restore-plan generation per session.
