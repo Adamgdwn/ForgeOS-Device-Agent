@@ -27,6 +27,7 @@ from app.tools.build_resolver import BuildResolverTool
 from app.tools.device_probe import DeviceProbeTool
 from app.tools.feasibility_assessor import FeasibilityAssessorTool
 from app.tools.flash_executor import FlashExecutorTool
+from app.tools.image_builder import ImageBuilderTool
 from app.tools.restore_controller import RestoreControllerTool
 from app.tools.strategy_selector import BuildStrategySelectorTool
 from app.tools.use_case_recommender import UseCaseRecommenderTool
@@ -61,6 +62,7 @@ class ForgeOrchestrator:
         self.autonomous_engagement = AutonomousEngagementTool(root)
         self.backup_restore = BackupAndRestorePlannerTool(root)
         self.flash_executor = FlashExecutorTool(root)
+        self.image_builder = ImageBuilderTool(root)
         self.restore_controller = RestoreControllerTool(root)
         self.vscode_opener = VSCodeOpenerTool(root)
         self.worker_registry = WorkerRegistry(root).discover()
@@ -148,6 +150,7 @@ class ForgeOrchestrator:
         execution_result = runtime_result["execution_result"]
         inspection = runtime_result["inspection"]
         retry_plan = runtime_result["retry_plan"]
+        build_artifacts = runtime_result["build_artifacts"]
 
         connection_plan_path = self.connection_engine.write_plan(session_dir, connection_plan)
         blocker_path = self.blockers.write(session_dir, blocker)
@@ -218,6 +221,7 @@ class ForgeOrchestrator:
                 },
                 "blocker": blocker,
                 "build_plan": build_plan,
+                "build_artifacts": build_artifacts,
                 "flash_plan_path": str(flash_plan_path),
                 "backup_plan": backup_plan["plan"],
                 "restore_plan_path": restore_plan["restore_plan_path"],
@@ -268,6 +272,10 @@ class ForgeOrchestrator:
                 "requires_unlock": flash_plan.requires_unlock,
                 "requires_wipe": flash_plan.requires_wipe,
                 "restore_path_available": flash_plan.restore_path_available,
+                "artifacts_ready": flash_plan.artifacts_ready,
+                "install_mode": flash_plan.install_mode,
+                "artifact_manifest_path": flash_plan.artifact_manifest_path,
+                "artifact_bundle_path": flash_plan.artifact_bundle_path,
                 "transport": flash_plan.transport,
                 "step_count": flash_plan.step_count,
                 "steps": flash_plan.steps,
@@ -494,6 +502,29 @@ class ForgeOrchestrator:
                 "operator_review": operator_review,
             }
         )
+        build_artifacts = self.image_builder.execute(
+            {
+                "session_dir": str(session_dir),
+                "build_plan": build_plan,
+                "device": {
+                    "transport": current_profile.transport.value,
+                    "manufacturer": current_profile.manufacturer,
+                    "model": current_profile.model,
+                    "serial": current_profile.serial,
+                },
+            }
+        )
+        build_plan |= {
+            "artifacts_ready": build_artifacts.get("status") == "ready",
+            "install_mode": build_artifacts.get("details", {}).get("install_mode", "unavailable"),
+            "artifact_manifest_path": (
+                build_artifacts.get("artifacts", [""])[0] if build_artifacts.get("artifacts") else ""
+            ),
+            "artifact_bundle_path": build_artifacts.get("details", {}).get("bundle_path", ""),
+            "artifact_flash_steps": build_artifacts.get("details", {}).get("flash_steps", []),
+            "artifact_missing_requirements": build_artifacts.get("details", {}).get("missing_requirements", []),
+            "generated_artifacts": build_artifacts.get("artifacts", []),
+        }
         self._safe_transition(session_dir, "RECOMMEND", "ForgeOS is converting evidence into a recommended use case and build path")
         flash_plan = self.flash_executor.build_plan(
             session_id=current_state.session_id,
@@ -574,6 +605,41 @@ class ForgeOrchestrator:
                 context={"recommendation": recommendation},
             ),
         ]
+        artifact_missing_requirements = list(build_plan.get("artifact_missing_requirements", []))
+        if artifact_missing_requirements:
+            worker_routes.append(
+                self.worker_router.route(
+                    WorkerTask(
+                        task_type="artifact_research",
+                        summary="Research how to satisfy the missing install artifact requirements for this session.",
+                        prompt=(
+                            "Review the current staged-build gap and propose the next safest autonomous improvement steps.\n\n"
+                            f"Missing artifact requirements: {json_safe(artifact_missing_requirements)}\n"
+                            f"Build path: {json_safe(build_plan)}"
+                        ),
+                        risk=TaskRisk.MEDIUM,
+                        repetitive=True,
+                    )
+                )
+            )
+            worker_tasks.append(
+                WorkerTask(
+                    task_type="artifact_research",
+                    summary="Research how to satisfy the missing install artifact requirements for this session.",
+                    prompt=(
+                        "Review the current staged-build gap and propose the next safest autonomous improvement steps.\n\n"
+                        f"Missing artifact requirements: {json_safe(artifact_missing_requirements)}\n"
+                        f"Build path: {json_safe(build_plan)}"
+                    ),
+                    risk=TaskRisk.MEDIUM,
+                    repetitive=True,
+                    retry_budget=1,
+                    context={
+                        "artifact_missing_requirements": artifact_missing_requirements,
+                        "build_plan": build_plan,
+                    },
+                )
+            )
         worker_executions = (
             [
                 self.worker_runtime.execute(route, task, session_dir)
@@ -804,6 +870,7 @@ class ForgeOrchestrator:
             "execution_result": execution_result,
             "inspection": inspection,
             "retry_plan": retry_plan,
+            "build_artifacts": build_artifacts,
             "recommendation": recommendation,
             "worker_routes": worker_routes,
             "worker_executions": worker_executions,
@@ -912,6 +979,10 @@ class ForgeOrchestrator:
                     "requires_unlock": flash_plan.requires_unlock,
                     "requires_wipe": flash_plan.requires_wipe,
                     "restore_path_available": flash_plan.restore_path_available,
+                    "artifacts_ready": flash_plan.artifacts_ready,
+                    "install_mode": flash_plan.install_mode,
+                    "artifact_manifest_path": flash_plan.artifact_manifest_path,
+                    "artifact_bundle_path": flash_plan.artifact_bundle_path,
                     "transport": flash_plan.transport,
                     "step_count": flash_plan.step_count,
                     "steps": flash_plan.steps,
@@ -953,7 +1024,7 @@ class ForgeOrchestrator:
             },
             dry_run=not live_mode,
         )
-        if result["status"] in {"dry_run_complete", "live_execution_queued"}:
+        if result["status"] in {"dry_run_complete", "live_execution_complete"}:
             self._safe_transition(session_dir, "FLASH_PREP", "Prepared approved flash execution")
             self._safe_transition(session_dir, "FLASH", "Recorded approved flash execution")
         self.reports.write_session_report(

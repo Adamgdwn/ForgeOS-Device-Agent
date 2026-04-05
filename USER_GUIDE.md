@@ -9,6 +9,7 @@ The runtime is designed to:
 - detect an attached phone
 - create a per-device execution session
 - assess transport and hardware clues
+- stage real install artifacts for the chosen rebuild path
 - prepare recovery and backup artifacts
 - classify blockers
 - keep moving automatically while the blocker is software-solvable
@@ -27,12 +28,21 @@ This checkpoint is ready for:
 - persistent state tracking
 - initial hardware and transport assessment
 - per-session recovery bundle and restore-plan generation
+- staged install artifact intake under each session
+- flashable artifact manifest and bundle generation
 - explicit wipe-approval capture
-- approved dry-run flash execution planning
+- approved dry-run flash execution
+- generic live execution for staged `fastboot` image sets or `adb sideload` packages
 - simplified operator monitor mode
 - optional advanced-details mode
 
-It is not yet ready for unattended live flashing across unknown devices without further device-family flashing integration.
+This build is intended to be shipped for a controlled supported scope:
+
+- generic `fastboot` image installs when the session has a staged `.img` set
+- generic `adb sideload` installs when the session has a staged OTA-style zip
+- operator-reviewed, explicitly approved wipe-and-rebuild execution
+
+It is not yet a universal cross-OEM unattended flasher for unknown devices without further device-family integration.
 
 ## Safety First
 
@@ -63,8 +73,11 @@ By default, focus on these panels only:
 
 1. `Current Objective`
 2. `Agent Execution`
-3. `1. Choose Device Goals`
-4. `2. Approve Wipe To Continue`
+3. `1. Intake And Autonomy Limits`
+4. `2. Proposed Outcome And Preview`
+5. `3. Backup And Restore`
+6. `4. Build Artifacts`
+7. `6. Install Gate`
 
 These are the two questions ForgeOS is trying to answer for you:
 
@@ -132,6 +145,30 @@ What this means in practice:
 
 This does not guarantee a full firmware restore for every device family.
 It does guarantee that ForgeOS preserves the best available session intelligence, transport facts, metadata capture, and recovery notes before a destructive step is approved.
+
+## Build Artifact Staging
+
+ForgeOS now expects real install inputs to be staged per session under:
+
+- `artifacts/os-source/`
+
+Supported generic install inputs:
+
+- `update.zip`, `ota.zip`, or `payload.zip` for `adb sideload`
+- fastboot images such as `boot.img`, `system.img`, `vendor.img`, `vbmeta.img`, or `super.img`
+
+When these files are present, ForgeOS creates:
+
+- `runtime/build/artifact-manifest.json`
+- `runtime/build/flashable-artifacts.tar.gz`
+- `runtime/build/README.md`
+
+The GUI `4. Build Artifacts` panel shows:
+
+- whether the artifact set is ready
+- which install mode ForgeOS will use
+- which files were staged
+- what still needs to be provided before install can proceed
 
 ## Install And Reinstall The Launcher
 

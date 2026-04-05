@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,7 @@ class PreviewPipeline:
         steps: list[dict[str, Any]] = []
         generated_files = [str(matrix_path)]
         mode = "simulated"
-        summary = "ForgeOS executed a simulated preview pipeline."
+        summary = "ForgeOS executed a simulated preview pipeline and generated a reviewable preview bundle."
 
         if host.get("emulator_available") and host.get("available_avds"):
             avd = host["available_avds"][0]
@@ -105,6 +106,86 @@ class PreviewPipeline:
         walkthrough_path.write_text("\n".join(walkthrough_lines))
         generated_files.append(str(walkthrough_path))
         steps.append({"name": "simulated_walkthrough", "status": "completed"})
+
+        feature_lines = "\n".join(
+            f"- {label}"
+            for label in build_plan.get("included_feature_labels", [])[:8]
+        ) or "- Default profile features are still being used."
+        held_back_lines = "\n".join(
+            f"- {label}"
+            for label in build_plan.get("rejected_feature_labels", [])[:6]
+        ) or "- No explicit feature exclusions recorded yet."
+        experience_preview_path = preview_dir / "experience-preview.md"
+        experience_preview_path.write_text(
+            "\n".join(
+                [
+                    "# Experience Preview",
+                    "",
+                    f"Proposed OS profile: {build_plan.get('proposed_os_name', 'Unknown build profile')}",
+                    f"Resolved build path: {build_plan.get('os_path', 'unknown')}",
+                    "",
+                    "## What the device should feel like",
+                    "",
+                    "- Boot into a simplified, operator-reviewed experience.",
+                    "- Keep restore and rollback guidance visible before any destructive action.",
+                    "- Preserve the chosen safety and usability features from the review panel.",
+                    "",
+                    "## Included features",
+                    "",
+                    feature_lines,
+                    "",
+                    "## Held back or default-off items",
+                    "",
+                    held_back_lines,
+                    "",
+                    "## Home-screen sketch",
+                    "",
+                    "```text",
+                    "+--------------------------------------+",
+                    "| ForgeOS Home                         |",
+                    "|--------------------------------------|",
+                    "| Phone  Messages  Camera  Help        |",
+                    "|                                      |",
+                    "| Accessibility  Battery  Restore      |",
+                    "|                                      |",
+                    "| Trusted Contacts  Notes  Updates     |",
+                    "+--------------------------------------+",
+                    "```",
+                ]
+            )
+        )
+        generated_files.append(str(experience_preview_path))
+        steps.append({"name": "experience_preview", "status": "completed"})
+
+        next_steps_path = preview_dir / "next-steps.md"
+        next_steps_path.write_text(
+            "\n".join(
+                [
+                    "# Next Steps",
+                    "",
+                    "1. Review the proposed OS profile and feature selections in the GUI.",
+                    "2. Open the preview bundle and confirm the experience preview matches the intended user.",
+                    "3. Confirm backup and restore readiness before any install approval is recorded.",
+                    "4. Save the Verification Review decisions so ForgeOS can carry them into install planning.",
+                    "5. Use the dry run before any live destructive execution.",
+                ]
+            )
+        )
+        generated_files.append(str(next_steps_path))
+        steps.append({"name": "next_steps", "status": "completed"})
+
+        preview_bundle_path = preview_dir / "proposed-os-preview.tar.gz"
+        with tarfile.open(preview_bundle_path, "w:gz") as tar:
+            for path in [matrix_path, walkthrough_path, experience_preview_path, next_steps_path]:
+                tar.add(path, arcname=path.name)
+        generated_files.append(str(preview_bundle_path))
+        steps.append(
+            {
+                "name": "preview_bundle",
+                "status": "completed",
+                "detail": str(preview_bundle_path),
+            }
+        )
 
         execution = PreviewExecution(
             status="executed",

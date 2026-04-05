@@ -25,6 +25,8 @@ class PolicyGuard:
 
         if not backup_plan:
             missing.append("Pre-wipe backup bundle has not been captured.")
+        if not flash_plan.artifacts_ready:
+            missing.append("A flashable artifact bundle has not been staged for this session.")
         if policy.require_restore_path and not flash_plan.restore_path_available:
             missing.append("A restore path is not yet feasible for this device path.")
         if policy.require_restore_path and not approval.restore_path_confirmed:

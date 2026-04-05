@@ -22,10 +22,12 @@ ForgeOS is a device rehabilitation agent with a GUI, not a GUI with some agent f
   Best-use-case recommendation layer for turning hardware reality and user intent into a proposed device role.
 - `app/tools/backup_restore.py`
   Pre-destructive backup capture and restore readiness planning.
+- `app/tools/image_builder.py`
+  Stages real install artifacts into a per-session manifest and flashable bundle for supported generic install paths.
 - `app/tools/flash_executor.py`
-  Install planning and gated execution path.
+  Install planning and gated execution path, including generic `fastboot` and `adb sideload` execution when staged artifacts exist.
 - `app/gui/control_app.py`
-  Thin control surface for intake, evidence, approvals, restore readiness, worker routing, and runtime state.
+  Thin control surface for intake, evidence, artifact staging, approvals, restore readiness, worker routing, and runtime state.
 
 ## Runtime Flow
 
@@ -34,11 +36,15 @@ ForgeOS is a device rehabilitation agent with a GUI, not a GUI with some agent f
 3. Deep scan and assessment
 4. Best-use-case recommendation
 5. Backup and restore planning
-6. Build and preview planning
+6. Build artifact staging and preview planning
 7. Interactive verification
 8. Install approval gate
 9. Wipe and install
 10. Post-install verification and completion
+
+Mermaid source for the current end-to-end flow lives in:
+
+- [process-flows.mmd](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/docs/process-flows.mmd)
 
 ## Worker Routing Model
 
@@ -66,6 +72,8 @@ Each device session now includes:
 - `runtime/worker-routing.json`
 - `runtime/runtime-audit.json`
 - `runtime/adapter-health.json`
+- `runtime/build/artifact-manifest.json`
+- `runtime/build/flashable-artifacts.tar.gz`
 - `runtime/preview/preview-execution.json`
 - `runtime/verification/verification-execution.json`
 - `runtime/workers/*.json`
@@ -124,11 +132,15 @@ docs/
   - escalation triggers
   - transcript path
 - Preview now attempts real emulator and AVD discovery before falling back to a simulated walkthrough.
+- Preview now also emits a reviewable preview bundle and experience sketch for the proposed OS profile.
 - Verification now runs real host-side and transport-aware checks, including `adb` probes when a device is reachable.
+- While the GUI is open on a live session, ForgeOS schedules background runtime recomputes and continues local-worker improvement cycles automatically.
+- Missing install artifacts now trigger dedicated local research tasks instead of remaining a passive blocker.
 
 ## Practical Limits
 
 - Real execution depth still depends on host readiness.
+- Live install execution also depends on staged install inputs under `artifacts/os-source/` for the current device session.
 - On a host without `adb`, `fastboot`, or emulator tooling, ForgeOS now records those capability gaps explicitly instead of pretending those pipelines are fully available.
 - Aider depends on the local model or provider path being reachable. ForgeOS now defaults toward an Ollama-backed path when possible, but that still requires the Ollama service and configured model to be present.
 - ForgeOS currently persists learned runtime knowledge under `knowledge/` and `promotion/`. That is useful for controlled learning, but it also means prior device-family sessions can influence later recommendations unless those learned artifacts are reset, isolated, or ignored for a clean test run.

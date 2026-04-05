@@ -329,6 +329,10 @@ class FlashPlan:
     requires_unlock: bool = False
     requires_wipe: bool = True
     restore_path_available: bool = False
+    artifacts_ready: bool = False
+    install_mode: str = "unavailable"
+    artifact_manifest_path: str = ""
+    artifact_bundle_path: str = ""
     transport: str = Transport.UNKNOWN.value
     step_count: int = 0
     steps: list[dict[str, Any]] = field(default_factory=list)
@@ -615,6 +619,10 @@ def flash_plan_from_dict(data: dict[str, Any]) -> FlashPlan:
         requires_unlock=data.get("requires_unlock", False),
         requires_wipe=data.get("requires_wipe", True),
         restore_path_available=data.get("restore_path_available", False),
+        artifacts_ready=data.get("artifacts_ready", False),
+        install_mode=data.get("install_mode", "unavailable"),
+        artifact_manifest_path=data.get("artifact_manifest_path", ""),
+        artifact_bundle_path=data.get("artifact_bundle_path", ""),
         transport=data.get("transport", Transport.UNKNOWN.value),
         step_count=data.get("step_count", len(data.get("steps", []))),
         steps=data.get("steps", []),

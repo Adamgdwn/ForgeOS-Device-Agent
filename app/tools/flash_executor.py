@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.models import DestructiveApproval, FlashPlan, PolicyModel, Transport
+from app.integrations import adb, fastboot
 from app.tools.base import BaseTool
 
 
@@ -35,7 +36,13 @@ class FlashExecutorTool(BaseTool):
         support_status = assessment.get("support_status", "research_only")
         restore_path_available = support_status == "actionable"
         transport = device.get("transport", Transport.UNKNOWN.value)
-        install_deferred = support_status != "actionable" or build_plan.get("os_path") == "research_only_path"
+        artifacts_ready = bool(build_plan.get("artifacts_ready"))
+        install_mode = str(build_plan.get("install_mode", "unavailable"))
+        install_deferred = (
+            support_status != "actionable"
+            or build_plan.get("os_path") == "research_only_path"
+            or not artifacts_ready
+        )
         selected_option_label = build_plan.get("selected_option_label", "the proposed device profile")
         included_feature_labels = list(build_plan.get("included_feature_labels", []))
         rejected_feature_labels = list(build_plan.get("rejected_feature_labels", []))
@@ -65,12 +72,7 @@ class FlashExecutorTool(BaseTool):
                 "kind": "wipe",
                 "destructive": True,
                 "description": "Wipe user data and prepare a clean installation target.",
-            },
-            {
-                "name": "flash_images",
-                "kind": "flash",
-                "destructive": True,
-                "description": f"Flash the selected image set for `{selected_option_label}` on the resolved OS path.",
+                "command": "fastboot erase userdata" if install_mode == "fastboot_images" else "adb shell recovery --wipe_data",
             },
             {
                 "name": "boot_validation",
@@ -79,6 +81,21 @@ class FlashExecutorTool(BaseTool):
                 "description": "Boot the device and verify initial connectivity and integrity.",
             },
         ]
+        artifact_flash_steps = list(build_plan.get("artifact_flash_steps", []))
+        for artifact_step in artifact_flash_steps:
+            steps.insert(
+                -1,
+                {
+                    "name": artifact_step.get("name", "flash_images"),
+                    "kind": artifact_step.get("kind", "flash"),
+                    "destructive": True,
+                    "description": artifact_step.get(
+                        "description",
+                        f"Flash the selected image set for `{selected_option_label}` on the resolved OS path.",
+                    ),
+                    "command": artifact_step.get("command", ""),
+                },
+            )
         if live_mode and not policy.allow_live_destructive_actions:
             live_mode = False
         return FlashPlan(
@@ -88,13 +105,17 @@ class FlashExecutorTool(BaseTool):
             requires_unlock=transport in {Transport.USB_FASTBOOT.value, Transport.USB_FASTBOOTD.value},
             requires_wipe=True,
             restore_path_available=restore_path_available,
+            artifacts_ready=artifacts_ready,
+            install_mode=install_mode,
+            artifact_manifest_path=str(build_plan.get("artifact_manifest_path", "")),
+            artifact_bundle_path=str(build_plan.get("artifact_bundle_path", "")),
             transport=transport,
             step_count=len(steps),
             steps=steps,
             artifact_hints=build_plan.get("artifact_requirements", []),
             status="deferred" if install_deferred else "planned",
             summary=(
-                "Install planning is deferred while ForgeOS continues research, recommendation, preview, and verification."
+                "Install planning is deferred while ForgeOS continues research, recommendation, preview, verification, or artifact staging."
                 if install_deferred
                 else (
                     "Prepared a conservative flash plan with preflight, backup verification, restore checkpoint, wipe, flash, and validation phases "
@@ -161,25 +182,67 @@ class FlashExecutorTool(BaseTool):
             return result
 
         effective_dry_run = dry_run or flash_plan.dry_run or not policy.allow_live_destructive_actions
+        manifest = self._load_artifact_manifest(flash_plan)
+        if not flash_plan.artifacts_ready or manifest.get("status") != "ready":
+            result = {
+                "status": "blocked_no_artifacts",
+                "summary": "Execution is blocked because ForgeOS does not have a ready flashable artifact bundle for this session.",
+                "details": {
+                    "dry_run": True,
+                    "can_execute": False,
+                    "reason": "artifacts_not_ready",
+                    "artifact_manifest_path": flash_plan.artifact_manifest_path,
+                    "transcript_path": str(transcript_path),
+                    "missing_requirements": manifest.get("missing_requirements", []),
+                },
+            }
+            transcript_path.write_text(json.dumps(result, indent=2))
+            return result
+
         executed_steps = []
         for index, step in enumerate(flash_plan.steps, start=1):
-            executed_steps.append(
-                {
-                    "step_number": index,
-                    "name": step.get("name", f"step_{index}"),
-                    "kind": step.get("kind", "unknown"),
-                    "destructive": step.get("destructive", False),
-                    "mode": "dry_run" if effective_dry_run else "live_stub",
-                    "status": "planned" if effective_dry_run else "queued_for_adapter_execution",
-                    "description": step.get("description", ""),
-                }
-            )
+            executed = {
+                "step_number": index,
+                "name": step.get("name", f"step_{index}"),
+                "kind": step.get("kind", "unknown"),
+                "destructive": step.get("destructive", False),
+                "mode": "dry_run" if effective_dry_run else "live",
+                "status": "planned" if effective_dry_run else "completed",
+                "description": step.get("description", ""),
+                "command": step.get("command", ""),
+            }
+            if not effective_dry_run and step.get("command"):
+                command_result = self._execute_live_step(
+                    flash_plan=flash_plan,
+                    device=dict(payload.get("device", {})),
+                    manifest=manifest,
+                    step=step,
+                )
+                executed["command_result"] = command_result
+                executed["status"] = "completed" if command_result.get("ok") else "failed"
+                if not command_result.get("ok"):
+                    result = {
+                        "status": "live_execution_failed",
+                        "summary": f"Live execution stopped at `{step.get('name', f'step_{index}')}`.",
+                        "details": {
+                            "dry_run": False,
+                            "can_execute": False,
+                            "transcript_path": str(transcript_path),
+                            "steps": executed_steps + [executed],
+                            "artifact_manifest_path": flash_plan.artifact_manifest_path,
+                            "build_path": flash_plan.build_path,
+                            "transport": flash_plan.transport,
+                        },
+                    }
+                    transcript_path.write_text(json.dumps(result, indent=2))
+                    return result
+            executed_steps.append(executed)
 
-        status = "dry_run_complete" if effective_dry_run else "live_execution_queued"
+        status = "dry_run_complete" if effective_dry_run else "live_execution_complete"
         summary = (
             "Dry run completed. ForgeOS recorded the approved wipe-and-rebuild sequence without touching the device."
             if effective_dry_run
-            else "Live execution has been approved and queued. Device-specific adapter execution is the next step."
+            else "Live execution completed. ForgeOS ran the available generic install commands for the staged artifact set."
         )
         result = {
             "status": status,
@@ -191,9 +254,69 @@ class FlashExecutorTool(BaseTool):
                 "approved_scope": approval.approval_scope,
                 "build_path": flash_plan.build_path,
                 "transport": flash_plan.transport,
+                "install_mode": flash_plan.install_mode,
+                "artifact_manifest_path": flash_plan.artifact_manifest_path,
+                "artifact_bundle_path": flash_plan.artifact_bundle_path,
                 "transcript_path": str(transcript_path),
                 "steps": executed_steps,
             },
         }
         transcript_path.write_text(json.dumps(result, indent=2))
         return result
+
+    def _load_artifact_manifest(self, flash_plan: FlashPlan) -> dict[str, Any]:
+        if not flash_plan.artifact_manifest_path:
+            return {}
+        path = Path(flash_plan.artifact_manifest_path)
+        if not path.exists():
+            return {}
+        return json.loads(path.read_text())
+
+    def _execute_live_step(
+        self,
+        *,
+        flash_plan: FlashPlan,
+        device: dict[str, Any],
+        manifest: dict[str, Any],
+        step: dict[str, Any],
+    ) -> dict[str, Any]:
+        serial = str(device.get("serial", "")).strip()
+        name = str(step.get("name", ""))
+        if flash_plan.install_mode == "fastboot_images":
+            return self._execute_fastboot_step(serial, manifest, name)
+        if flash_plan.install_mode == "adb_sideload":
+            return self._execute_adb_sideload_step(serial, manifest, name)
+        return {"ok": False, "reason": f"Unsupported install mode {flash_plan.install_mode}"}
+
+    def _execute_fastboot_step(self, serial: str, manifest: dict[str, Any], step_name: str) -> dict[str, Any]:
+        prefix = ["-s", serial] if serial else []
+        if step_name == "wipe_userdata":
+            return fastboot.run(prefix + ["erase", "userdata"])
+        if step_name == "boot_validation":
+            return fastboot.run(prefix + ["reboot"])
+        flash_step = next((step for step in manifest.get("flash_steps", []) if step.get("name") == step_name), None)
+        if not flash_step:
+            return {"ok": False, "reason": f"No manifest step for {step_name}"}
+        command = str(flash_step.get("command", "")).split()
+        if len(command) < 4:
+            return {"ok": False, "reason": f"Invalid fastboot command for {step_name}"}
+        image_name = command[-1]
+        staged_file = next((Path(path) for path in manifest.get("staged_files", []) if Path(path).name == image_name), None)
+        if staged_file is None:
+            return {"ok": False, "reason": f"Staged image {image_name} not found"}
+        return fastboot.run(prefix + ["flash", command[2], str(staged_file)])
+
+    def _execute_adb_sideload_step(self, serial: str, manifest: dict[str, Any], step_name: str) -> dict[str, Any]:
+        prefix = ["-s", serial] if serial else []
+        if step_name == "wipe_userdata":
+            return adb.run(prefix + ["shell", "recovery", "--wipe_data"])
+        if step_name == "boot_validation":
+            return adb.run(prefix + ["reboot"])
+        flash_step = next((step for step in manifest.get("flash_steps", []) if step.get("name") == step_name), None)
+        if not flash_step:
+            return {"ok": False, "reason": f"No manifest step for {step_name}"}
+        package_name = str(flash_step.get("command", "")).split()[-1]
+        staged_file = next((Path(path) for path in manifest.get("staged_files", []) if Path(path).name == package_name), None)
+        if staged_file is None:
+            return {"ok": False, "reason": f"Staged package {package_name} not found"}
+        return adb.run(prefix + ["sideload", str(staged_file)])

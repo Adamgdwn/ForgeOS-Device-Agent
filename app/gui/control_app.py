@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 import sys
+import threading
 from time import monotonic
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -70,9 +72,16 @@ class ForgeControlApp:
         self.last_refresh_reason = "Startup"
         self.show_advanced = False
         self.last_live_sync_at = 0.0
+        self.last_autonomous_runtime_at = 0.0
         self.profile_form_dirty = False
         self.profile_form_syncing = False
         self.profile_form_session: Path | None = None
+        self.review_form_dirty = False
+        self.review_form_syncing = False
+        self.review_form_session: Path | None = None
+        self.runtime_recompute_in_flight = False
+        self.runtime_recompute_session: Path | None = None
+        self.runtime_recompute_error = ""
 
         self.qt_app = QApplication.instance() or QApplication(sys.argv)
         self.qt_app.setApplicationName("ForgeOS Device Agent")
@@ -81,12 +90,13 @@ class ForgeControlApp:
         self.window = QMainWindow()
         self.window.setWindowTitle("ForgeOS Device Agent")
         self.window.resize(1180, 760)
-        self.window.setMinimumSize(860, 620)
+        self.window.setMinimumSize(640, 560)
         self.window.resizeEvent = self._handle_resize
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.window.setCentralWidget(self.scroll)
 
         central = QWidget()
@@ -108,6 +118,7 @@ class ForgeControlApp:
         self.profile_card = self._build_profile_card()
         self.proposal_card = self._build_proposal_card()
         self.backup_card = self._build_backup_card()
+        self.artifact_card = self._build_artifact_card()
         self.review_card = self._build_review_card()
         self.connection_help_card = self._build_connection_help_card()
         self.approval_card = self._build_approval_card()
@@ -115,6 +126,7 @@ class ForgeControlApp:
         self.device_card = self._build_device_card()
         self.help_card = self._build_help_card()
         self._apply_layout_mode("wide")
+        self._update_responsive_layout(self.window.width())
 
         self.timer = QTimer()
         self.timer.timeout.connect(self._auto_refresh)
@@ -214,17 +226,21 @@ class ForgeControlApp:
         self.header_layout = QHBoxLayout(box)
         layout = self.header_layout
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         self.header_text_col = QVBoxLayout()
         text_col = self.header_text_col
         title = QLabel("ForgeOS Device Agent")
         title.setProperty("role", "title")
+        title.setWordWrap(True)
         subtitle = QLabel(
             "Runtime control surface for device rehabilitation, approvals, evidence, and recovery"
         )
         subtitle.setProperty("role", "subtitle")
+        subtitle.setWordWrap(True)
         self.status_label = QLabel("Refresh status: starting up")
         self.status_label.setProperty("role", "subtitle")
+        self.status_label.setWordWrap(True)
         text_col.addWidget(title)
         text_col.addWidget(subtitle)
         text_col.addWidget(self.status_label)
@@ -238,9 +254,11 @@ class ForgeControlApp:
             ("Open Devices Folder", lambda: self._open_path(self.devices_dir)),
         ]:
             button = QPushButton(label)
+            button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             button.clicked.connect(callback)
             button_col.addWidget(button)
         self.advanced_toggle = QCheckBox("Show Advanced Details")
+        self.advanced_toggle.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.advanced_toggle.toggled.connect(self._toggle_advanced_mode)
         button_col.addWidget(self.advanced_toggle)
         layout.addLayout(button_col)
@@ -250,6 +268,7 @@ class ForgeControlApp:
 
     def _build_now_what_card(self) -> QGroupBox:
         group = QGroupBox("Runtime Mission")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.primary_label = QLabel()
         self.primary_label.setWordWrap(True)
@@ -267,6 +286,7 @@ class ForgeControlApp:
 
     def _build_host_card(self) -> QGroupBox:
         group = QGroupBox("Host Readiness")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.host_label = QLabel()
         self.host_label.setWordWrap(True)
@@ -281,6 +301,7 @@ class ForgeControlApp:
 
     def _build_device_card(self) -> QGroupBox:
         group = QGroupBox("Current Device Session")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.device_title = QLabel()
         self.device_title.setWordWrap(True)
@@ -303,6 +324,7 @@ class ForgeControlApp:
 
     def _build_autonomous_card(self) -> QGroupBox:
         group = QGroupBox("Runtime Worker Queue")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.autonomous_title = QLabel()
         self.autonomous_title.setWordWrap(True)
@@ -315,6 +337,7 @@ class ForgeControlApp:
 
     def _build_profile_card(self) -> QGroupBox:
         group = QGroupBox("1. Intake And Autonomy Limits")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
 
         self.profile_status = QLabel("Select the intended user and goals for this device session.")
@@ -425,6 +448,7 @@ class ForgeControlApp:
 
     def _build_connection_help_card(self) -> QGroupBox:
         group = QGroupBox("Connection Setup For This Phone")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.connection_help_title = QLabel("ForgeOS will show model-aware phone-side setup steps here.")
         self.connection_help_title.setWordWrap(True)
@@ -437,6 +461,7 @@ class ForgeControlApp:
 
     def _build_proposal_card(self) -> QGroupBox:
         group = QGroupBox("2. Proposed Outcome And Preview")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.proposal_status = QLabel("ForgeOS will show the proposed rehabilitation path here.")
         self.proposal_status.setWordWrap(True)
@@ -468,6 +493,7 @@ class ForgeControlApp:
 
     def _build_backup_card(self) -> QGroupBox:
         group = QGroupBox("3. Backup And Restore")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.backup_status = QLabel("ForgeOS will show backup readiness here before any destructive step is considered.")
         self.backup_status.setWordWrap(True)
@@ -489,8 +515,39 @@ class ForgeControlApp:
         self._set_button_state(self.open_restore_plan_button, "pending")
         return group
 
+    def _build_artifact_card(self) -> QGroupBox:
+        group = QGroupBox("4. Build Artifacts")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        layout = QVBoxLayout(group)
+        self.artifact_status = QLabel(
+            "ForgeOS will show whether a real installable artifact set has been staged for this session."
+        )
+        self.artifact_status.setWordWrap(True)
+        self.artifact_status.setProperty("role", "body")
+        self.artifact_text = QTextEdit()
+        self.artifact_text.setReadOnly(True)
+        self.artifact_text.setMaximumHeight(220)
+        buttons = QHBoxLayout()
+        self.open_artifact_source_button = QPushButton("Open Source Staging")
+        self.open_artifact_source_button.clicked.connect(lambda: self._open_session_artifact("artifacts/os-source"))
+        self.open_artifact_manifest_button = QPushButton("Open Artifact Manifest")
+        self.open_artifact_manifest_button.clicked.connect(lambda: self._open_session_artifact("runtime/build/artifact-manifest.json"))
+        self.open_artifact_bundle_button = QPushButton("Open Flashable Bundle")
+        self.open_artifact_bundle_button.clicked.connect(lambda: self._open_session_artifact("runtime/build/flashable-artifacts.tar.gz"))
+        buttons.addWidget(self.open_artifact_source_button)
+        buttons.addWidget(self.open_artifact_manifest_button)
+        buttons.addWidget(self.open_artifact_bundle_button)
+        layout.addWidget(self.artifact_status)
+        layout.addLayout(buttons)
+        layout.addWidget(self.artifact_text, 1)
+        self._set_button_state(self.open_artifact_source_button, "neutral")
+        self._set_button_state(self.open_artifact_manifest_button, "pending")
+        self._set_button_state(self.open_artifact_bundle_button, "pending")
+        return group
+
     def _build_review_card(self) -> QGroupBox:
-        group = QGroupBox("4. Verification Review")
+        group = QGroupBox("5. Verification Review")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.review_status = QLabel(
             "Use this panel to confirm the proposed outcome, restore approach, and acceptable limitations before install is even discussed."
@@ -526,6 +583,7 @@ class ForgeControlApp:
         self.review_notes = QTextEdit()
         self.review_notes.setMaximumHeight(90)
         layout.addWidget(self.review_notes)
+        self._bind_review_form_signals()
 
         self.save_review_button = QPushButton("Save Review Decisions")
         self.save_review_button.clicked.connect(self.save_operator_review)
@@ -551,7 +609,8 @@ class ForgeControlApp:
         return group
 
     def _build_approval_card(self) -> QGroupBox:
-        group = QGroupBox("5. Install Gate")
+        group = QGroupBox("6. Install Gate")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
 
         self.approval_status = QLabel(
@@ -600,6 +659,7 @@ class ForgeControlApp:
 
     def _build_help_card(self) -> QGroupBox:
         group = QGroupBox("Artifacts")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.help_buttons: dict[str, QPushButton] = {}
         for key, label, path in [
@@ -661,6 +721,22 @@ class ForgeControlApp:
             self.lockdown_check,
         ]:
             checkbox.toggled.connect(self._mark_profile_form_dirty)
+
+    def _mark_review_form_dirty(self, *_args: object) -> None:
+        if self.review_form_syncing:
+            return
+        self.review_form_dirty = True
+        self.review_form_session = self.current_session_dir
+        self._set_button_state(self.save_review_button, "ready")
+
+    def _bind_review_form_signals(self) -> None:
+        for checkbox in [
+            self.review_fit_check,
+            self.review_restore_check,
+            self.review_limitations_check,
+        ]:
+            checkbox.toggled.connect(self._mark_review_form_dirty)
+        self.review_notes.textChanged.connect(self._mark_review_form_dirty)
 
     def _interaction_in_progress(self) -> bool:
         focus = self.qt_app.focusWidget()
@@ -1254,6 +1330,17 @@ class ForgeControlApp:
     def _read_proposal_manifest(self, session_dir: Path) -> dict[str, Any]:
         return self._read_json(session_dir / "runtime" / "proposal" / "proposal-manifest.json")
 
+    def _read_artifact_manifest(self, session_dir: Path) -> dict[str, Any]:
+        return self._read_json(session_dir / "runtime" / "build" / "artifact-manifest.json")
+
+    def _preview_generated_path(self, session_dir: Path, suffix: str) -> Path | None:
+        preview_execution = self._read_json(session_dir / "runtime" / "preview" / "preview-execution.json")
+        for path in preview_execution.get("generated_files", []) or []:
+            candidate = Path(path)
+            if candidate.name.endswith(suffix):
+                return candidate
+        return None
+
     def _proposal_features(
         self,
         option_id: str,
@@ -1311,7 +1398,7 @@ class ForgeControlApp:
         return f"{option_name} build on {self._labelize(path)}"
 
     def _refresh_feature_selection(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
-        review = self._read_operator_review(session_dir)
+        review = self._current_operator_review(session_dir)
         manifest = self._read_proposal_manifest(session_dir)
         selected_option_id = self._selected_or_recommended_option_id(runtime_plan)
         selected_option = next(
@@ -1327,20 +1414,24 @@ class ForgeControlApp:
             if widget is not None:
                 widget.deleteLater()
         self.review_feature_checks = {}
-        for feature in features:
-            checkbox = QCheckBox(feature["label"])
-            feature_id = feature["id"]
-            checkbox.setProperty("feature_id", feature_id)
-            default_checked = feature.get("default", True)
-            if feature_id in accepted:
-                checkbox.setChecked(True)
-            elif feature_id in rejected:
-                checkbox.setChecked(False)
-            else:
-                checkbox.setChecked(default_checked)
-            checkbox.toggled.connect(lambda _checked=False: self._set_button_state(self.save_review_button, "ready"))
-            self.review_feature_layout.addWidget(checkbox)
-            self.review_feature_checks[feature_id] = checkbox
+        self.review_form_syncing = True
+        try:
+            for feature in features:
+                checkbox = QCheckBox(feature["label"])
+                feature_id = feature["id"]
+                checkbox.setProperty("feature_id", feature_id)
+                default_checked = feature.get("default", True)
+                if feature_id in accepted:
+                    checkbox.setChecked(True)
+                elif feature_id in rejected:
+                    checkbox.setChecked(False)
+                else:
+                    checkbox.setChecked(default_checked)
+                checkbox.toggled.connect(self._mark_review_form_dirty)
+                self.review_feature_layout.addWidget(checkbox)
+                self.review_feature_checks[feature_id] = checkbox
+        finally:
+            self.review_form_syncing = False
         self.review_feature_layout.addStretch(1)
         excluded = selected_option.get("excluded_features", []) or []
         excluded_summary = ""
@@ -1356,7 +1447,7 @@ class ForgeControlApp:
             return
         runtime_plan = self._read_json(self.current_session_dir / "runtime" / "session-plan.json")
         self._refresh_feature_selection(self.current_session_dir, runtime_plan)
-        self._set_button_state(self.save_review_button, "ready")
+        self._mark_review_form_dirty()
 
     def _operator_review_path(self, session_dir: Path) -> Path:
         return session_dir / "runtime" / "operator-review.json"
@@ -1380,25 +1471,35 @@ class ForgeControlApp:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2))
 
+    def _current_operator_review(self, session_dir: Path) -> dict[str, Any]:
+        review = self._read_operator_review(session_dir)
+        if self.review_form_dirty and self.review_form_session == session_dir:
+            review.update(
+                {
+                    "selected_option_id": self.proposal_choice_combo.currentData() or "",
+                    "fit_confirmed": self.review_fit_check.isChecked(),
+                    "restore_confirmed": self.review_restore_check.isChecked(),
+                    "limitations_accepted": self.review_limitations_check.isChecked(),
+                    "accepted_feature_ids": [
+                        feature_id for feature_id, checkbox in self.review_feature_checks.items() if checkbox.isChecked()
+                    ],
+                    "rejected_feature_ids": [
+                        feature_id for feature_id, checkbox in self.review_feature_checks.items() if not checkbox.isChecked()
+                    ],
+                    "notes": self.review_notes.toPlainText().strip(),
+                }
+            )
+        return review
+
     def save_operator_review(self) -> None:
         if not self.current_session_dir:
             self.review_status.setText("No current session is loaded yet, so there is no review to save.")
             return
-        payload = {
-            "selected_option_id": self.proposal_choice_combo.currentData() or "",
-            "fit_confirmed": self.review_fit_check.isChecked(),
-            "restore_confirmed": self.review_restore_check.isChecked(),
-            "limitations_accepted": self.review_limitations_check.isChecked(),
-            "accepted_feature_ids": [
-                feature_id for feature_id, checkbox in self.review_feature_checks.items() if checkbox.isChecked()
-            ],
-            "rejected_feature_ids": [
-                feature_id for feature_id, checkbox in self.review_feature_checks.items() if not checkbox.isChecked()
-            ],
-            "notes": self.review_notes.toPlainText().strip(),
-            "updated_at": utc_now(),
-        }
+        payload = self._current_operator_review(self.current_session_dir)
+        payload["updated_at"] = utc_now()
         self._write_operator_review(self.current_session_dir, payload)
+        self.review_form_dirty = False
+        self.review_form_session = self.current_session_dir
         self.review_status.setText("Review decisions saved. ForgeOS will keep them visible while install remains gated.")
         self._set_button_state(self.save_review_button, "done")
         self.refresh_ui("Review decisions saved")
@@ -1409,6 +1510,9 @@ class ForgeControlApp:
         preview_execution = runtime_plan.get("preview_execution", {}) or {}
         capability_matrix = self._read_json(session_dir / "runtime" / "preview" / "capability-matrix.json")
         walkthrough_path = session_dir / "runtime" / "preview" / "simulated-walkthrough.md"
+        experience_preview_path = self._preview_generated_path(session_dir, "experience-preview.md")
+        next_steps_path = self._preview_generated_path(session_dir, "next-steps.md")
+        preview_bundle_path = self._preview_generated_path(session_dir, "proposed-os-preview.tar.gz")
         build_plan = self._read_json(session_dir / "reports" / "build_plan.json")
         selected_before = self.proposal_choice_combo.currentData()
         self.proposal_choice_combo.blockSignals(True)
@@ -1451,6 +1555,15 @@ class ForgeControlApp:
             f"Preview mode: {preview_execution.get('mode', proposal_manifest.get('preview_mode', capability_matrix.get('preview_mode', 'unknown')))}",
             preview_execution.get("summary", "No preview summary available."),
         ]
+        if preview_bundle_path and preview_bundle_path.exists():
+            lines.extend(
+                [
+                    "",
+                    "Preview artifact bundle:",
+                    f"- {preview_bundle_path}",
+                    "- This bundle is reviewable and operator-facing. It is not yet a flashable device image set.",
+                ]
+            )
         if capability_matrix:
             lines.extend(
                 [
@@ -1467,6 +1580,24 @@ class ForgeControlApp:
             if walkthrough_lines:
                 lines.extend(["", "Preview walkthrough:"])
                 lines.extend(f"- {line.lstrip('1234567890. ')}" for line in walkthrough_lines[:6])
+        if experience_preview_path and experience_preview_path.exists():
+            experience_lines = [
+                line
+                for line in experience_preview_path.read_text().splitlines()
+                if line and not line.startswith("#") and line.strip() != "```text" and line.strip() != "```"
+            ]
+            if experience_lines:
+                lines.extend(["", "What it should look like:"])
+                lines.extend(f"- {line}" for line in experience_lines[:10])
+        if next_steps_path and next_steps_path.exists():
+            next_steps_lines = [
+                line.strip()
+                for line in next_steps_path.read_text().splitlines()
+                if line.strip() and line.strip()[0].isdigit()
+            ]
+            if next_steps_lines:
+                lines.extend(["", "Next steps:"])
+                lines.extend(f"- {line.split('. ', 1)[1] if '. ' in line else line}" for line in next_steps_lines[:5])
         if recommendation_options:
             lines.extend(["", "Alternative directions:"])
             for option in recommendation_options:
@@ -1516,17 +1647,68 @@ class ForgeControlApp:
         self._set_button_state(self.open_backup_bundle_button, "done" if backup_plan else "pending")
         self._set_button_state(self.open_restore_plan_button, "done" if restore_plan else "pending")
 
+    def _refresh_artifact_panel(self, session_dir: Path) -> None:
+        manifest = self._read_artifact_manifest(session_dir)
+        source_dir = session_dir / "artifacts" / "os-source"
+        build_dir = session_dir / "runtime" / "build"
+        status = manifest.get("status", "missing_source")
+        install_mode = manifest.get("install_mode", "unavailable")
+        staged_files = manifest.get("staged_files", []) or []
+        missing = manifest.get("missing_requirements", []) or []
+        bundle_path = manifest.get("bundle_path", "")
+        self.artifact_status.setText(
+            "ForgeOS can only become fully install-capable when a real artifact set is staged. This panel shows exactly what is present and what still needs to be provided."
+        )
+        lines = [
+            f"Artifact status: {status}",
+            f"Install mode: {install_mode}",
+            f"Source staging folder: {source_dir}",
+            f"Build output folder: {build_dir}",
+            f"Flashable bundle: {bundle_path or 'not created yet'}",
+        ]
+        if staged_files:
+            lines.extend(["", "Staged files:"])
+            lines.extend(f"- {Path(path).name}" for path in staged_files[:12])
+        if missing:
+            lines.extend(["", "What still needs to be staged:"])
+            lines.extend(f"- {item}" for item in missing)
+        else:
+            lines.extend(
+                [
+                    "",
+                    "Next install steps:",
+                    "- Review the flashable bundle and artifact manifest.",
+                    "- Confirm the verification review selections.",
+                    "- Record wipe approval and run the dry run first.",
+                ]
+            )
+        self._set_text_preserve_scroll(self.artifact_text, "\n".join(lines))
+        self.open_artifact_source_button.setEnabled(True)
+        self.open_artifact_manifest_button.setEnabled(bool(manifest))
+        self.open_artifact_bundle_button.setEnabled(bool(bundle_path))
+        self._set_button_state(self.open_artifact_source_button, "neutral")
+        self._set_button_state(self.open_artifact_manifest_button, "done" if manifest else "pending")
+        self._set_button_state(self.open_artifact_bundle_button, "done" if bundle_path else "pending")
+
     def _refresh_review_panel(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
-        review = self._read_operator_review(session_dir)
+        review = self._current_operator_review(session_dir)
         verification_execution = runtime_plan.get("verification_execution", {}) or {}
-        self.review_fit_check.setChecked(bool(review.get("fit_confirmed")))
-        self.review_restore_check.setChecked(bool(review.get("restore_confirmed")))
-        self.review_limitations_check.setChecked(bool(review.get("limitations_accepted")))
-        if not self.review_notes.hasFocus():
-            self.review_notes.setPlainText(review.get("notes", ""))
-        selected_option_id = review.get("selected_option_id")
-        if selected_option_id:
-            self._set_combo_by_value(self.proposal_choice_combo, selected_option_id)
+        preserve_draft = self.review_form_dirty and self.review_form_session == session_dir
+        if not preserve_draft:
+            self.review_form_syncing = True
+            try:
+                self.review_fit_check.setChecked(bool(review.get("fit_confirmed")))
+                self.review_restore_check.setChecked(bool(review.get("restore_confirmed")))
+                self.review_limitations_check.setChecked(bool(review.get("limitations_accepted")))
+                if not self.review_notes.hasFocus():
+                    self.review_notes.setPlainText(review.get("notes", ""))
+                selected_option_id = review.get("selected_option_id")
+                if selected_option_id:
+                    self._set_combo_by_value(self.proposal_choice_combo, selected_option_id)
+            finally:
+                self.review_form_syncing = False
+            self.review_form_dirty = False
+            self.review_form_session = session_dir
         lines = [
             f"Verification status: {verification_execution.get('status', 'unknown')}",
             verification_execution.get("summary", "No verification summary available."),
@@ -1824,6 +2006,11 @@ class ForgeControlApp:
                 "Connect a phone and ForgeOS will show vendor- and model-specific setup steps here.\n\n"
                 "This panel is meant to tell the operator exactly how to get from USB-only visibility to adb, fastboot, or another manageable transport."
             )
+            self.artifact_status.setText("Connect or select a device session before staging install artifacts.")
+            self._set_text_preserve_scroll(
+                self.artifact_text,
+                "No device session is loaded yet.\n\nOnce ForgeOS has a session, stage OS install inputs under `artifacts/os-source/` for this device."
+            )
             self.approval_status.setText("Connect or select a device session before recording wipe approval.")
             self._set_text_preserve_scroll(self.flash_plan_text, "No flash plan is available yet.")
             if usb_only_device:
@@ -1855,6 +2042,12 @@ class ForgeControlApp:
                 should_sync_live_session = True
             elif not self._interaction_in_progress() and (now - self.last_live_sync_at) >= 30:
                 should_sync_live_session = True
+            if (
+                not self._interaction_in_progress()
+                and not self.runtime_recompute_in_flight
+                and (now - self.last_autonomous_runtime_at) >= 45
+            ):
+                self._schedule_autonomous_runtime(self.current_session_dir, "live session background improvement cycle")
         if should_sync_live_session and live_session:
             self._sync_live_session_evidence(self.current_session_dir)
             self.last_live_sync_at = monotonic()
@@ -1941,6 +2134,7 @@ class ForgeControlApp:
         self.profile_status.setText("Profile is loaded for this session. Save changes to recompute the OS path.")
         self._refresh_proposal_panel(self.current_session_dir, runtime_plan)
         self._refresh_backup_panel(self.current_session_dir)
+        self._refresh_artifact_panel(self.current_session_dir)
         self._refresh_review_panel(self.current_session_dir, runtime_plan)
         self._refresh_connection_help(self.current_session_dir)
         session_flash_plan = self.sessions.load_flash_plan(self.current_session_dir)
@@ -2280,6 +2474,13 @@ class ForgeControlApp:
                         "",
                         f"Current install plan status: {flash_plan.status}",
                         f"Current build path: {flash_plan.build_path}",
+                        f"Artifacts ready: {flash_plan.artifacts_ready}",
+                        f"Install mode: {flash_plan.install_mode}",
+                        (
+                            f"Artifact bundle: {flash_plan.artifact_bundle_path}"
+                            if flash_plan.artifact_bundle_path
+                            else "Artifact bundle: not prepared yet"
+                        ),
                         flash_plan.summary,
                     ]
                 )
@@ -2324,6 +2525,8 @@ class ForgeControlApp:
         lines = [
             f"Build path: {flash_plan.build_path}",
             f"Transport: {flash_plan.transport}",
+            f"Artifacts ready: {flash_plan.artifacts_ready}",
+            f"Install mode: {flash_plan.install_mode}",
             f"Restore path available: {flash_plan.restore_path_available}",
             f"Requires unlock: {flash_plan.requires_unlock}",
             f"Requires wipe: {flash_plan.requires_wipe}",
@@ -2332,6 +2535,9 @@ class ForgeControlApp:
             f"Host recovery bundle captured: {'yes' if backup_plan else 'no'}",
             f"Live device metadata captured: {'yes' if metadata_backup.get('adb_metadata_available') else 'partial/no'}",
             f"Step count: {flash_plan.step_count}",
+            "",
+            f"Artifact manifest: {flash_plan.artifact_manifest_path or 'not prepared'}",
+            f"Artifact bundle: {flash_plan.artifact_bundle_path or 'not prepared'}",
             "",
             "Backup and restore:",
         ]
@@ -2376,6 +2582,7 @@ class ForgeControlApp:
         self.profile_card.setVisible(has_session)
         self.proposal_card.setVisible(has_session)
         self.backup_card.setVisible(has_session)
+        self.artifact_card.setVisible(has_session)
         self.review_card.setVisible(has_session and phase in {"recommendation", "build_preview", "interactive_verification", "wipe_install"})
         self.help_card.setVisible(has_session or usb_only_device)
         self.device_card.setVisible(self.show_advanced and has_session)
@@ -2392,6 +2599,10 @@ class ForgeControlApp:
             state = "showing latest saved session"
         else:
             state = "waiting for phone"
+        if self.runtime_recompute_in_flight and self.runtime_recompute_session is not None:
+            state += f" | autonomous improvement running for {self.runtime_recompute_session.name}"
+        elif self.runtime_recompute_error:
+            state += f" | autonomous improvement error: {self.runtime_recompute_error}"
         self.status_label.setText(f"Refresh status: {reason} at {timestamp} | {state}")
         self.logger.info("GUI refresh: reason=%s state=%s", reason, state)
 
@@ -2400,6 +2611,26 @@ class ForgeControlApp:
 
     def _auto_refresh(self) -> None:
         self.refresh_ui("Auto refresh")
+
+    def _schedule_autonomous_runtime(self, session_dir: Path, reason: str) -> None:
+        if self.runtime_recompute_in_flight:
+            return
+        self.runtime_recompute_in_flight = True
+        self.runtime_recompute_session = session_dir
+        self.runtime_recompute_error = ""
+        self.logger.info("Scheduling autonomous runtime recompute for %s: %s", session_dir.name, reason)
+
+        def _worker() -> None:
+            try:
+                self.orchestrator.recompute_session_runtime(session_dir, lightweight=False)
+                self.last_autonomous_runtime_at = monotonic()
+            except Exception as exc:  # noqa: BLE001
+                self.runtime_recompute_error = str(exc)
+                self.logger.exception("Autonomous runtime recompute failed for %s", session_dir)
+            finally:
+                self.runtime_recompute_in_flight = False
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _apply_layout_mode(self, mode: str) -> None:
         self.layout_mode = mode
@@ -2412,26 +2643,48 @@ class ForgeControlApp:
             self.content_grid.addWidget(self.profile_card, 2, 0)
             self.content_grid.addWidget(self.proposal_card, 3, 0)
             self.content_grid.addWidget(self.backup_card, 4, 0)
-            self.content_grid.addWidget(self.review_card, 5, 0)
-            self.content_grid.addWidget(self.connection_help_card, 6, 0)
-            self.content_grid.addWidget(self.host_card, 7, 0)
-            self.content_grid.addWidget(self.device_card, 8, 0)
-            self.content_grid.addWidget(self.autonomous_card, 9, 0)
-            self.content_grid.addWidget(self.approval_card, 10, 0)
-            self.content_grid.addWidget(self.help_card, 11, 0)
+            self.content_grid.addWidget(self.artifact_card, 5, 0)
+            self.content_grid.addWidget(self.review_card, 6, 0)
+            self.content_grid.addWidget(self.connection_help_card, 7, 0)
+            self.content_grid.addWidget(self.host_card, 8, 0)
+            self.content_grid.addWidget(self.device_card, 9, 0)
+            self.content_grid.addWidget(self.autonomous_card, 10, 0)
+            self.content_grid.addWidget(self.approval_card, 11, 0)
+            self.content_grid.addWidget(self.help_card, 12, 0)
             self.content_grid.setColumnStretch(0, 1)
             self.content_grid.setColumnStretch(1, 0)
         else:
-            self.content_grid.addWidget(self.now_card, 0, 0)
-            self.content_grid.addWidget(self.steps_card, 0, 1)
-            self.content_grid.addWidget(self.profile_card, 1, 0)
-            self.content_grid.addWidget(self.proposal_card, 1, 1)
-            self.content_grid.addWidget(self.backup_card, 2, 0)
-            self.content_grid.addWidget(self.review_card, 2, 1)
-            self.content_grid.addWidget(self.connection_help_card, 3, 0)
-            self.content_grid.addWidget(self.host_card, 3, 1)
-            self.content_grid.addWidget(self.device_card, 4, 0)
-            self.content_grid.addWidget(self.help_card, 4, 1)
+            left_column = QWidget()
+            left_layout = QVBoxLayout(left_column)
+            left_layout.setContentsMargins(0, 0, 0, 0)
+            left_layout.setSpacing(14)
+            for widget in [
+                self.now_card,
+                self.profile_card,
+                self.backup_card,
+                self.artifact_card,
+                self.connection_help_card,
+                self.device_card,
+            ]:
+                left_layout.addWidget(widget)
+            left_layout.addStretch(1)
+
+            right_column = QWidget()
+            right_layout = QVBoxLayout(right_column)
+            right_layout.setContentsMargins(0, 0, 0, 0)
+            right_layout.setSpacing(14)
+            for widget in [
+                self.steps_card,
+                self.proposal_card,
+                self.review_card,
+                self.host_card,
+                self.help_card,
+            ]:
+                right_layout.addWidget(widget)
+            right_layout.addStretch(1)
+
+            self.content_grid.addWidget(left_column, 0, 0)
+            self.content_grid.addWidget(right_column, 0, 1)
             self.content_grid.addWidget(self.autonomous_card, 5, 0, 1, 2)
             self.content_grid.addWidget(self.approval_card, 6, 0, 1, 2)
             self.content_grid.setColumnStretch(0, 5)
@@ -2440,15 +2693,22 @@ class ForgeControlApp:
             self.content_grid.setRowStretch(row, 0)
         self.content_grid.setRowStretch(7, 1)
 
-    def _handle_resize(self, event) -> None:
-        width = self.window.width()
-        desired_mode = "narrow" if width < 1080 else "wide"
+    def _update_responsive_layout(self, width: int) -> None:
+        desired_mode = "narrow" if width < 1380 else "wide"
         if desired_mode != self.layout_mode:
             self._apply_layout_mode(desired_mode)
+        if width < 1500:
+            self.header_layout.setDirection(QVBoxLayout.Direction.TopToBottom)
+        else:
+            self.header_layout.setDirection(QHBoxLayout.Direction.LeftToRight)
         if width < 980:
             self.button_col.setDirection(QVBoxLayout.Direction.TopToBottom)
         else:
             self.button_col.setDirection(QHBoxLayout.Direction.LeftToRight)
+
+    def _handle_resize(self, event) -> None:
+        width = self.window.width()
+        self._update_responsive_layout(width)
         QMainWindow.resizeEvent(self.window, event)
 
     def _open_path(self, path: Path) -> None:

@@ -94,7 +94,12 @@ def test_runtime_pipelines_write_execution_outputs(tmp_path: Path) -> None:
     session_dir.mkdir(parents=True)
     preview = PreviewPipeline(tmp_path).execute(
         session_dir=session_dir,
-        build_plan={"os_path": "maintainable_hardened_path"},
+        build_plan={
+            "os_path": "maintainable_hardened_path",
+            "proposed_os_name": "Hardened stock Android for Lightweight Custom Android",
+            "included_feature_labels": ["Debloated app set", "Visible restore and recovery entry point"],
+            "rejected_feature_labels": ["Automatic wipe/install start"],
+        },
         recommendation={"recommended_use_case": "lightweight_custom_android"},
         assessment={"support_status": "actionable"},
         connection_plan={"recommended_adapter": {"adapter_id": "adb"}},
@@ -109,6 +114,9 @@ def test_runtime_pipelines_write_execution_outputs(tmp_path: Path) -> None:
     assert preview.status == "executed"
     assert verification.status == "executed"
     assert any(path.endswith("preview-execution.json") for path in preview.generated_files)
+    assert any(path.endswith("proposed-os-preview.tar.gz") for path in preview.generated_files)
+    assert any(path.endswith("experience-preview.md") for path in preview.generated_files)
+    assert any(path.endswith("next-steps.md") for path in preview.generated_files)
     assert any(path.endswith("verification-execution.json") for path in verification.generated_files)
 
 

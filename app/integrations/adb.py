@@ -92,6 +92,23 @@ def reconnect() -> dict[str, object]:
     }
 
 
+def run(args: list[str]) -> dict[str, object]:
+    if not adb_available():
+        return {"ok": False, "reason": "adb not available"}
+    completed = subprocess.run(
+        [_adb_path(), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return {
+        "ok": completed.returncode == 0,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+        "returncode": completed.returncode,
+    }
+
+
 def shell(serial: str, command: list[str]) -> dict[str, object]:
     if not adb_available():
         return {"ok": False, "reason": "adb not available"}

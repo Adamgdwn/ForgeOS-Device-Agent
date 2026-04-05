@@ -1,0 +1,86 @@
+---
+title: ForgeOS Process Flows
+---
+
+flowchart TD
+    start([Launch ForgeOS])
+    bootstrap[Bootstrap workspace and host tools]
+    watchers[Start USB, adb, fastboot, and fastbootd watchers]
+    device{Manageable device detected?}
+    usbOnly[Show connection guidance and keep retrying safe engagement]
+    session[Create or resume device session]
+    intake[Load profile, session state, and runtime context]
+    discovery[Deep scan and assessment]
+    recommend[Generate recommended use case and proposal options]
+    backup[Prepare backup and restore readiness]
+    preview[Build preview artifacts and walkthrough]
+    verify[Interactive verification review]
+    installGate{Install gate ready?}
+    approval[Record explicit wipe approval]
+    dryRun[Run approved dry run]
+    livePolicy{Live destructive actions allowed by policy?}
+    liveFlash[Run live wipe and flash]
+    postInstall[Post-install verification and completion]
+    blocked[Remain non-destructive and show next operator action]
+
+    start --> bootstrap --> watchers --> device
+    device -- No, USB-only or MTP --> usbOnly --> device
+    device -- Yes --> session --> intake --> discovery --> recommend --> backup --> preview --> verify --> installGate
+    installGate -- No --> blocked
+    blocked --> verify
+    installGate -- Yes --> approval --> dryRun --> livePolicy
+    livePolicy -- No --> postInstall
+    livePolicy -- Yes --> liveFlash --> postInstall
+
+---
+title: Verification Review Flow
+---
+
+flowchart TD
+    reviewOpen([Open Verification Review panel])
+    proposal[Show proposed OS profile and feature list]
+    operator[Operator checks fit, restore, limitations, features, and notes]
+    refresh{GUI refresh or manual refresh?}
+    preserve[Keep in-progress review draft visible]
+    save[Save Review Decisions]
+    writeDisk[Write runtime/operator-review.json]
+    reload[Reload saved review on future refreshes]
+    ready{All three review confirmations complete?}
+    partial[Keep review button ready and install gate inactive]
+    complete[Mark review complete for later install gating]
+
+    reviewOpen --> proposal --> operator --> refresh
+    refresh -- Yes --> preserve --> operator
+    refresh -- No --> operator
+    operator --> save --> writeDisk --> reload --> ready
+    ready -- No --> partial
+    ready -- Yes --> complete
+
+---
+title: Install Approval Gate
+---
+
+flowchart TD
+    phase([Runtime phase reaches wipe_install])
+    flashPlan{Flash plan exists and is not deferred?}
+    reviewVisible[Show install review panel]
+    gather[Collect restore confirmation, phrase, and notes]
+    phrase{Phrase is WIPE_AND_REBUILD?}
+    restore{Restore path confirmed?}
+    approved{Approval recorded?}
+    dryReady[Enable approved dry run]
+    liveAllowed{Policy allows live destructive actions?}
+    liveReady[Enable live wipe and flash]
+    hold[Keep execution blocked and show missing requirements]
+
+    phase --> flashPlan
+    flashPlan -- No --> hold
+    flashPlan -- Yes --> reviewVisible --> gather --> phrase
+    phrase -- No --> hold
+    phrase -- Yes --> restore
+    restore -- No --> hold
+    restore -- Yes --> approved
+    approved -- No --> hold
+    approved -- Yes --> dryReady --> liveAllowed
+    liveAllowed -- No --> hold
+    liveAllowed -- Yes --> liveReady
