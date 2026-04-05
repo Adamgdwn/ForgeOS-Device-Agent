@@ -340,7 +340,7 @@ class ForgeOrchestrator:
         self.logger.info("Handled device event for session %s", session_dir.name)
         return session_dir
 
-    def recompute_session_runtime(self, session_dir: Path) -> dict[str, Any]:
+    def recompute_session_runtime(self, session_dir: Path, *, lightweight: bool = False) -> dict[str, Any]:
         profile = self.sessions.load_device_profile(session_dir)
         user_profile = self.sessions.load_user_profile(session_dir)
         os_goals = self.sessions.load_os_goals(session_dir)
@@ -377,6 +377,8 @@ class ForgeOrchestrator:
             engagement=engagement,
             user_profile=user_profile,
             os_goals=os_goals,
+            execute_workers=not lightweight,
+            execute_runtime_pipelines=not lightweight,
         )
         self.connection_engine.write_plan(session_dir, runtime_result["connection_plan"])
         self.blockers.write(session_dir, runtime_result["blocker"])
@@ -393,7 +395,11 @@ class ForgeOrchestrator:
             session_dir,
             report_type="runtime",
             status=runtime_result["runtime_gate"].action,
-            summary="ForgeOS recomputed the runtime after profile or session updates.",
+            summary=(
+                "ForgeOS recomputed the runtime after profile or session updates."
+                if not lightweight
+                else "ForgeOS refreshed the runtime plan in lightweight GUI mode without worker execution."
+            ),
             details={
                 "runtime_files": runtime_result["runtime_files"],
                 "worker_routes": [to_dict(route) for route in runtime_result["worker_routes"]],
@@ -416,6 +422,9 @@ class ForgeOrchestrator:
         engagement: dict[str, Any],
         user_profile: Any,
         os_goals: Any,
+        *,
+        execute_workers: bool = True,
+        execute_runtime_pipelines: bool = True,
     ) -> dict[str, Any]:
         current_profile = self.sessions.load_device_profile(session_dir)
         current_state = self.sessions.load_session_state(session_dir)
@@ -562,16 +571,20 @@ class ForgeOrchestrator:
                 context={"recommendation": recommendation},
             ),
         ]
-        worker_executions = [
-            self.worker_runtime.execute(route, task, session_dir)
-            for route, task in zip(worker_routes, worker_tasks, strict=False)
-        ]
+        worker_executions = (
+            [
+                self.worker_runtime.execute(route, task, session_dir)
+                for route, task in zip(worker_routes, worker_tasks, strict=False)
+            ]
+            if execute_workers
+            else []
+        )
 
         generated_runtime: dict[str, Any] = {}
         patch_result: dict[str, Any] = {}
         execution_result: dict[str, Any] = {}
         inspection: dict[str, Any] = {}
-        if blocker.get("machine_solvable"):
+        if blocker.get("machine_solvable") and execute_workers:
             worker_routes.append(
                 self.worker_router.route(
                     WorkerTask(
@@ -646,7 +659,7 @@ class ForgeOrchestrator:
             self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires minimal external action or approval")
 
         retry_plan = self.retry_planner.build_plan(blocker, generated_runtime or None)
-        if flash_plan.requires_wipe:
+        if flash_plan.requires_wipe and execute_workers:
             worker_routes.append(
                 self.worker_router.route(
                     WorkerTask(
@@ -700,7 +713,7 @@ class ForgeOrchestrator:
         preview_ready = install_candidate
         verification_ready = install_candidate and backup_plan["plan"].get("restore_path_feasible", False)
 
-        if preview_ready:
+        if preview_ready and execute_runtime_pipelines:
             self._safe_transition(session_dir, "PREVIEW_BUILD", "ForgeOS is generating a preview for the proposed path")
             preview_execution = self.preview_pipeline.execute(
                 session_dir=session_dir,
@@ -723,7 +736,7 @@ class ForgeOrchestrator:
                 connection_plan=connection_plan,
             )
 
-        if verification_ready:
+        if verification_ready and execute_runtime_pipelines:
             self._safe_transition(session_dir, "INTERACTIVE_VERIFY", "ForgeOS is running verification before any install decision")
             verification_execution = self.verification_pipeline.execute(
                 session_dir=session_dir,
@@ -737,6 +750,8 @@ class ForgeOrchestrator:
                 session_dir=session_dir,
                 reason=(
                     "Verification is deferred until preview and backup readiness are complete and ForgeOS has a viable install candidate."
+                    if execute_runtime_pipelines
+                    else "Verification is deferred in lightweight GUI mode until explicit runtime execution is requested."
                 ),
             )
 

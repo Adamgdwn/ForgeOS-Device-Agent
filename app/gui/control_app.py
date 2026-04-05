@@ -654,7 +654,7 @@ class ForgeControlApp:
             self.sessions.write_session_state(session_dir, state_model)
         runtime_plan_path = session_dir / "runtime" / "session-plan.json"
         if changed or not runtime_plan_path.exists():
-            self.orchestrator.recompute_session_runtime(session_dir)
+            self.orchestrator.recompute_session_runtime(session_dir, lightweight=True)
 
     def _usb_only_device_summary(self) -> dict[str, str] | None:
         active_serials = self._active_serials()
@@ -1164,9 +1164,9 @@ class ForgeControlApp:
             engagement,
             plan,
         )
-        self.orchestrator.recompute_session_runtime(self.current_session_dir)
+        self.orchestrator.recompute_session_runtime(self.current_session_dir, lightweight=True)
         self.profile_status.setText(
-            f"Saved profile. ForgeOS is recomputing recommendation, build, preview, verification, and install readiness for `{strategy['strategy_id']}`."
+            f"Saved profile. ForgeOS is refreshing the recommendation and safety plan for `{strategy['strategy_id']}` without starting heavy worker execution."
         )
         self.refresh_ui("Profile updated")
 
