@@ -13,6 +13,8 @@ The current build is assessment-first. It is ready for:
 - persistent state tracking
 - dry-run strategy selection
 - audit logging
+- explicit wipe-approval capture
+- approved dry-run flash execution planning
 
 It is not yet ready for unattended live flashing across unknown devices without additional device-specific integration work.
 
@@ -38,6 +40,25 @@ When you open ForgeOS from the Pop!_OS app menu:
 3. The main VS Code workspace opens if `code` is available.
 4. Background watchers begin checking for `adb` and `fastboot` devices.
 5. The desktop app shows host readiness and launch status.
+
+## Destructive Approval Flow
+
+ForgeOS now includes a dedicated approval panel in the GUI.
+
+Use it like this:
+
+1. Let ForgeOS assess the phone and generate a flash plan.
+2. Review the current blocker, build path, and restore assumptions.
+3. Confirm that you have reviewed the restore path.
+4. Type `WIPE_AND_REBUILD`.
+5. Record the approval.
+6. Run the approved dry run first.
+
+By default, live destructive execution is still blocked by policy in:
+
+- [default_policy.json](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/master/policies/default_policy.json)
+
+That policy must be changed deliberately before the GUI will allow a live wipe-and-flash attempt.
 
 ## Install And Reinstall The Launcher
 
@@ -141,7 +162,12 @@ Important files:
 - `device-profile.json`
 - `session-state.json`
 - `reports/assessment.json`
+- `reports/engagement.json`
 - `plans/master-strategies/`
+- `plans/connection-plan.json`
+- `codex/CODEX_TASK.md`
+- `codex/codex-handoff.json`
+- `codex/device-session.code-workspace`
 
 ### 7. Review The Session State
 
@@ -162,6 +188,63 @@ ForgeOS currently classifies the device into one of:
 - `experimental`
 
 If the device is `blocked` or `research_only`, that is a correct and safe outcome when restore or support feasibility is not proven.
+
+### 9. Read The Autonomous Engagement Result
+
+ForgeOS now attempts safe, non-destructive engagement steps automatically.
+
+That includes:
+
+- starting the adb server
+- retrying adb reconnect
+- checking whether the phone is visible only as USB/MTP
+- recording the exact point where on-device approval is still required
+
+This does not mean ForgeOS can bypass a locked screen or hidden developer settings.
+
+If the phone still requires a trust prompt, USB debugging, or a different boot mode, ForgeOS will stop honestly and tell you what is still needed.
+
+### 10. Use The Codex Handoff
+
+ForgeOS now prepares a device-specific Codex build brief automatically.
+
+That brief tells Codex:
+
+- what phone is attached
+- what transport is available
+- what connection adapters are most promising
+- what still needs to be generated or refined for this exact device
+
+The session workspace file is:
+
+- `codex/device-session.code-workspace`
+
+The primary human-readable task file is:
+
+- `codex/CODEX_TASK.md`
+
+This is the main path for building device-specific connection logic and custom OS preparation from first principles while preserving the reusable `master/` framework.
+
+### 11. Set The User Profile
+
+ForgeOS now includes a guided profile section in the GUI for each device session.
+
+Set:
+
+- intended user persona
+- technical comfort
+- top priority
+- Google-services preference
+- secondary OS goal
+
+Then save the profile to recompute the recommended OS path for that exact device and intended user.
+
+This updates:
+
+- `user-profile.json`
+- `os-goals.json`
+- `session-state.json`
+- `codex/CODEX_TASK.md`
 
 ## Where To Look During Testing
 

@@ -15,11 +15,19 @@ class FeasibilityAssessorTool(BaseTool):
 
     def run(self, payload: dict[str, object]) -> dict[str, object]:
         device = dict(payload["device"])
-        transport = str(device.get("transport", "unknown"))
+        transport_value = device.get("transport", "unknown")
+        transport = getattr(transport_value, "value", str(transport_value))
         bootloader_locked = device.get("bootloader_locked")
         serial = device.get("serial")
 
         blocked_reasons: list[str] = []
+        if transport == "usb-mtp":
+            return {
+                "support_status": "research_only",
+                "summary": "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+                "restore_path_feasible": False,
+                "recommended_path": "transport_engagement",
+            }
         if serial in (None, "", "unknown-serial"):
             blocked_reasons.append("No stable serial detected")
         if transport == "unknown":

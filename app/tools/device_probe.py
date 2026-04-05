@@ -16,7 +16,7 @@ class DeviceProbeTool(BaseTool):
 
     def run(self, payload: dict[str, object]) -> dict[str, object]:
         event = dict(payload.get("event", {}))
-        transport = Transport(event.get("transport", Transport.UNKNOWN.value))
+        transport = Transport(event.get("transport", event.get("transport_hint", Transport.UNKNOWN.value)))
         serial = event.get("serial") or "unknown-serial"
         manufacturer = event.get("manufacturer") or "unknown"
         model = event.get("model") or "unknown"
@@ -31,6 +31,8 @@ class DeviceProbeTool(BaseTool):
             "battery": event.get("battery", {}),
             "transport": transport,
             "reachability": event.get("reachability", "detected"),
+            "vendor_id": event.get("vendor_id"),
+            "product_id": event.get("product_id"),
             "raw_event": event,
         }
         return {"device": device}

@@ -19,9 +19,12 @@ MASTER_SEEDS: dict[str, dict] = {
         "policy_version": "1.0",
         "default_dry_run": True,
         "require_restore_path": True,
+        "allow_live_destructive_actions": False,
+        "require_explicit_wipe_phrase": True,
         "allow_bootloader_relock": False,
         "open_vscode_on_launch": False,
         "open_vscode_on_session_create": True,
+        "enable_codex_handoff": True,
         "priority_order": [
             "restore_path",
             "security",
@@ -44,6 +47,17 @@ MASTER_SEEDS: dict[str, dict] = {
             }
         ]
     },
+    "manifests/connection_adapters.json": {
+        "adapters": [
+            "adb",
+            "fastboot",
+            "fastbootd",
+            "recovery",
+            "mtp-bridge",
+            "samsung-download",
+            "codex-generated"
+        ]
+    },
     "reports/report_template.json": {
         "report_type": "template",
         "status": "draft",
@@ -57,10 +71,29 @@ MASTER_SEEDS: dict[str, dict] = {
                 "description": "Gather data only when restore or support path is not proven.",
             },
             {
+                "id": "transport_recovery",
+                "description": "Reach a manageable transport before OS selection.",
+            },
+            {
+                "id": "hardened_stock",
+                "description": "Prefer a stock-derived hardened path for stable, simple usage.",
+            },
+            {
+                "id": "aftermarket_rom",
+                "description": "Prefer an aftermarket path for developer-oriented usage.",
+            },
+            {
+                "id": "privacy_hardened_aftermarket",
+                "description": "Prefer a privacy-focused aftermarket path where support allows it.",
+            },
+            {
                 "id": "hardened_existing_os",
                 "description": "Prefer a maintainable hardening path when a clean-sheet build is risky.",
             }
         ]
+    },
+    "templates/codex_task_template.json": {
+        "description": "Codex session brief is generated dynamically per device session."
     },
     "testplans/default_validation_plan.json": {
         "checks": [

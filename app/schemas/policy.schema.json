@@ -6,12 +6,16 @@
     "policy_version",
     "default_dry_run",
     "require_restore_path",
+    "allow_live_destructive_actions",
+    "require_explicit_wipe_phrase",
     "priority_order"
   ],
   "properties": {
     "policy_version": { "type": "string" },
     "default_dry_run": { "type": "boolean" },
     "require_restore_path": { "type": "boolean" },
+    "allow_live_destructive_actions": { "type": "boolean" },
+    "require_explicit_wipe_phrase": { "type": "boolean" },
     "allow_bootloader_relock": { "type": "boolean" },
     "open_vscode_on_launch": { "type": "boolean" },
     "open_vscode_on_session_create": { "type": "boolean" },

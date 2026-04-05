@@ -1,0 +1,11 @@
+{
+  "adapters": [
+    "adb",
+    "fastboot",
+    "fastbootd",
+    "recovery",
+    "mtp-bridge",
+    "samsung-download",
+    "codex-generated"
+  ]
+}

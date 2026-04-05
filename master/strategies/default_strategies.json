@@ -6,9 +6,39 @@
       "description": "Use when restore or support confidence is insufficient."
     },
     {
+      "id": "transport_recovery",
+      "priority": 0,
+      "description": "Prioritize reaching a manageable transport before OS selection."
+    },
+    {
+      "id": "blocked_research",
+      "priority": 0,
+      "description": "Use when hard blockers prevent a safe build or flash path."
+    },
+    {
       "id": "hardened_existing_os",
       "priority": 1,
       "description": "Prefer a maintainable, security-aware path over novelty."
+    },
+    {
+      "id": "hardened_stock",
+      "priority": 1,
+      "description": "Prefer a stock-derived hardened path for simple, stable, and battery-friendly usage."
+    },
+    {
+      "id": "managed_family_build",
+      "priority": 1,
+      "description": "Prefer a constrained family-oriented build with strong safety defaults."
+    },
+    {
+      "id": "aftermarket_rom",
+      "priority": 2,
+      "description": "Prefer a maintainable aftermarket ROM path for developer-oriented usage."
+    },
+    {
+      "id": "privacy_hardened_aftermarket",
+      "priority": 2,
+      "description": "Prefer a privacy-focused aftermarket path with reduced Google dependency."
     },
     {
       "id": "device_specific_build",

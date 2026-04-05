@@ -4,11 +4,27 @@ from app.core.models import SessionStateName
 
 
 ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
-    SessionStateName.IDLE: {SessionStateName.DISCOVER},
-    SessionStateName.DISCOVER: {SessionStateName.ASSESS, SessionStateName.BLOCKED},
+    SessionStateName.IDLE: {SessionStateName.DEVICE_ATTACHED, SessionStateName.DISCOVER},
+    SessionStateName.DEVICE_ATTACHED: {SessionStateName.DISCOVER, SessionStateName.BLOCKED},
+    SessionStateName.DISCOVER: {
+        SessionStateName.ASSESS,
+        SessionStateName.PROFILE_SYNTHESIS,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.PROFILE_SYNTHESIS: {
+        SessionStateName.ASSESS,
+        SessionStateName.MATCH_MASTER,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.MATCH_MASTER: {
+        SessionStateName.ASSESS,
+        SessionStateName.PATH_SELECT,
+        SessionStateName.BLOCKED,
+    },
     SessionStateName.ASSESS: {
         SessionStateName.BACKUP_PLAN,
         SessionStateName.PATH_SELECT,
+        SessionStateName.BLOCKER_CLASSIFY,
         SessionStateName.BLOCKED,
     },
     SessionStateName.BACKUP_PLAN: {
@@ -23,8 +39,54 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
         SessionStateName.BLOCKED,
     },
     SessionStateName.PATH_SELECT: {
+        SessionStateName.BLOCKER_CLASSIFY,
         SessionStateName.BUILD_GENERIC,
         SessionStateName.BUILD_DEVICE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.BLOCKER_CLASSIFY: {
+        SessionStateName.CODEGEN_TASK,
+        SessionStateName.QUESTION_GATE,
+        SessionStateName.BUILD_GENERIC,
+        SessionStateName.BUILD_DEVICE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.CODEGEN_TASK: {
+        SessionStateName.PATCH_APPLY,
+        SessionStateName.QUESTION_GATE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.PATCH_APPLY: {
+        SessionStateName.EXECUTE_STEP,
+        SessionStateName.QUESTION_GATE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.EXECUTE_STEP: {
+        SessionStateName.CONNECTIVITY_VALIDATE,
+        SessionStateName.SECURITY_VALIDATE,
+        SessionStateName.ITERATE,
+        SessionStateName.QUESTION_GATE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.CONNECTIVITY_VALIDATE: {
+        SessionStateName.ITERATE,
+        SessionStateName.QUESTION_GATE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.SECURITY_VALIDATE: {
+        SessionStateName.ITERATE,
+        SessionStateName.QUESTION_GATE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.ITERATE: {
+        SessionStateName.BLOCKER_CLASSIFY,
+        SessionStateName.PATH_SELECT,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.QUESTION_GATE: {
+        SessionStateName.EXECUTE_STEP,
+        SessionStateName.FLASH_PREP,
+        SessionStateName.BLOCKER_CLASSIFY,
         SessionStateName.BLOCKED,
     },
     SessionStateName.BUILD_GENERIC: {SessionStateName.SIGN_IMAGES, SessionStateName.BLOCKED},
@@ -49,7 +111,7 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
     },
     SessionStateName.PROMOTE: set(),
     SessionStateName.RESTORE: {SessionStateName.ASSESS, SessionStateName.BLOCKED},
-    SessionStateName.BLOCKED: {SessionStateName.ASSESS},
+    SessionStateName.BLOCKED: {SessionStateName.ASSESS, SessionStateName.BLOCKER_CLASSIFY},
 }
 
 

@@ -17,18 +17,28 @@ class Transport(str, Enum):
     USB_FASTBOOT = "usb-fastboot"
     USB_FASTBOOTD = "usb-fastbootd"
     USB_RECOVERY = "usb-recovery"
+    USB_MTP = "usb-mtp"
     UNKNOWN = "unknown"
 
 
 class SessionStateName(str, Enum):
     IDLE = "IDLE"
+    DEVICE_ATTACHED = "DEVICE_ATTACHED"
     DISCOVER = "DISCOVER"
     ASSESS = "ASSESS"
+    PROFILE_SYNTHESIS = "PROFILE_SYNTHESIS"
+    MATCH_MASTER = "MATCH_MASTER"
     BACKUP_PLAN = "BACKUP_PLAN"
     UNLOCK_PREP = "UNLOCK_PREP"
     UNLOCK = "UNLOCK"
     BASELINE_CAPTURE = "BASELINE_CAPTURE"
     PATH_SELECT = "PATH_SELECT"
+    BLOCKER_CLASSIFY = "BLOCKER_CLASSIFY"
+    CODEGEN_TASK = "CODEGEN_TASK"
+    PATCH_APPLY = "PATCH_APPLY"
+    EXECUTE_STEP = "EXECUTE_STEP"
+    CONNECTIVITY_VALIDATE = "CONNECTIVITY_VALIDATE"
+    SECURITY_VALIDATE = "SECURITY_VALIDATE"
     BUILD_GENERIC = "BUILD_GENERIC"
     BUILD_DEVICE = "BUILD_DEVICE"
     SIGN_IMAGES = "SIGN_IMAGES"
@@ -38,6 +48,8 @@ class SessionStateName(str, Enum):
     BRINGUP = "BRINGUP"
     HARDEN = "HARDEN"
     VALIDATE = "VALIDATE"
+    ITERATE = "ITERATE"
+    QUESTION_GATE = "QUESTION_GATE"
     PROMOTE = "PROMOTE"
     RESTORE = "RESTORE"
     BLOCKED = "BLOCKED"
@@ -55,6 +67,49 @@ class SupportStatus(str, Enum):
     RESEARCH_ONLY = "research_only"
     BLOCKED = "blocked"
     EXPERIMENTAL = "experimental"
+
+
+class BlockerType(str, Enum):
+    TRANSPORT = "transport_blocker"
+    TRUST = "trust_blocker"
+    SOURCE = "source_blocker"
+    BUILD = "build_blocker"
+    FLASH = "flash_blocker"
+    BOOT = "boot_blocker"
+    SUBSYSTEM = "subsystem_blocker"
+    VALIDATION = "validation_blocker"
+    POLICY = "policy_blocker"
+    PHYSICAL = "physical_action_blocker"
+    NONE = "none"
+
+
+class UserPersona(str, Enum):
+    DAILY = "daily_user"
+    SENIOR = "senior"
+    DEVELOPER = "developer"
+    CHILD = "child"
+    PRIVACY = "privacy_focused"
+
+
+class TechnicalComfort(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class PriorityFocus(str, Enum):
+    SECURITY = "security"
+    SIMPLICITY = "simplicity"
+    PERFORMANCE = "performance"
+    BATTERY = "battery"
+    PRIVACY = "privacy"
+    COMPATIBILITY = "compatibility"
+
+
+class GoogleServicesPreference(str, Enum):
+    KEEP = "keep_google"
+    REDUCE = "reduce_google"
+    REMOVE = "remove_google"
 
 
 @dataclass
@@ -120,9 +175,12 @@ class PolicyModel:
     policy_version: str = "1.0"
     default_dry_run: bool = True
     require_restore_path: bool = True
+    allow_live_destructive_actions: bool = False
+    require_explicit_wipe_phrase: bool = True
     allow_bootloader_relock: bool = False
     open_vscode_on_launch: bool = True
     open_vscode_on_session_create: bool = True
+    enable_codex_handoff: bool = True
     priority_order: list[str] = field(
         default_factory=lambda: [
             "restore_path",
@@ -139,6 +197,60 @@ class PolicyModel:
             "tools": ["adb", "fastboot"],
         }
     )
+
+
+@dataclass
+class UserProfile:
+    session_id: str
+    persona: UserPersona = UserPersona.DAILY
+    technical_comfort: TechnicalComfort = TechnicalComfort.LOW
+    primary_priority: PriorityFocus = PriorityFocus.SECURITY
+    google_services_preference: GoogleServicesPreference = GoogleServicesPreference.KEEP
+    notes: str = ""
+    updated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class OSGoals:
+    session_id: str
+    top_goal: PriorityFocus = PriorityFocus.SECURITY
+    secondary_goal: PriorityFocus = PriorityFocus.SIMPLICITY
+    requires_reliable_updates: bool = True
+    prefers_long_battery_life: bool = True
+    prefers_lockdown_defaults: bool = True
+    updated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class DestructiveApproval:
+    session_id: str
+    approved: bool = False
+    approval_scope: str = "none"
+    confirmation_phrase: str = ""
+    approved_by: str = "local_operator"
+    consequences_acknowledged: bool = False
+    restore_path_confirmed: bool = False
+    notes: str = ""
+    approved_at: str | None = None
+    updated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class FlashPlan:
+    session_id: str
+    build_path: str
+    dry_run: bool = True
+    requires_unlock: bool = False
+    requires_wipe: bool = True
+    restore_path_available: bool = False
+    transport: str = Transport.UNKNOWN.value
+    step_count: int = 0
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    artifact_hints: list[str] = field(default_factory=list)
+    status: str = "planned"
+    summary: str = ""
+    generated_at: str = field(default_factory=utc_now)
+    updated_at: str = field(default_factory=utc_now)
 
 
 @dataclass
@@ -234,3 +346,72 @@ def policy_from_dict(data: dict[str, Any]) -> PolicyModel:
         if field_info.name in data:
             init_values[field_info.name] = data[field_info.name]
     return PolicyModel(**init_values)
+
+
+def user_profile_from_dict(data: dict[str, Any]) -> UserProfile:
+    return UserProfile(
+        session_id=data["session_id"],
+        persona=UserPersona(data.get("persona", UserPersona.DAILY.value)),
+        technical_comfort=TechnicalComfort(
+            data.get("technical_comfort", TechnicalComfort.LOW.value)
+        ),
+        primary_priority=PriorityFocus(
+            data.get("primary_priority", PriorityFocus.SECURITY.value)
+        ),
+        google_services_preference=GoogleServicesPreference(
+            data.get(
+                "google_services_preference",
+                GoogleServicesPreference.KEEP.value,
+            )
+        ),
+        notes=data.get("notes", ""),
+        updated_at=data.get("updated_at", utc_now()),
+    )
+
+
+def os_goals_from_dict(data: dict[str, Any]) -> OSGoals:
+    return OSGoals(
+        session_id=data["session_id"],
+        top_goal=PriorityFocus(data.get("top_goal", PriorityFocus.SECURITY.value)),
+        secondary_goal=PriorityFocus(
+            data.get("secondary_goal", PriorityFocus.SIMPLICITY.value)
+        ),
+        requires_reliable_updates=data.get("requires_reliable_updates", True),
+        prefers_long_battery_life=data.get("prefers_long_battery_life", True),
+        prefers_lockdown_defaults=data.get("prefers_lockdown_defaults", True),
+        updated_at=data.get("updated_at", utc_now()),
+    )
+
+
+def destructive_approval_from_dict(data: dict[str, Any]) -> DestructiveApproval:
+    return DestructiveApproval(
+        session_id=data["session_id"],
+        approved=data.get("approved", False),
+        approval_scope=data.get("approval_scope", "none"),
+        confirmation_phrase=data.get("confirmation_phrase", ""),
+        approved_by=data.get("approved_by", "local_operator"),
+        consequences_acknowledged=data.get("consequences_acknowledged", False),
+        restore_path_confirmed=data.get("restore_path_confirmed", False),
+        notes=data.get("notes", ""),
+        approved_at=data.get("approved_at"),
+        updated_at=data.get("updated_at", utc_now()),
+    )
+
+
+def flash_plan_from_dict(data: dict[str, Any]) -> FlashPlan:
+    return FlashPlan(
+        session_id=data["session_id"],
+        build_path=data.get("build_path", "unknown"),
+        dry_run=data.get("dry_run", True),
+        requires_unlock=data.get("requires_unlock", False),
+        requires_wipe=data.get("requires_wipe", True),
+        restore_path_available=data.get("restore_path_available", False),
+        transport=data.get("transport", Transport.UNKNOWN.value),
+        step_count=data.get("step_count", len(data.get("steps", []))),
+        steps=data.get("steps", []),
+        artifact_hints=data.get("artifact_hints", []),
+        status=data.get("status", "planned"),
+        summary=data.get("summary", ""),
+        generated_at=data.get("generated_at", utc_now()),
+        updated_at=data.get("updated_at", utc_now()),
+    )

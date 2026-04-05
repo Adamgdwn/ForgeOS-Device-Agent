@@ -1,0 +1,1 @@
+"""OEM-specific adapter namespace."""

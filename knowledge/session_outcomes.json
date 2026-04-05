@@ -20,6 +20,78 @@
       "notes": [
         "Assessment passed initial feasibility gates for non-destructive planning."
       ]
+    },
+    "samsung-usb-attached-android-499ecd74-20260404": {
+      "session_id": "samsung-usb-attached-android-499ecd74-20260404",
+      "recorded_at": "2026-04-04T23:45:11.922687+00:00",
+      "family_key": "samsung:usb-attached-android",
+      "canonical_name": "samsung-usb-attached-android-499ecd74-20260404",
+      "device_codename": "samsun-499e",
+      "manufacturer": "Samsung",
+      "model": "USB-attached Android",
+      "transport": "usb-mtp",
+      "android_version": null,
+      "bootloader_locked": null,
+      "verified_boot_state": null,
+      "support_status": "research_only",
+      "selected_strategy": "transport_recovery",
+      "current_state": "PATH_SELECT",
+      "restore_path_feasible": false,
+      "assessment_summary": "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+      "notes": [
+        "ForgeOS can see the phone over USB and has attempted safe adb engagement, but the phone still needs adb, fastboot, or recovery transport exposed.",
+        "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+        "ForgeOS can see the phone over USB and has attempted safe adb engagement, but the phone still needs adb, fastboot, or recovery transport exposed.",
+        "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+        "ForgeOS can see the phone over USB and has attempted safe adb engagement, but the phone still needs adb, fastboot, or recovery transport exposed."
+      ]
+    },
+    "samsung-galaxy-a5-f3be3666-20260404": {
+      "session_id": "samsung-galaxy-a5-f3be3666-20260404",
+      "recorded_at": "2026-04-04T23:43:48.431300+00:00",
+      "family_key": "samsung:galaxy-a5",
+      "canonical_name": "samsung-galaxy-a5-f3be3666-20260404",
+      "device_codename": "samsun-f3be",
+      "manufacturer": "Samsung",
+      "model": "Galaxy A5",
+      "transport": "usb-mtp",
+      "android_version": null,
+      "bootloader_locked": null,
+      "verified_boot_state": null,
+      "support_status": "research_only",
+      "selected_strategy": "transport_recovery",
+      "current_state": "PATH_SELECT",
+      "restore_path_feasible": false,
+      "assessment_summary": "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+      "notes": [
+        "ForgeOS can see the phone over USB and has attempted safe adb engagement, but the phone still needs adb, fastboot, or recovery transport exposed.",
+        "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+        "ForgeOS can see the phone over USB and has attempted safe adb engagement, but the phone still needs adb, fastboot, or recovery transport exposed.",
+        "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+        "ForgeOS can see the phone over USB and has attempted safe adb engagement, but the phone still needs adb, fastboot, or recovery transport exposed."
+      ]
+    },
+    "samsung-galaxy-a5-1996a047-20260404": {
+      "session_id": "samsung-galaxy-a5-1996a047-20260404",
+      "recorded_at": "2026-04-05T00:52:43.884812+00:00",
+      "family_key": "samsung:galaxy-a5",
+      "canonical_name": "samsung-galaxy-a5-1996a047-20260404",
+      "device_codename": "samsun-1996",
+      "manufacturer": "Samsung",
+      "model": "Galaxy A5",
+      "transport": "usb-mtp",
+      "android_version": null,
+      "bootloader_locked": null,
+      "verified_boot_state": null,
+      "support_status": "research_only",
+      "selected_strategy": "transport_recovery",
+      "current_state": "PATH_SELECT",
+      "restore_path_feasible": false,
+      "assessment_summary": "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+      "notes": [
+        "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
+        "ForgeOS can see the phone over USB and has attempted safe adb engagement, but the phone still needs adb, fastboot, or recovery transport exposed."
+      ]
     }
   }
 }

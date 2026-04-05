@@ -20,7 +20,7 @@
     "android_version": { "type": ["string", "null"] },
     "transport": {
       "type": "string",
-      "enum": ["usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery", "unknown"]
+      "enum": ["usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery", "usb-mtp", "unknown"]
     },
     "bootloader_locked": { "type": ["boolean", "null"] },
     "verified_boot_state": { "type": ["string", "null"] },
