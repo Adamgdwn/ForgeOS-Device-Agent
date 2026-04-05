@@ -106,6 +106,9 @@ class ForgeControlApp:
         self.steps_card = self._build_steps_card()
         self.host_card = self._build_host_card()
         self.profile_card = self._build_profile_card()
+        self.proposal_card = self._build_proposal_card()
+        self.backup_card = self._build_backup_card()
+        self.review_card = self._build_review_card()
         self.connection_help_card = self._build_connection_help_card()
         self.approval_card = self._build_approval_card()
         self.autonomous_card = self._build_autonomous_card()
@@ -409,6 +412,69 @@ class ForgeControlApp:
         layout.addWidget(self.connection_help_text, 1)
         return group
 
+    def _build_proposal_card(self) -> QGroupBox:
+        group = QGroupBox("2. Proposed Outcome And Preview")
+        layout = QVBoxLayout(group)
+        self.proposal_status = QLabel("ForgeOS will show the proposed rehabilitation path here.")
+        self.proposal_status.setWordWrap(True)
+        self.proposal_status.setProperty("role", "body")
+        self.proposal_choice_combo = QComboBox()
+        self.proposal_choice_combo.addItem("No proposed options yet", "")
+        self.proposal_notes = QTextEdit()
+        self.proposal_notes.setReadOnly(True)
+        self.proposal_notes.setMaximumHeight(260)
+        layout.addWidget(self.proposal_status)
+        layout.addWidget(self.proposal_choice_combo)
+        layout.addWidget(self.proposal_notes, 1)
+        return group
+
+    def _build_backup_card(self) -> QGroupBox:
+        group = QGroupBox("3. Backup And Restore")
+        layout = QVBoxLayout(group)
+        self.backup_status = QLabel("ForgeOS will show backup readiness here before any destructive step is considered.")
+        self.backup_status.setWordWrap(True)
+        self.backup_status.setProperty("role", "body")
+        self.backup_text = QTextEdit()
+        self.backup_text.setReadOnly(True)
+        self.backup_text.setMaximumHeight(240)
+        layout.addWidget(self.backup_status)
+        layout.addWidget(self.backup_text, 1)
+        return group
+
+    def _build_review_card(self) -> QGroupBox:
+        group = QGroupBox("4. Verification Review")
+        layout = QVBoxLayout(group)
+        self.review_status = QLabel(
+            "Use this panel to confirm the proposed outcome, restore approach, and acceptable limitations before install is even discussed."
+        )
+        self.review_status.setWordWrap(True)
+        self.review_status.setProperty("role", "body")
+        layout.addWidget(self.review_status)
+
+        self.review_fit_check = QCheckBox("The proposed outcome fits the intended user")
+        self.review_restore_check = QCheckBox("The backup and restore approach looks acceptable")
+        self.review_limitations_check = QCheckBox("The listed limitations are acceptable")
+        layout.addWidget(self.review_fit_check)
+        layout.addWidget(self.review_restore_check)
+        layout.addWidget(self.review_limitations_check)
+
+        review_notes_label = QLabel("Review notes and rejected features")
+        review_notes_label.setProperty("role", "hint")
+        layout.addWidget(review_notes_label)
+        self.review_notes = QTextEdit()
+        self.review_notes.setMaximumHeight(90)
+        layout.addWidget(self.review_notes)
+
+        self.save_review_button = QPushButton("Save Review Decisions")
+        self.save_review_button.clicked.connect(self.save_operator_review)
+        layout.addWidget(self.save_review_button)
+
+        self.review_text = QTextEdit()
+        self.review_text.setReadOnly(True)
+        self.review_text.setMaximumHeight(220)
+        layout.addWidget(self.review_text, 1)
+        return group
+
     def _build_steps_card(self) -> QGroupBox:
         group = QGroupBox("Agent Execution")
         layout = QVBoxLayout(group)
@@ -422,7 +488,7 @@ class ForgeControlApp:
         return group
 
     def _build_approval_card(self) -> QGroupBox:
-        group = QGroupBox("Install Gate")
+        group = QGroupBox("5. Install Gate")
         layout = QVBoxLayout(group)
 
         self.approval_status = QLabel(
@@ -1092,6 +1158,142 @@ class ForgeControlApp:
                 combo.setCurrentIndex(index)
                 return
 
+    def _operator_review_path(self, session_dir: Path) -> Path:
+        return session_dir / "runtime" / "operator-review.json"
+
+    def _read_operator_review(self, session_dir: Path) -> dict[str, Any]:
+        return self._read_json(
+            self._operator_review_path(session_dir),
+            default={
+                "selected_option_id": "",
+                "fit_confirmed": False,
+                "restore_confirmed": False,
+                "limitations_accepted": False,
+                "notes": "",
+            },
+        )
+
+    def _write_operator_review(self, session_dir: Path, payload: dict[str, Any]) -> None:
+        path = self._operator_review_path(session_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2))
+
+    def save_operator_review(self) -> None:
+        if not self.current_session_dir:
+            self.review_status.setText("No current session is loaded yet, so there is no review to save.")
+            return
+        payload = {
+            "selected_option_id": self.proposal_choice_combo.currentData() or "",
+            "fit_confirmed": self.review_fit_check.isChecked(),
+            "restore_confirmed": self.review_restore_check.isChecked(),
+            "limitations_accepted": self.review_limitations_check.isChecked(),
+            "notes": self.review_notes.toPlainText().strip(),
+            "updated_at": utc_now(),
+        }
+        self._write_operator_review(self.current_session_dir, payload)
+        self.review_status.setText("Review decisions saved. ForgeOS will keep them visible while install remains gated.")
+        self.refresh_ui("Review decisions saved")
+
+    def _refresh_proposal_panel(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
+        recommendation_options = runtime_plan.get("recommendation_options", []) or []
+        preview_execution = runtime_plan.get("preview_execution", {}) or {}
+        selected_before = self.proposal_choice_combo.currentData()
+        self.proposal_choice_combo.blockSignals(True)
+        self.proposal_choice_combo.clear()
+        if recommendation_options:
+            for option in recommendation_options:
+                label = f"{option.get('label', 'Unknown option')} ({option.get('fit_score', 0):.2f})"
+                self.proposal_choice_combo.addItem(label, option.get("option_id", ""))
+        else:
+            self.proposal_choice_combo.addItem("No proposed options yet", "")
+        for index in range(self.proposal_choice_combo.count()):
+            if self.proposal_choice_combo.itemData(index) == selected_before:
+                self.proposal_choice_combo.setCurrentIndex(index)
+                break
+        self.proposal_choice_combo.blockSignals(False)
+
+        phase = runtime_plan.get("phase", "unknown")
+        recommended_use_case = runtime_plan.get("recommended_use_case", "unknown")
+        recommended_path = runtime_plan.get("recommended_path", "unknown")
+        self.proposal_status.setText(
+            f"ForgeOS currently recommends `{recommended_use_case}` on the `{recommended_path}` path. This is still reviewable and does not imply a wipe/install decision."
+        )
+        lines = [
+            f"Current runtime phase: {phase}",
+            f"Recommended use case: {recommended_use_case}",
+            f"Recommended path: {recommended_path}",
+            "",
+            f"Preview status: {preview_execution.get('status', 'unknown')}",
+            f"Preview mode: {preview_execution.get('mode', 'unknown')}",
+            preview_execution.get("summary", "No preview summary available."),
+        ]
+        if recommendation_options:
+            lines.extend(["", "Alternative directions:"])
+            for option in recommendation_options:
+                lines.append(
+                    f"- {option.get('label', 'Unknown option')} ({option.get('fit_score', 0):.2f}): {option.get('rationale', '')}"
+                )
+        self._set_text_preserve_scroll(self.proposal_notes, "\n".join(lines))
+
+    def _refresh_backup_panel(self, session_dir: Path) -> None:
+        backup_plan = self._read_json(session_dir / "backup" / "backup-plan.json")
+        restore_plan = self._read_json(session_dir / "restore" / "restore-plan.json")
+        metadata_backup = self._read_json(session_dir / "backup" / "device-metadata-backup.json")
+        self.backup_status.setText(
+            "ForgeOS should make rollback obvious before a wipe is ever considered. This panel shows the current recovery bundle, metadata capture, and restore notes."
+        )
+        lines = [
+            f"Backup bundle ready: {'yes' if backup_plan else 'no'}",
+            f"Live metadata captured: {'yes' if metadata_backup.get('adb_metadata_available') else 'partial/no'}",
+            f"Restore path feasible: {backup_plan.get('restore_path_feasible', False)}",
+            f"Restore status: {restore_plan.get('status', 'unknown')}",
+        ]
+        if backup_plan:
+            lines.extend(
+                [
+                    "",
+                    f"Bundle path: {backup_plan.get('backup_bundle_path', 'unknown')}",
+                    f"Metadata path: {backup_plan.get('metadata_backup_path', 'unknown')}",
+                    f"Restore notes: {backup_plan.get('restore_notes', 'No restore notes available.')}",
+                ]
+            )
+        if metadata_backup.get("limitations"):
+            lines.extend(["", "Known metadata limits:"])
+            lines.extend(f"- {item}" for item in metadata_backup.get("limitations", [])[:3])
+        self._set_text_preserve_scroll(self.backup_text, "\n".join(lines))
+
+    def _refresh_review_panel(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
+        review = self._read_operator_review(session_dir)
+        verification_execution = runtime_plan.get("verification_execution", {}) or {}
+        self.review_fit_check.setChecked(bool(review.get("fit_confirmed")))
+        self.review_restore_check.setChecked(bool(review.get("restore_confirmed")))
+        self.review_limitations_check.setChecked(bool(review.get("limitations_accepted")))
+        if not self.review_notes.hasFocus():
+            self.review_notes.setPlainText(review.get("notes", ""))
+        selected_option_id = review.get("selected_option_id")
+        if selected_option_id:
+            self._set_combo_by_value(self.proposal_choice_combo, selected_option_id)
+        lines = [
+            f"Verification status: {verification_execution.get('status', 'unknown')}",
+            verification_execution.get("summary", "No verification summary available."),
+        ]
+        checkpoints = verification_execution.get("checkpoints", []) or []
+        if checkpoints:
+            lines.extend(["", "Verification checkpoints:"])
+            for checkpoint in checkpoints[:6]:
+                lines.append(
+                    f"- {checkpoint.get('name', 'unknown')}: {checkpoint.get('status', 'unknown')} | {checkpoint.get('detail', '')}"
+                )
+        interactive_checks = verification_execution.get("interactive_checks", []) or []
+        if interactive_checks:
+            lines.extend(["", "Questions ForgeOS still wants reviewed:"])
+            for check in interactive_checks:
+                lines.append(f"- {check.get('prompt', 'unknown')}")
+        self._set_text_preserve_scroll(self.review_text, "\n".join(lines))
+        self.review_status.setText(
+            "This is the non-destructive review stage. Confirm what you like, reject what you do not want, and save notes before the install gate ever becomes active."
+        )
+
     def _load_profile_form(self, session_dir: Path) -> None:
         if self.profile_form_dirty and self.profile_form_session == session_dir:
             return
@@ -1460,6 +1662,9 @@ class ForgeControlApp:
         self._set_text_preserve_scroll(self.autonomous_text, autonomous_text)
         self._load_profile_form(self.current_session_dir)
         self.profile_status.setText("Profile is loaded for this session. Save changes to recompute the OS path.")
+        self._refresh_proposal_panel(self.current_session_dir, runtime_plan)
+        self._refresh_backup_panel(self.current_session_dir)
+        self._refresh_review_panel(self.current_session_dir, runtime_plan)
         self._refresh_connection_help(self.current_session_dir)
         session_flash_plan = self.sessions.load_flash_plan(self.current_session_dir)
         approval = self.sessions.load_destructive_approval(self.current_session_dir)
@@ -1878,11 +2083,14 @@ class ForgeControlApp:
         runtime_plan = self._read_json(self.current_session_dir / "runtime" / "session-plan.json") if self.current_session_dir else {}
         phase = runtime_plan.get("phase", "unknown")
         flash_plan = self.sessions.load_flash_plan(self.current_session_dir) if self.current_session_dir else None
-        install_visible = has_session and phase in {"interactive_verification", "wipe_install"} and flash_plan is not None and flash_plan.status != "deferred"
+        install_visible = has_session and (phase == "wipe_install" or self.show_advanced) and flash_plan is not None and flash_plan.status != "deferred"
         show_connection_help = usb_only_device or engagement_status in {"usb_only_detected", "awaiting_user_approval"}
         self.connection_help_card.setVisible(show_connection_help)
         self.approval_card.setVisible(install_visible)
         self.profile_card.setVisible(has_session)
+        self.proposal_card.setVisible(has_session)
+        self.backup_card.setVisible(has_session)
+        self.review_card.setVisible(has_session and phase in {"build_preview", "interactive_verification", "wipe_install"})
         self.help_card.setVisible(has_session or usb_only_device)
         self.device_card.setVisible(self.show_advanced and has_session)
         self.autonomous_card.setVisible(self.show_advanced and has_session)
@@ -1915,30 +2123,36 @@ class ForgeControlApp:
         if mode == "narrow":
             self.content_grid.addWidget(self.now_card, 0, 0)
             self.content_grid.addWidget(self.steps_card, 1, 0)
-            self.content_grid.addWidget(self.host_card, 2, 0)
-            self.content_grid.addWidget(self.profile_card, 3, 0)
-            self.content_grid.addWidget(self.connection_help_card, 4, 0)
-            self.content_grid.addWidget(self.device_card, 5, 0)
-            self.content_grid.addWidget(self.autonomous_card, 6, 0)
-            self.content_grid.addWidget(self.approval_card, 7, 0)
-            self.content_grid.addWidget(self.help_card, 8, 0)
+            self.content_grid.addWidget(self.profile_card, 2, 0)
+            self.content_grid.addWidget(self.proposal_card, 3, 0)
+            self.content_grid.addWidget(self.backup_card, 4, 0)
+            self.content_grid.addWidget(self.review_card, 5, 0)
+            self.content_grid.addWidget(self.connection_help_card, 6, 0)
+            self.content_grid.addWidget(self.host_card, 7, 0)
+            self.content_grid.addWidget(self.device_card, 8, 0)
+            self.content_grid.addWidget(self.autonomous_card, 9, 0)
+            self.content_grid.addWidget(self.approval_card, 10, 0)
+            self.content_grid.addWidget(self.help_card, 11, 0)
             self.content_grid.setColumnStretch(0, 1)
             self.content_grid.setColumnStretch(1, 0)
         else:
             self.content_grid.addWidget(self.now_card, 0, 0)
-            self.content_grid.addWidget(self.host_card, 0, 1)
+            self.content_grid.addWidget(self.steps_card, 0, 1)
             self.content_grid.addWidget(self.profile_card, 1, 0)
-            self.content_grid.addWidget(self.steps_card, 1, 1)
-            self.content_grid.addWidget(self.connection_help_card, 2, 0)
-            self.content_grid.addWidget(self.device_card, 2, 1)
-            self.content_grid.addWidget(self.autonomous_card, 3, 0)
-            self.content_grid.addWidget(self.help_card, 3, 1)
-            self.content_grid.addWidget(self.approval_card, 4, 0, 1, 2)
+            self.content_grid.addWidget(self.proposal_card, 1, 1)
+            self.content_grid.addWidget(self.backup_card, 2, 0)
+            self.content_grid.addWidget(self.review_card, 2, 1)
+            self.content_grid.addWidget(self.connection_help_card, 3, 0)
+            self.content_grid.addWidget(self.host_card, 3, 1)
+            self.content_grid.addWidget(self.device_card, 4, 0)
+            self.content_grid.addWidget(self.help_card, 4, 1)
+            self.content_grid.addWidget(self.autonomous_card, 5, 0, 1, 2)
+            self.content_grid.addWidget(self.approval_card, 6, 0, 1, 2)
             self.content_grid.setColumnStretch(0, 5)
             self.content_grid.setColumnStretch(1, 5)
-        for row in range(6):
+        for row in range(8):
             self.content_grid.setRowStretch(row, 0)
-        self.content_grid.setRowStretch(5, 1)
+        self.content_grid.setRowStretch(7, 1)
 
     def _handle_resize(self, event) -> None:
         width = self.window.width()
