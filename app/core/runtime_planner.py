@@ -93,6 +93,18 @@ class RuntimePlanner:
             "runtime_plan_path": str(
                 self.sessions.write_runtime_artifact(session_dir, "runtime/session-plan.json", to_dict(plan))
             ),
+            "proposal_manifest_path": str(
+                self.sessions.write_runtime_artifact(
+                    session_dir,
+                    "runtime/proposal/proposal-manifest.json",
+                    self._proposal_manifest(
+                        session_dir=session_dir,
+                        build_plan=build_plan,
+                        recommendation=recommendation,
+                        preview_execution=preview_execution,
+                    ),
+                )
+            ),
             "worker_routing_path": str(
                 self.sessions.write_runtime_artifact(
                     session_dir,
@@ -120,6 +132,144 @@ class RuntimePlanner:
             ),
         }
         return files
+
+    def _proposal_manifest(
+        self,
+        *,
+        session_dir: Path,
+        build_plan: dict[str, Any],
+        recommendation: dict[str, Any],
+        preview_execution: PreviewExecution,
+    ) -> dict[str, Any]:
+        user_profile = self.sessions.load_user_profile(session_dir)
+        os_goals = self.sessions.load_os_goals(session_dir)
+        recommended_use_case = recommendation.get("recommended_use_case", "research_hold")
+        recommended_path = build_plan.get("os_path", "research_only_path")
+        options: list[dict[str, Any]] = []
+        for option in recommendation.get("options", []):
+            option_id = option.get("option_id", "unknown")
+            feature_groups = self._feature_groups_for_option(
+                option_id=option_id,
+                recommended_path=recommended_path,
+                google_preference=user_profile.google_services_preference.value,
+                requires_updates=os_goals.requires_reliable_updates,
+                prefers_lockdown=os_goals.prefers_lockdown_defaults,
+                prefers_battery=os_goals.prefers_long_battery_life,
+            )
+            options.append(
+                {
+                    "option_id": option_id,
+                    "label": option.get("label", "Unknown option"),
+                    "fit_score": float(option.get("fit_score", 0.0)),
+                    "rationale": option.get("rationale", ""),
+                    "constraints": option.get("constraints", []),
+                    "evidence": option.get("evidence", []),
+                    "proposed_os_name": self._proposal_os_name(option_id, recommended_path),
+                    "included_features": feature_groups["included_features"],
+                    "optional_features": feature_groups["optional_features"],
+                    "excluded_features": feature_groups["excluded_features"],
+                }
+            )
+        selected = next((option for option in options if option["option_id"] == recommended_use_case), None)
+        if not selected and options:
+            selected = options[0]
+        return {
+            "recommended_use_case": recommended_use_case,
+            "recommended_path": recommended_path,
+            "proposed_os_name": self._proposal_os_name(recommended_use_case, recommended_path),
+            "preview_status": preview_execution.status,
+            "preview_mode": preview_execution.mode,
+            "proposal_summary": self._proposal_summary(recommended_path, recommended_use_case),
+            "options": options,
+            "selected_option_id": selected["option_id"] if selected else recommended_use_case,
+            "selected_option": selected or {},
+        }
+
+    def _proposal_summary(self, recommended_path: str, recommended_use_case: str) -> str:
+        option_name = recommended_use_case.replace("_", " ")
+        if recommended_path == "research_only_path":
+            return (
+                f"ForgeOS is presenting a concept proposal for {option_name} while transport, preview, and install readiness continue to mature."
+            )
+        if recommended_path in {"hardened_stock_path", "maintainable_hardened_path"}:
+            return f"ForgeOS is proposing a hardened stock-derived build for {option_name} with rollback visibility preserved."
+        if recommended_path in {"aftermarket_path", "managed_family_path", "device_specific_path"}:
+            return f"ForgeOS is proposing a customized build track for {option_name}, still subject to preview and verification review."
+        return f"ForgeOS is proposing a reviewable build direction for {option_name}."
+
+    def _proposal_os_name(self, option_id: str, recommended_path: str) -> str:
+        option_name = option_id.replace("_", " ").strip().title() if option_id else "Unknown Option"
+        if recommended_path == "research_only_path":
+            return f"{option_name} concept on a hardened stock Android baseline"
+        if recommended_path in {"hardened_stock_path", "maintainable_hardened_path"}:
+            return f"Hardened stock Android for {option_name}"
+        if recommended_path == "aftermarket_path":
+            return f"Aftermarket Android build for {option_name}"
+        if recommended_path == "managed_family_path":
+            return f"Managed family build for {option_name}"
+        if recommended_path == "device_specific_path":
+            return f"Device-specific tuned build for {option_name}"
+        return f"{option_name} build on {recommended_path.replace('_', ' ')}"
+
+    def _feature_groups_for_option(
+        self,
+        *,
+        option_id: str,
+        recommended_path: str,
+        google_preference: str,
+        requires_updates: bool,
+        prefers_lockdown: bool,
+        prefers_battery: bool,
+    ) -> dict[str, list[dict[str, Any]]]:
+        included_map: dict[str, list[dict[str, str]]] = {
+            "accessibility_focused_phone": [
+                {"id": "simple_launcher", "label": "Simplified launcher and larger touch targets", "reason": "Supports low-complexity daily use."},
+                {"id": "trusted_contacts", "label": "Trusted-contact shortcuts", "reason": "Keeps key actions close at hand."},
+                {"id": "accessibility_toggles", "label": "Accessibility quick toggles", "reason": "Reduces setup friction for assisted use."},
+            ],
+            "lightweight_custom_android": [
+                {"id": "debloated_apps", "label": "Debloated app set", "reason": "Keeps the device lighter and easier to maintain."},
+                {"id": "focused_home", "label": "Focused home screen", "reason": "Reduces distractions and clutter."},
+                {"id": "recovery_entry", "label": "Visible restore and recovery entry point", "reason": "Preserves reversibility."},
+            ],
+            "media_device": [
+                {"id": "offline_media", "label": "Offline media playback shell", "reason": "Matches the recommended use case."},
+                {"id": "large_controls", "label": "Large playback and volume controls", "reason": "Improves clarity for shared-device use."},
+            ],
+            "home_control_panel": [
+                {"id": "kiosk_mode", "label": "Single-purpose kiosk shell", "reason": "Keeps the device task-specific."},
+                {"id": "control_tiles", "label": "Large control tiles", "reason": "Improves wall-panel usability."},
+            ],
+        }
+        optional_features = [
+            {"id": "operator_notes", "label": "Pinned operator notes in the setup flow", "reason": "Helps explain the rehabilitation choices."},
+        ]
+        included = list(included_map.get(option_id, []))
+        excluded = [
+            {"id": "wipe_autostart", "label": "Automatic wipe/install start", "reason": "Destructive execution must stay operator-gated."},
+        ]
+        if google_preference == "keep_google_services":
+            included.append({"id": "google_services", "label": "Keep Google services compatibility", "reason": "Matches the selected service preference."})
+        elif google_preference == "reduce_google_services":
+            optional_features.append({"id": "reduced_google", "label": "Reduce Google services footprint", "reason": "Can be accepted or rejected by the operator."})
+        else:
+            included.append({"id": "minimize_google", "label": "Remove Google services where feasible", "reason": "Matches the selected service preference."})
+            excluded.append({"id": "full_google_bundle", "label": "Full Google bundle", "reason": "Excluded by the selected Google-services preference."})
+        if requires_updates:
+            included.append({"id": "update_channel", "label": "Preserve a reliable update path", "reason": "Matches the stated restore and maintenance requirements."})
+        else:
+            optional_features.append({"id": "manual_updates", "label": "Manual update workflow", "reason": "Allowed because reliable updates are not mandatory."})
+        if prefers_lockdown:
+            included.append({"id": "lockdown_defaults", "label": "Hardened privacy and lockdown defaults", "reason": "Matches the safety-first profile."})
+        if prefers_battery:
+            included.append({"id": "battery_profile", "label": "Battery-preserving runtime tuning", "reason": "Matches the long-battery-life preference."})
+        if recommended_path == "research_only_path":
+            excluded.append({"id": "emulator_validated_build", "label": "Emulator-validated install artifact", "reason": "Not available yet while the session remains in research mode."})
+        return {
+            "included_features": included,
+            "optional_features": optional_features,
+            "excluded_features": excluded,
+        }
 
     def _phase_for_state(
         self,

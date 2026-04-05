@@ -170,5 +170,9 @@ def test_runtime_planner_writes_runtime_artifacts(tmp_path: Path) -> None:
         ),
     )
     assert Path(files["runtime_plan_path"]).exists()
+    assert Path(files["proposal_manifest_path"]).exists()
     assert Path(files["worker_routing_path"]).exists()
     assert Path(files["audit_log_path"]).exists()
+    manifest = Path(files["proposal_manifest_path"]).read_text()
+    assert "included_features" in manifest
+    assert "proposed_os_name" in manifest

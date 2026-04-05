@@ -1251,69 +1251,55 @@ class ForgeControlApp:
             return
         self._open_path(self.current_session_dir / "backup")
 
+    def _read_proposal_manifest(self, session_dir: Path) -> dict[str, Any]:
+        return self._read_json(session_dir / "runtime" / "proposal" / "proposal-manifest.json")
+
     def _proposal_features(
         self,
         option_id: str,
         runtime_plan: dict[str, Any],
         session_dir: Path,
     ) -> list[dict[str, Any]]:
-        user_profile = self.sessions.load_user_profile(session_dir)
-        os_goals = self.sessions.load_os_goals(session_dir)
-        google_pref = user_profile.google_services_preference.value
-        base_features: dict[str, list[dict[str, Any]]] = {
-            "accessibility_focused_phone": [
-                {"id": "simple_launcher", "label": "Simplified launcher and larger touch targets", "default": True},
-                {"id": "reduced_notifications", "label": "Reduced notification noise", "default": True},
-                {"id": "trusted_contacts", "label": "Trusted-contact shortcuts", "default": True},
-                {"id": "accessibility_toggles", "label": "Accessibility quick toggles", "default": True},
-            ],
-            "lightweight_custom_android": [
-                {"id": "debloated_apps", "label": "Debloated app set", "default": True},
-                {"id": "focused_home", "label": "Focused home screen with fewer distractions", "default": True},
-                {"id": "battery_profile", "label": "Battery-first tuning", "default": True},
-                {"id": "recovery_entry", "label": "Visible recovery and restore entry point", "default": True},
-            ],
-            "media_device": [
-                {"id": "offline_media", "label": "Offline media playback shell", "default": True},
-                {"id": "simple_wifi", "label": "Simple Wi-Fi reconnect flow", "default": True},
-                {"id": "screen_timeout", "label": "Long-session screen behavior tuning", "default": True},
-                {"id": "volume_controls", "label": "Large media and volume controls", "default": True},
-            ],
-            "home_control_panel": [
-                {"id": "kiosk_mode", "label": "Single-purpose kiosk shell", "default": True},
-                {"id": "always_on_power", "label": "Docked power profile", "default": True},
-                {"id": "control_tiles", "label": "Large control tiles", "default": True},
-                {"id": "recoverability", "label": "Recoverability notes pinned for operator", "default": True},
-            ],
-        }
-        features = list(base_features.get(option_id, []))
-        if not features:
-            features = [
-                {"id": "safe_defaults", "label": "Safe default configuration", "default": True},
-                {"id": "restore_visibility", "label": "Visible restore and rollback path", "default": True},
-                {"id": "task_oriented_ui", "label": "Task-oriented simplified UI", "default": True},
-            ]
-        if google_pref == GoogleServicesPreference.KEEP.value:
-            features.append({"id": "google_services", "label": "Keep Google services compatibility", "default": True})
-        elif google_pref == GoogleServicesPreference.REDUCE.value:
-            features.append({"id": "reduced_google", "label": "Reduce Google services footprint", "default": True})
-        else:
-            features.append({"id": "minimize_google", "label": "Remove Google services where feasible", "default": True})
-        if os_goals.requires_reliable_updates:
-            features.append({"id": "update_channel", "label": "Preserve a reliable update path", "default": True})
-        if os_goals.prefers_lockdown_defaults:
-            features.append({"id": "lockdown_defaults", "label": "Hardened privacy and lockdown defaults", "default": True})
-        if os_goals.prefers_long_battery_life:
-            features.append({"id": "battery_life", "label": "Battery-preserving runtime settings", "default": True})
-        return features
+        manifest = self._read_proposal_manifest(session_dir)
+        options = manifest.get("options", []) or []
+        selected = next((option for option in options if option.get("option_id") == option_id), None)
+        if not selected:
+            selected = manifest.get("selected_option", {})
+        included = [
+            {"id": item.get("id", "unknown"), "label": item.get("label", "Unknown feature"), "default": True}
+            for item in selected.get("included_features", [])
+        ]
+        optional = [
+            {"id": item.get("id", "unknown"), "label": item.get("label", "Unknown feature"), "default": True}
+            for item in selected.get("optional_features", [])
+        ]
+        features = included + optional
+        if features:
+            return features
+        return [
+            {"id": "safe_defaults", "label": "Safe default configuration", "default": True},
+            {"id": "restore_visibility", "label": "Visible restore and rollback path", "default": True},
+        ]
 
     def _selected_or_recommended_option_id(self, runtime_plan: dict[str, Any]) -> str:
         selected = self.proposal_choice_combo.currentData()
         if selected:
             return str(selected)
+        if self.current_session_dir:
+            manifest = self._read_proposal_manifest(self.current_session_dir)
+            if manifest.get("selected_option_id"):
+                return str(manifest.get("selected_option_id"))
         return str(runtime_plan.get("recommended_use_case", ""))
 
     def _proposal_os_name(self, option_id: str, runtime_plan: dict[str, Any]) -> str:
+        if self.current_session_dir:
+            manifest = self._read_proposal_manifest(self.current_session_dir)
+            if option_id:
+                for option in manifest.get("options", []) or []:
+                    if option.get("option_id") == option_id and option.get("proposed_os_name"):
+                        return str(option.get("proposed_os_name"))
+            if manifest.get("proposed_os_name"):
+                return str(manifest.get("proposed_os_name"))
         path = str(runtime_plan.get("recommended_path", "research_only_path"))
         option_name = self._labelize(option_id or runtime_plan.get("recommended_use_case"))
         if path == "research_only_path":
@@ -1326,7 +1312,12 @@ class ForgeControlApp:
 
     def _refresh_feature_selection(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
         review = self._read_operator_review(session_dir)
+        manifest = self._read_proposal_manifest(session_dir)
         selected_option_id = self._selected_or_recommended_option_id(runtime_plan)
+        selected_option = next(
+            (option for option in manifest.get("options", []) or [] if option.get("option_id") == selected_option_id),
+            manifest.get("selected_option", {}),
+        )
         features = self._proposal_features(selected_option_id, runtime_plan, session_dir)
         accepted = set(review.get("accepted_feature_ids", []))
         rejected = set(review.get("rejected_feature_ids", []))
@@ -1351,8 +1342,13 @@ class ForgeControlApp:
             self.review_feature_layout.addWidget(checkbox)
             self.review_feature_checks[feature_id] = checkbox
         self.review_feature_layout.addStretch(1)
+        excluded = selected_option.get("excluded_features", []) or []
+        excluded_summary = ""
+        if excluded:
+            excluded_labels = ", ".join(item.get("label", "Unknown") for item in excluded[:3])
+            excluded_summary = f" Default-off or unavailable: {excluded_labels}."
         self.review_feature_status.setText(
-            f"Proposed OS profile: {self._proposal_os_name(selected_option_id, runtime_plan)}. Keep the features you want and uncheck anything ForgeOS should avoid."
+            f"Proposed OS profile: {self._proposal_os_name(selected_option_id, runtime_plan)}. Keep the features you want and uncheck anything ForgeOS should avoid.{excluded_summary}"
         )
 
     def _proposal_selection_changed(self, *_args: object) -> None:
@@ -1408,7 +1404,8 @@ class ForgeControlApp:
         self.refresh_ui("Review decisions saved")
 
     def _refresh_proposal_panel(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
-        recommendation_options = runtime_plan.get("recommendation_options", []) or []
+        proposal_manifest = self._read_proposal_manifest(session_dir)
+        recommendation_options = proposal_manifest.get("options", []) or runtime_plan.get("recommendation_options", []) or []
         preview_execution = runtime_plan.get("preview_execution", {}) or {}
         capability_matrix = self._read_json(session_dir / "runtime" / "preview" / "capability-matrix.json")
         walkthrough_path = session_dir / "runtime" / "preview" / "simulated-walkthrough.md"
@@ -1429,23 +1426,29 @@ class ForgeControlApp:
         self.proposal_choice_combo.blockSignals(False)
 
         phase = runtime_plan.get("phase", "unknown")
-        recommended_use_case = runtime_plan.get("recommended_use_case", "unknown")
-        recommended_path = runtime_plan.get("recommended_path", "unknown")
+        recommended_use_case = proposal_manifest.get("recommended_use_case", runtime_plan.get("recommended_use_case", "unknown"))
+        recommended_path = proposal_manifest.get("recommended_path", runtime_plan.get("recommended_path", "unknown"))
         selected_option_id = self._selected_or_recommended_option_id(runtime_plan)
-        proposed_os = self._proposal_os_name(selected_option_id, runtime_plan)
+        proposed_os = proposal_manifest.get("proposed_os_name") or self._proposal_os_name(selected_option_id, runtime_plan)
+        proposal_summary = proposal_manifest.get("proposal_summary", "")
         self.proposal_status.setText(
-            f"ForgeOS currently recommends `{recommended_use_case}` on the `{recommended_path}` path. This remains a proposal only; wipe/install stays off the table until you have reviewed backup, preview, and features."
+            proposal_summary or f"ForgeOS currently recommends `{recommended_use_case}` on the `{recommended_path}` path. This remains a proposal only; wipe/install stays off the table until you have reviewed backup, preview, and features."
         )
         self.proposal_os_label.setText(f"Proposed OS profile: {proposed_os}")
+        selected_option = next(
+            (option for option in recommendation_options if option.get("option_id") == selected_option_id),
+            proposal_manifest.get("selected_option", {}),
+        )
         lines = [
             f"Current runtime phase: {phase}",
             f"Proposed OS profile: {proposed_os}",
             f"Recommended use case: {self._labelize(recommended_use_case)}",
             f"Recommended path: {self._labelize(recommended_path)}",
             f"Build-plan summary: {build_plan.get('summary', 'No build-plan summary available.')}",
+            selected_option.get("rationale", proposal_manifest.get("proposal_summary", "No proposal rationale available.")),
             "",
-            f"Preview status: {preview_execution.get('status', 'unknown')}",
-            f"Preview mode: {preview_execution.get('mode', capability_matrix.get('preview_mode', 'unknown'))}",
+            f"Preview status: {preview_execution.get('status', proposal_manifest.get('preview_status', 'unknown'))}",
+            f"Preview mode: {preview_execution.get('mode', proposal_manifest.get('preview_mode', capability_matrix.get('preview_mode', 'unknown')))}",
             preview_execution.get("summary", "No preview summary available."),
         ]
         if capability_matrix:
@@ -1467,8 +1470,10 @@ class ForgeControlApp:
         if recommendation_options:
             lines.extend(["", "Alternative directions:"])
             for option in recommendation_options:
+                included_count = len(option.get("included_features", []))
+                optional_count = len(option.get("optional_features", []))
                 lines.append(
-                    f"- {option.get('label', 'Unknown option')} ({option.get('fit_score', 0):.2f}): {option.get('rationale', '')}"
+                    f"- {option.get('label', 'Unknown option')} ({option.get('fit_score', 0):.2f}): {option.get('rationale', '')} | features: {included_count} included, {optional_count} optional"
                 )
         self._set_text_preserve_scroll(self.proposal_notes, "\n".join(lines))
         self._refresh_feature_selection(session_dir, runtime_plan)
@@ -1538,6 +1543,13 @@ class ForgeControlApp:
             lines.extend(["", "Questions ForgeOS still wants reviewed:"])
             for check in interactive_checks:
                 lines.append(f"- {check.get('prompt', 'unknown')}")
+        proposal_manifest = self._read_proposal_manifest(session_dir)
+        selected_option = proposal_manifest.get("selected_option", {})
+        excluded = selected_option.get("excluded_features", []) or []
+        if excluded:
+            lines.extend(["", "Not included by default:"])
+            for item in excluded[:6]:
+                lines.append(f"- {item.get('label', 'unknown')}: {item.get('reason', '')}")
         self._set_text_preserve_scroll(self.review_text, "\n".join(lines))
         self.review_status.setText(
             "This is the non-destructive review stage. Confirm what you like, reject what you do not want, and save notes before the install gate ever becomes active."
@@ -2159,7 +2171,7 @@ class ForgeControlApp:
                 checklist.extend(
                     [
                         "Wait while ForgeOS compares device evidence, your profile, and support data.",
-                        "Review the recommended rehabilitation target when it appears.",
+                        "Review the proposed OS profile and adjust the feature selection when it appears.",
                     ]
                 )
             elif phase == "backup_restore":
@@ -2364,7 +2376,7 @@ class ForgeControlApp:
         self.profile_card.setVisible(has_session)
         self.proposal_card.setVisible(has_session)
         self.backup_card.setVisible(has_session)
-        self.review_card.setVisible(has_session and phase in {"build_preview", "interactive_verification", "wipe_install"})
+        self.review_card.setVisible(has_session and phase in {"recommendation", "build_preview", "interactive_verification", "wipe_install"})
         self.help_card.setVisible(has_session or usb_only_device)
         self.device_card.setVisible(self.show_advanced and has_session)
         self.autonomous_card.setVisible(self.show_advanced and has_session)
