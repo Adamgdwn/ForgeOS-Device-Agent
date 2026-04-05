@@ -1742,7 +1742,13 @@ class ForgeControlApp:
         flash_plan = self.sessions.load_flash_plan(session_dir)
         runtime_plan = self._read_json(session_dir / "runtime" / "session-plan.json")
         phase = runtime_plan.get("phase", "unknown")
+        approval_gates = runtime_plan.get("approval_gates", []) or []
+        install_gate = next(
+            (gate for gate in approval_gates if gate.get("action") == "wipe_and_install"),
+            {},
+        )
         install_ready = phase == "wipe_install" and flash_plan is not None and flash_plan.status != "deferred"
+        review_visible = phase in {"interactive_verification", "wipe_install"}
         if not self.confirmation_input.hasFocus():
             if approval.confirmation_phrase:
                 self.confirmation_input.setText(approval.confirmation_phrase)
@@ -1754,19 +1760,38 @@ class ForgeControlApp:
             self.approval_notes.setPlainText(approval.notes)
 
         if flash_plan is None or flash_plan.status == "deferred" or not install_ready:
-            self.approval_status.setText(
-                "Install approval is not active yet. ForgeOS is still in research, preview, verification, or non-destructive planning."
-            )
+            if review_visible and flash_plan is not None and flash_plan.status != "deferred":
+                self.approval_status.setText(
+                    "Install review is visible now. You can pre-record approval details, but execution stays blocked until ForgeOS reaches install readiness."
+                )
+            else:
+                self.approval_status.setText(
+                    "Install approval is not active yet. ForgeOS is still in research, preview, verification, or non-destructive planning."
+                )
             summary_lines = [
                 f"Current runtime phase: {phase}",
                 "",
-                "Install approval stays hidden from the critical path until ForgeOS reaches install readiness.",
-                "What ForgeOS should complete first:",
-                "- assessment and recommendation",
-                "- backup and restore readiness",
-                "- preview generation",
-                "- verification review",
+                (
+                    "You can review the install gate now, but dry run and live execution remain blocked until install readiness."
+                    if review_visible and flash_plan is not None and flash_plan.status != "deferred"
+                    else "Install approval stays hidden from the critical path until ForgeOS reaches install readiness."
+                ),
             ]
+            missing_requirements = install_gate.get("missing_requirements", [])
+            if missing_requirements:
+                summary_lines.extend(["", "Remaining install requirements:"])
+                summary_lines.extend(f"- {item}" for item in missing_requirements)
+            else:
+                summary_lines.extend(
+                    [
+                        "",
+                        "What ForgeOS should complete first:",
+                        "- assessment and recommendation",
+                        "- backup and restore readiness",
+                        "- preview generation",
+                        "- verification review",
+                    ]
+                )
             if flash_plan is not None:
                 summary_lines.extend(
                     [
@@ -1777,7 +1802,7 @@ class ForgeControlApp:
                     ]
                 )
             self._set_text_preserve_scroll(self.flash_plan_text, "\n".join(summary_lines))
-            self.approve_button.setEnabled(False)
+            self.approve_button.setEnabled(bool(review_visible and flash_plan is not None and flash_plan.status != "deferred"))
             self.dry_run_button.setEnabled(False)
             self.live_button.setEnabled(False)
             return
@@ -1853,7 +1878,7 @@ class ForgeControlApp:
         runtime_plan = self._read_json(self.current_session_dir / "runtime" / "session-plan.json") if self.current_session_dir else {}
         phase = runtime_plan.get("phase", "unknown")
         flash_plan = self.sessions.load_flash_plan(self.current_session_dir) if self.current_session_dir else None
-        install_visible = has_session and phase == "wipe_install" and flash_plan is not None and flash_plan.status != "deferred"
+        install_visible = has_session and phase in {"interactive_verification", "wipe_install"} and flash_plan is not None and flash_plan.status != "deferred"
         show_connection_help = usb_only_device or engagement_status in {"usb_only_detected", "awaiting_user_approval"}
         self.connection_help_card.setVisible(show_connection_help)
         self.approval_card.setVisible(install_visible)
