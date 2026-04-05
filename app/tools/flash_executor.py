@@ -28,6 +28,7 @@ class FlashExecutorTool(BaseTool):
         device: dict[str, Any],
         assessment: dict[str, Any],
         build_plan: dict[str, Any],
+        backup_plan: dict[str, Any],
         policy: PolicyModel,
         live_mode: bool = False,
     ) -> FlashPlan:
@@ -40,6 +41,14 @@ class FlashExecutorTool(BaseTool):
                 "kind": "verification",
                 "destructive": False,
                 "description": "Confirm transport, power stability, and host tooling readiness.",
+            },
+            {
+                "name": "verify_backup_bundle",
+                "kind": "safety",
+                "destructive": False,
+                "description": (
+                    f"Confirm the pre-wipe backup bundle exists at {backup_plan.get('backup_bundle_path', 'unknown')}."
+                ),
             },
             {
                 "name": "restore_checkpoint",
@@ -81,7 +90,7 @@ class FlashExecutorTool(BaseTool):
             artifact_hints=build_plan.get("artifact_requirements", []),
             status="planned",
             summary=(
-                "Prepared a conservative flash plan with preflight, restore checkpoint, wipe, flash, and validation phases."
+                "Prepared a conservative flash plan with preflight, backup verification, restore checkpoint, wipe, flash, and validation phases."
             ),
         )
 

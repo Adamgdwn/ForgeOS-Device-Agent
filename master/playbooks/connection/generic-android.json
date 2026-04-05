@@ -1,0 +1,71 @@
+{
+  "playbook_id": "generic-android",
+  "states": {
+    "usb_only": {
+      "title": "Enable a manageable Android transport",
+      "summary": "ForgeOS can see the phone over USB, but the phone is still exposing only MTP or generic USB visibility.",
+      "steps": [
+        "Unlock the phone screen.",
+        "Open Settings and go to About phone.",
+        "Tap Build number 7 times to enable Developer Options.",
+        "Open Developer Options and enable USB debugging.",
+        "Reconnect the USB cable if the phone stays in charge-only or MTP-only mode.",
+        "Approve the Allow USB debugging prompt on the phone if it appears."
+      ],
+      "expected_next_state": "adb unauthorized, then adb connected after trust approval",
+      "troubleshooting": [
+        "Use a known-good USB data cable, not a charge-only cable.",
+        "Keep the phone unlocked while connecting it.",
+        "If the USB mode chooser appears, prefer file transfer or data mode over charge only."
+      ]
+    },
+    "adb_unauthorized": {
+      "title": "Approve USB debugging on the phone",
+      "summary": "The phone is visible to adb, but it has not yet trusted this computer.",
+      "steps": [
+        "Unlock the phone.",
+        "Look for the Allow USB debugging prompt.",
+        "Choose Allow for this computer.",
+        "If no prompt appears, reconnect the cable and keep the screen awake."
+      ],
+      "expected_next_state": "adb connected",
+      "troubleshooting": [
+        "If the trust prompt does not appear, toggle USB debugging off and back on.",
+        "Revoke USB debugging authorizations and reconnect if the phone is stuck."
+      ]
+    },
+    "adb_connected": {
+      "title": "adb transport is ready",
+      "summary": "ForgeOS can now interrogate the phone non-destructively and prepare backup and restore artifacts.",
+      "steps": [
+        "Leave the phone connected and unlocked.",
+        "Let ForgeOS capture backup metadata before any destructive action.",
+        "Review the flash plan and restore readiness before approving a wipe."
+      ],
+      "expected_next_state": "assessment and backup capture",
+      "troubleshooting": []
+    },
+    "fastboot_connected": {
+      "title": "fastboot transport is ready",
+      "summary": "ForgeOS can continue low-level transport assessment and flash planning from fastboot.",
+      "steps": [
+        "Keep the device on the fastboot screen.",
+        "Wait for ForgeOS to capture low-level device facts and rollback evidence.",
+        "Do not unlock or wipe anything until the restore path is reviewed."
+      ],
+      "expected_next_state": "fastboot assessment",
+      "troubleshooting": []
+    },
+    "default": {
+      "title": "Connection setup guidance",
+      "summary": "ForgeOS is waiting for a transport it can manage safely.",
+      "steps": [
+        "Unlock the phone.",
+        "Enable USB debugging if Android is booted.",
+        "Reconnect the cable and wait for ForgeOS to refresh."
+      ],
+      "expected_next_state": "manageable transport detected",
+      "troubleshooting": []
+    }
+  }
+}

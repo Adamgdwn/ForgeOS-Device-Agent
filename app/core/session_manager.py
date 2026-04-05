@@ -196,6 +196,8 @@ class SessionManager:
             "codegen",
             "patches",
             "execution",
+            "backup",
+            "restore",
         ]:
             (session_dir / directory).mkdir(parents=True, exist_ok=True)
         strategies_src = self.master_dir / "strategies"

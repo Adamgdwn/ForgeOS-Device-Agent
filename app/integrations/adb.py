@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 from app.core.models import Transport
 
@@ -64,6 +65,41 @@ def reconnect() -> dict[str, object]:
     if not adb_available():
         return {"ok": False, "reason": "adb not available"}
     completed = subprocess.run(["adb", "reconnect"], capture_output=True, text=True, check=False)
+    return {
+        "ok": completed.returncode == 0,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+        "returncode": completed.returncode,
+    }
+
+
+def shell(serial: str, command: list[str]) -> dict[str, object]:
+    if not adb_available():
+        return {"ok": False, "reason": "adb not available"}
+    completed = subprocess.run(
+        ["adb", "-s", serial, "shell", *command],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return {
+        "ok": completed.returncode == 0,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+        "returncode": completed.returncode,
+    }
+
+
+def pull(serial: str, remote_path: str, local_path: Path) -> dict[str, object]:
+    if not adb_available():
+        return {"ok": False, "reason": "adb not available"}
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    completed = subprocess.run(
+        ["adb", "-s", serial, "pull", remote_path, str(local_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return {
         "ok": completed.returncode == 0,
         "stdout": completed.stdout.strip(),

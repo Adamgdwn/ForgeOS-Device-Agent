@@ -1,0 +1,39 @@
+{
+  "playbook_id": "samsung-galaxy-a5",
+  "states": {
+    "usb_only": {
+      "title": "Samsung Galaxy A5 setup for USB debugging",
+      "summary": "The Galaxy A5 is connected over USB, but it is still presenting only MTP or generic media visibility.",
+      "steps": [
+        "Unlock the Galaxy A5.",
+        "Open Settings, then About device or About phone.",
+        "If Software information is shown, open it.",
+        "Tap Build number 7 times until Developer Options are enabled.",
+        "Go back to Settings and open Developer Options.",
+        "Turn on USB debugging.",
+        "Reconnect the USB cable if needed and keep the phone in file transfer or data mode.",
+        "Approve the Allow USB debugging prompt on the phone."
+      ],
+      "expected_next_state": "adb unauthorized, then adb connected",
+      "troubleshooting": [
+        "Samsung phones sometimes stay in MTP until the phone is unlocked during reconnection.",
+        "If the trust prompt never appears, toggle USB debugging off and back on.",
+        "Do not enable OEM unlocking yet unless ForgeOS has already confirmed the restore path and flashing plan."
+      ]
+    },
+    "adb_unauthorized": {
+      "title": "Approve Galaxy A5 USB debugging trust",
+      "summary": "The Galaxy A5 is visible to adb but has not yet trusted this computer.",
+      "steps": [
+        "Unlock the Galaxy A5 and watch for the Allow USB debugging dialog.",
+        "Choose Allow.",
+        "Keep the phone awake until ForgeOS shows adb connected."
+      ],
+      "expected_next_state": "adb connected",
+      "troubleshooting": [
+        "If the prompt is missing, reconnect the cable while the phone is unlocked.",
+        "If needed, revoke USB debugging authorizations in Developer Options and try again."
+      ]
+    }
+  }
+}

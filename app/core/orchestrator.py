@@ -17,10 +17,12 @@ from app.core.retry_planner import RetryPlanner
 from app.core.session_manager import SessionManager
 from app.core.state_machine import is_transition_allowed
 from app.tools.autonomous_engagement import AutonomousEngagementTool
+from app.tools.backup_restore import BackupAndRestorePlannerTool
 from app.tools.build_resolver import BuildResolverTool
 from app.tools.device_probe import DeviceProbeTool
 from app.tools.feasibility_assessor import FeasibilityAssessorTool
 from app.tools.flash_executor import FlashExecutorTool
+from app.tools.restore_controller import RestoreControllerTool
 from app.tools.strategy_selector import BuildStrategySelectorTool
 from app.tools.vscode_opener import VSCodeOpenerTool
 from app.core.blocker_engine import BlockerEngine
@@ -47,7 +49,9 @@ class ForgeOrchestrator:
         self.build_resolver = BuildResolverTool(root)
         self.strategy_selector = BuildStrategySelectorTool(root)
         self.autonomous_engagement = AutonomousEngagementTool(root)
+        self.backup_restore = BackupAndRestorePlannerTool(root)
         self.flash_executor = FlashExecutorTool(root)
+        self.restore_controller = RestoreControllerTool(root)
         self.vscode_opener = VSCodeOpenerTool(root)
 
     def handle_device_event(self, event: dict[str, Any]) -> Path:
@@ -133,6 +137,19 @@ class ForgeOrchestrator:
                 },
             }
         )
+        backup_plan = self.backup_restore.execute(
+            {
+                "device": probe_result["device"],
+                "session_dir": str(session_dir),
+                "assessment": assessment,
+            }
+        )
+        restore_plan = self.restore_controller.execute(
+            {
+                "session_dir": str(session_dir),
+                "backup_plan": backup_plan["plan"],
+            }
+        )
         flash_plan = self.flash_executor.build_plan(
             session_id=current_state.session_id,
             device={
@@ -143,6 +160,7 @@ class ForgeOrchestrator:
             },
             assessment=assessment,
             build_plan=build_plan,
+            backup_plan=backup_plan["plan"],
             policy=self.policy,
             live_mode=False,
         )
@@ -213,6 +231,8 @@ class ForgeOrchestrator:
                 "blocker": blocker,
                 "build_plan": build_plan,
                 "flash_plan_path": str(flash_plan_path),
+                "backup_plan": backup_plan["plan"],
+                "restore_plan_path": restore_plan["restore_plan_path"],
             },
         )
         self.reports.write_session_report(
@@ -265,6 +285,20 @@ class ForgeOrchestrator:
         )
         self.reports.write_session_report(
             session_dir,
+            report_type="backup_plan",
+            status="captured" if backup_plan["restore_path_feasible"] else "limited",
+            summary=backup_plan["plan"]["summary"],
+            details=backup_plan["plan"],
+        )
+        self.reports.write_session_report(
+            session_dir,
+            report_type="restore_plan",
+            status=restore_plan["status"],
+            summary=restore_plan["summary"],
+            details=restore_plan["details"],
+        )
+        self.reports.write_session_report(
+            session_dir,
             report_type="execution_queue",
             status=retry_plan["action"],
             summary=retry_plan["rationale"],
@@ -289,6 +323,7 @@ class ForgeOrchestrator:
                 "recommended_strategy": current_state.selected_strategy,
                 "build_plan": build_plan,
                 "flash_plan_path": str(flash_plan_path),
+                "backup_bundle_path": backup_plan["plan"]["backup_bundle_path"],
             },
         )
         self.logger.info("Handled device event for session %s", session_dir.name)
@@ -339,6 +374,17 @@ class ForgeOrchestrator:
         if flash_plan is None:
             raise ValueError(f"No flash plan exists for session {session_dir.name}")
         approval = self.sessions.load_destructive_approval(session_dir)
+        backup_plan_path = session_dir / "backup" / "backup-plan.json"
+        if not backup_plan_path.exists():
+            return {
+                "status": "blocked_no_backup_bundle",
+                "summary": "Destructive execution is blocked because no pre-wipe backup bundle exists for this session.",
+                "details": {
+                    "dry_run": True,
+                    "can_execute": False,
+                    "reason": "backup_bundle_missing",
+                },
+            }
         result = self.flash_executor.execute(
             {
                 "flash_plan": {

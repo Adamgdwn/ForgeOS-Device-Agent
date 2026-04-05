@@ -15,6 +15,8 @@ The current build is assessment-first. It is ready for:
 - audit logging
 - explicit wipe-approval capture
 - approved dry-run flash execution planning
+- model-aware connection setup guidance
+- automatic session backup bundle and restore-plan generation
 
 It is not yet ready for unattended live flashing across unknown devices without additional device-specific integration work.
 
@@ -59,6 +61,31 @@ By default, live destructive execution is still blocked by policy in:
 - [default_policy.json](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/master/policies/default_policy.json)
 
 That policy must be changed deliberately before the GUI will allow a live wipe-and-flash attempt.
+
+## Connection Setup Guidance
+
+ForgeOS now includes a model-aware connection setup panel.
+
+When the phone is only visible as USB or MTP, ForgeOS should:
+
+- identify the vendor and model when possible
+- show phone-side setup steps for that family
+- tell you the expected next state, such as `adb unauthorized` or `adb connected`
+- give a few troubleshooting steps before you try anything destructive
+
+For supported matches such as the Samsung Galaxy A5, the instructions are more specific than the generic Android fallback.
+
+## Backup Before Wipe
+
+Each session now creates a best-available pre-wipe backup set under the device folder:
+
+- `backup/backup-plan.json`
+- `backup/device-metadata-backup.json`
+- `backup/session-recovery-bundle.tar.gz`
+- `restore/restore-plan.json`
+
+This does not guarantee a full firmware restore for every device family.
+What it does guarantee is that ForgeOS preserves the best available session intelligence, transport facts, metadata capture, and recovery notes before a destructive step is approved.
 
 ## Install And Reinstall The Launcher
 

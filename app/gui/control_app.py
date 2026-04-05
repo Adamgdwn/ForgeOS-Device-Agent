@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from app.core.knowledge import KnowledgeEngine
 from app.core.codex_handoff import CodexHandoffEngine
 from app.core.connection_engine import ConnectionEngine
+from app.core.connection_playbook import ConnectionPlaybookEngine
 from app.core.orchestrator import ForgeOrchestrator
 from app.core.policy import PolicyEngine
 from app.core.models import (
@@ -53,6 +54,7 @@ class ForgeControlApp:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.codex_handoff = CodexHandoffEngine(root)
         self.connection_engine = ConnectionEngine(root)
+        self.connection_playbooks = ConnectionPlaybookEngine(root)
         self.orchestrator = ForgeOrchestrator(root)
         self.policy = PolicyEngine(root / "master" / "policies" / "default_policy.json").load()
         self.sessions = SessionManager(root)
@@ -93,6 +95,7 @@ class ForgeControlApp:
         self.steps_card = self._build_steps_card()
         self.host_card = self._build_host_card()
         self.profile_card = self._build_profile_card()
+        self.connection_help_card = self._build_connection_help_card()
         self.approval_card = self._build_approval_card()
         self.autonomous_card = self._build_autonomous_card()
         self.device_card = self._build_device_card()
@@ -211,8 +214,12 @@ class ForgeControlApp:
         self.secondary_label = QLabel()
         self.secondary_label.setWordWrap(True)
         self.secondary_label.setProperty("role", "body")
+        self.objective_text = QTextEdit()
+        self.objective_text.setReadOnly(True)
+        self.objective_text.setMaximumHeight(180)
         layout.addWidget(self.primary_label)
         layout.addWidget(self.secondary_label)
+        layout.addWidget(self.objective_text)
         return group
 
     def _build_host_card(self) -> QGroupBox:
@@ -339,50 +346,28 @@ class ForgeControlApp:
         layout.addWidget(save_button)
         return group
 
+    def _build_connection_help_card(self) -> QGroupBox:
+        group = QGroupBox("Connection Setup For This Phone")
+        layout = QVBoxLayout(group)
+        self.connection_help_title = QLabel("ForgeOS will show model-aware phone-side setup steps here.")
+        self.connection_help_title.setWordWrap(True)
+        self.connection_help_title.setProperty("role", "body")
+        self.connection_help_text = QTextEdit()
+        self.connection_help_text.setReadOnly(True)
+        layout.addWidget(self.connection_help_title)
+        layout.addWidget(self.connection_help_text, 1)
+        return group
+
     def _build_steps_card(self) -> QGroupBox:
         group = QGroupBox("Agent Execution")
         layout = QVBoxLayout(group)
-        steps = [
-            (
-                "1. Launch ForgeOS and leave this window open.",
-                "You do not need to use the terminal for normal first-time testing.",
-            ),
-            (
-                "2. Connect one Android phone with a known-good USB data cable.",
-                "Use one phone at a time while we validate the workflow.",
-            ),
-            (
-                "3. If the phone is booted into Android, approve the USB debugging prompt on the device.",
-                "If nothing appears within a few seconds, try another USB cable or reconnect the phone.",
-            ),
-            (
-                "4. Wait for ForgeOS to create a new device session automatically.",
-                "Each phone gets its own folder under devices/ so work does not mix together.",
-            ),
-            (
-                "5. Read the session assessment before attempting any unlock or flash action.",
-                "Inexperienced users should stay in assess-first mode until a device-specific plan is confirmed.",
-            ),
-            (
-                "6. Stop if ForgeOS reports blocked, unknown transport, or no restore path.",
-                "Safety and reversibility matter more than speed.",
-            ),
-        ]
-        for title, hint in steps:
-            block = QFrame()
-            block.setProperty("role", "stepblock")
-            block_layout = QVBoxLayout(block)
-            block_layout.setContentsMargins(12, 12, 12, 12)
-            step_label = QLabel(title)
-            step_label.setWordWrap(True)
-            step_label.setProperty("role", "body")
-            hint_label = QLabel(hint)
-            hint_label.setWordWrap(True)
-            hint_label.setProperty("role", "hint")
-            block_layout.addWidget(step_label)
-            block_layout.addWidget(hint_label)
-            layout.addWidget(block)
-        layout.addStretch(1)
+        self.steps_title = QLabel("ForgeOS will show the live execution checklist here.")
+        self.steps_title.setWordWrap(True)
+        self.steps_title.setProperty("role", "body")
+        self.steps_text = QTextEdit()
+        self.steps_text.setReadOnly(True)
+        layout.addWidget(self.steps_title)
+        layout.addWidget(self.steps_text, 1)
         return group
 
     def _build_approval_card(self) -> QGroupBox:
@@ -437,6 +422,7 @@ class ForgeControlApp:
             ("Open User Guide", self.project_root / "USER_GUIDE.md"),
             ("Open Master Policies", self.project_root / "master" / "policies"),
             ("Open Session Codex Brief", self.project_root / "devices"),
+            ("Open Session Backup", self.project_root / "devices"),
             ("Open Knowledge", self.project_root / "knowledge"),
             ("Open Promotion", self.project_root / "promotion"),
             ("Open Logs", self.project_root / "logs"),
@@ -824,21 +810,49 @@ class ForgeControlApp:
         if not latest_saved:
             self.current_session_dir = None
             if usb_only_device:
-                self.primary_label.setText(
-                    f"USB device seen: {usb_only_device.get('vendor_hint')} phone detected, but not yet in adb or fastboot mode."
+                playbook = self._playbook_for_context(
+                    usb_only_device.get("vendor_hint"),
+                    None,
+                    "usb_only_detected",
+                    usb_only_device.get("transport_hint", "usb-mtp"),
                 )
-                self.secondary_label.setText(
-                    "The phone currently appears as an MTP/media device only. On the phone, unlock the screen, enable USB debugging in Developer Options, "
-                    "and approve the computer trust prompt if it appears. Then ForgeOS should detect it as a manageable device."
+                self._set_objective_panel(
+                    f"{usb_only_device.get('vendor_hint')} phone detected, but it is still in USB-only mode.",
+                    "ForgeOS is already retrying safe engagement. The only remaining work is on the phone itself.",
+                    playbook=playbook,
+                    agent_action="Watching for adb or fastboot, retrying adb startup, and waiting for the phone to expose a manageable transport.",
                 )
+                title, checklist, agent_status = self._build_execution_checklist(
+                    profile={
+                        "manufacturer": usb_only_device.get("vendor_hint"),
+                        "model": "phone",
+                    },
+                    state={"state": "QUESTION_GATE", "support_status": "research_only"},
+                    engagement={"status": "usb_only_detected"},
+                    playbook=playbook,
+                    flash_plan=None,
+                    backup_plan=None,
+                    approval=None,
+                    live_session=False,
+                )
+                self._set_execution_checklist(title, checklist, agent_status)
             else:
-                self.primary_label.setText(
-                    "ForgeOS is ready. Connect one Android phone by USB and keep this window open."
+                self._set_objective_panel(
+                    "ForgeOS is ready for one phone.",
+                    "Keep this window open and connect a test device. The agent will create the session automatically.",
+                    agent_action="Keeping the environment ready, watching USB, adb, and fastboot, and preparing the session workspace.",
                 )
-                self.secondary_label.setText(
-                    "If the phone is running Android, unlock it and approve the USB debugging prompt when asked. "
-                    "A new device session will appear automatically."
+                title, checklist, agent_status = self._build_execution_checklist(
+                    profile=None,
+                    state=None,
+                    engagement=None,
+                    playbook=None,
+                    flash_plan=None,
+                    backup_plan=None,
+                    approval=None,
+                    live_session=False,
                 )
+                self._set_execution_checklist(title, checklist, agent_status)
             self.device_title.setText("No device session detected yet.")
             waiting_text = (
                 "Waiting for a manageable device.\n\n"
@@ -858,6 +872,11 @@ class ForgeControlApp:
             self.device_text.setPlainText(waiting_text)
             self.autonomous_title.setText("Current autonomous status: waiting for a manageable device")
             self.profile_status.setText("Connect or select a device session before setting the user profile.")
+            self.connection_help_title.setText("No device session is loaded yet.")
+            self.connection_help_text.setPlainText(
+                "Connect a phone and ForgeOS will show vendor- and model-specific setup steps here.\n\n"
+                "This panel is meant to tell the operator exactly how to get from USB-only visibility to adb, fastboot, or another manageable transport."
+            )
             self.approval_status.setText("Connect or select a device session before recording wipe approval.")
             self.flash_plan_text.setPlainText("No flash plan is available yet.")
             if usb_only_device:
@@ -881,31 +900,37 @@ class ForgeControlApp:
         self.current_session_dir = live_session or latest_saved
         state = json.loads((self.current_session_dir / "session-state.json").read_text())
         profile = json.loads((self.current_session_dir / "device-profile.json").read_text())
+        engagement_path = self.current_session_dir / "reports" / "engagement.json"
+        engagement_report = json.loads(engagement_path.read_text()) if engagement_path.exists() else {}
+        engagement_status = engagement_report.get("status", engagement_report.get("engagement_status", "unknown"))
+        playbook = self._playbook_for_context(
+            profile.get("manufacturer"),
+            profile.get("model"),
+            engagement_status,
+            profile.get("transport", "unknown"),
+        )
 
         if live_session:
-            self.primary_label.setText(
-                f"Device connected now: {profile.get('manufacturer') or 'Unknown'} {profile.get('model') or 'device'}."
-            )
-            self.secondary_label.setText(
-                "Read the assessment summary below before doing anything destructive. "
-                "If support is blocked or research-only, stop and review the restore path first."
+            self._set_objective_panel(
+                f"{profile.get('manufacturer') or 'Unknown'} {profile.get('model') or 'device'} is connected now.",
+                "ForgeOS is handling assessment, planning, backup capture, and transport monitoring automatically.",
+                playbook=playbook,
+                agent_action="Continuing device assessment, maintaining the session, capturing backup evidence, and preparing the next safe step.",
             )
         elif usb_only_device:
-            self.primary_label.setText(
-                f"USB device seen: {usb_only_device.get('vendor_hint')} phone connected, but not in adb or fastboot mode yet."
-            )
-            self.secondary_label.setText(
-                "ForgeOS is showing the latest saved session for reference only. Unlock the phone, switch it out of MTP-only mode if needed, "
-                "enable USB debugging, and approve the trust prompt to create a live manageable session."
+            self._set_objective_panel(
+                f"{usb_only_device.get('vendor_hint')} phone connected, but still not in adb or fastboot.",
+                "ForgeOS is showing the latest saved session for reference while it keeps retrying safe host-side engagement.",
+                playbook=playbook,
+                agent_action="Retrying adb engagement, watching for transport changes, and keeping the device session ready to resume automatically.",
             )
         else:
             latest_profile = json.loads((latest_saved / "device-profile.json").read_text())
-            self.primary_label.setText(
-                "No phone is currently connected. ForgeOS is showing the latest saved session for reference."
-            )
-            self.secondary_label.setText(
-                f"Latest saved session: {latest_profile.get('manufacturer') or 'Unknown'} "
-                f"{latest_profile.get('model') or 'device'}. Connect a real phone by USB to replace this view with a live session."
+            self._set_objective_panel(
+                "No phone is currently connected.",
+                f"ForgeOS is showing the latest saved session for {latest_profile.get('manufacturer') or 'Unknown'} "
+                f"{latest_profile.get('model') or 'device'} while waiting for a live device.",
+                agent_action="Keeping the last session available for reference and waiting for the next real device event.",
             )
 
         title_prefix = "Live session" if live_session else "Latest saved session"
@@ -921,10 +946,223 @@ class ForgeControlApp:
         self.autonomous_text.setPlainText(autonomous_text)
         self._load_profile_form(self.current_session_dir)
         self.profile_status.setText("Profile is loaded for this session. Save changes to recompute the OS path.")
+        self._refresh_connection_help(self.current_session_dir)
+        flash_plan_path = self.current_session_dir / "backup" / "backup-plan.json"
+        backup_plan = json.loads(flash_plan_path.read_text()) if flash_plan_path.exists() else {}
+        session_flash_plan = self.sessions.load_flash_plan(self.current_session_dir)
+        approval = self.sessions.load_destructive_approval(self.current_session_dir)
+        checklist_title, checklist, agent_status = self._build_execution_checklist(
+            profile=profile,
+            state=state,
+            engagement=engagement_report,
+            playbook=playbook,
+            flash_plan={
+                "build_path": session_flash_plan.build_path,
+                "restore_path_available": session_flash_plan.restore_path_available,
+            }
+            if session_flash_plan
+            else None,
+            backup_plan=backup_plan,
+            approval={
+                "approved": approval.approved,
+                "restore_path_confirmed": approval.restore_path_confirmed,
+            },
+            live_session=bool(live_session),
+        )
+        self._set_execution_checklist(checklist_title, checklist, agent_status)
         self._refresh_approval_panel(self.current_session_dir)
         self.open_folder_button.setEnabled(True)
         self.open_code_button.setEnabled(True)
         self._update_refresh_status(reason, has_live_device=bool(live_session), has_usb_only=bool(usb_only_device))
+
+    def _refresh_connection_help(self, session_dir: Path) -> None:
+        profile = json.loads((session_dir / "device-profile.json").read_text())
+        engagement_path = session_dir / "reports" / "engagement.json"
+        engagement = json.loads(engagement_path.read_text()) if engagement_path.exists() else {}
+        playbook = self.connection_playbooks.resolve(
+            profile.get("manufacturer"),
+            profile.get("model"),
+            engagement.get("status", engagement.get("engagement_status", "unknown")),
+            profile.get("transport", "unknown"),
+        )
+        self.connection_help_title.setText(playbook["title"])
+        lines = [
+            playbook["summary"],
+            "",
+            "Steps:",
+        ]
+        lines.extend(f"- {step}" for step in playbook.get("steps", []))
+        lines.extend(
+            [
+                "",
+                f"Expected next state: {playbook.get('expected_next_state', 'unknown')}",
+            ]
+        )
+        troubleshooting = playbook.get("troubleshooting", [])
+        if troubleshooting:
+            lines.extend(["", "Troubleshooting:"])
+            lines.extend(f"- {item}" for item in troubleshooting)
+        self.connection_help_text.setPlainText("\n".join(lines))
+
+    def _playbook_for_context(
+        self,
+        manufacturer: str | None,
+        model: str | None,
+        engagement_status: str,
+        transport: str,
+    ) -> dict[str, object]:
+        return self.connection_playbooks.resolve(
+            manufacturer,
+            model,
+            engagement_status,
+            transport,
+        )
+
+    def _set_objective_panel(
+        self,
+        headline: str,
+        subheadline: str,
+        playbook: dict[str, object] | None = None,
+        agent_action: str | None = None,
+    ) -> None:
+        self.primary_label.setText(headline)
+        self.secondary_label.setText(subheadline)
+        if playbook:
+            steps = playbook.get("steps", [])[:3]
+            troubleshooting = playbook.get("troubleshooting", [])[:2]
+            lines = [
+                "Agent is doing now:",
+                f"- {agent_action or 'Watching USB, adb, and fastboot, retrying safe engagement, and updating the session automatically.'}",
+                "",
+                "You only need to do:",
+            ]
+            lines.extend(f"- {step}" for step in steps)
+            expected = playbook.get("expected_next_state")
+            if expected:
+                lines.extend(["", f"Expected next result: {expected}"])
+            if troubleshooting:
+                lines.extend(["", "If it still does not move forward:"])
+                lines.extend(f"- {item}" for item in troubleshooting)
+            self.objective_text.setPlainText("\n".join(lines))
+        else:
+            self.objective_text.setPlainText(
+                "\n".join(
+                    [
+                        "Agent is doing now:",
+                        f"- {agent_action or 'Waiting for a phone and keeping the workspace ready.'}",
+                        "",
+                        "You only need to do:",
+                        "- Connect one Android phone with a good USB data cable.",
+                        "- Unlock the phone if Android is booted.",
+                        "- Approve USB debugging if the phone asks.",
+                    ]
+                )
+            )
+
+    def _set_execution_checklist(
+        self,
+        title: str,
+        checklist: list[str],
+        agent_status: list[str] | None = None,
+    ) -> None:
+        self.steps_title.setText(title)
+        lines: list[str] = []
+        if agent_status:
+            lines.extend(["Agent status:"])
+            lines.extend(f"- {item}" for item in agent_status)
+            lines.append("")
+        lines.append("Execution checklist:")
+        lines.extend(f"- {item}" for item in checklist)
+        self.steps_text.setPlainText("\n".join(lines))
+
+    def _build_execution_checklist(
+        self,
+        profile: dict[str, object] | None,
+        state: dict[str, object] | None,
+        engagement: dict[str, object] | None,
+        playbook: dict[str, object] | None,
+        flash_plan: dict[str, object] | None,
+        backup_plan: dict[str, object] | None,
+        approval: dict[str, object] | None,
+        live_session: bool,
+    ) -> tuple[str, list[str], list[str]]:
+        profile = profile or {}
+        state = state or {}
+        engagement = engagement or {}
+        playbook = playbook or {}
+        flash_plan = flash_plan or {}
+        backup_plan = backup_plan or {}
+        approval = approval or {}
+        manufacturer = profile.get("manufacturer") or "Unknown"
+        model = profile.get("model") or "device"
+        engagement_status = engagement.get("status", engagement.get("engagement_status", "unknown"))
+        support_status = state.get("support_status", "unknown")
+        state_name = state.get("state", "unknown")
+
+        agent_status = [
+            f"Current session state: {state_name}",
+            f"Support status: {support_status}",
+            f"Transport status: {engagement_status}",
+        ]
+        if backup_plan:
+            agent_status.append("Pre-wipe backup bundle is present.")
+        else:
+            agent_status.append("Pre-wipe backup bundle has not been captured yet.")
+
+        if engagement_status == "usb_only_detected":
+            checklist = list(playbook.get("steps", []))[:4]
+            checklist.append("Wait for ForgeOS to detect adb, fastboot, or another manageable transport automatically.")
+            return (
+                f"Connection checklist for {manufacturer} {model}",
+                checklist,
+                agent_status + [
+                    "ForgeOS is retrying safe adb engagement and watching for a transport change."
+                ],
+            )
+
+        if engagement_status == "awaiting_user_approval":
+            checklist = list(playbook.get("steps", []))[:3]
+            checklist.append("Keep the phone unlocked until ForgeOS shows adb connected.")
+            return (
+                f"Trust approval checklist for {manufacturer} {model}",
+                checklist,
+                agent_status + [
+                    "ForgeOS has already reached adb visibility and is waiting only for the phone-side trust prompt."
+                ],
+            )
+
+        if live_session and support_status in {"actionable", "research_only"}:
+            checklist = [
+                "Leave the phone connected while ForgeOS keeps updating the session.",
+                "Review the connection, backup, and flash-plan panels.",
+            ]
+            if not backup_plan:
+                checklist.append("Wait for ForgeOS to capture the pre-wipe backup bundle before considering destructive actions.")
+            if flash_plan:
+                checklist.append("Review the flash plan and restore notes before recording wipe approval.")
+            if not approval.get("approved"):
+                checklist.append("Only when you are satisfied with the plan, type WIPE_AND_REBUILD and record approval.")
+            else:
+                checklist.append("Run an approved dry run first. Use live wipe and flash only when policy explicitly allows it.")
+            return (
+                f"Execution checklist for {manufacturer} {model}",
+                checklist,
+                agent_status + [
+                    "ForgeOS is handling assessment, backup planning, and execution preparation automatically."
+                ],
+            )
+
+        checklist = [
+            "Connect one Android phone with a good USB data cable.",
+            "Keep the phone unlocked if Android is booted.",
+            "Approve USB debugging if the phone asks.",
+            "Let ForgeOS create or resume the device session automatically.",
+        ]
+        return (
+            "Getting started checklist",
+            checklist,
+            ["ForgeOS is waiting for a live device and keeping the workspace ready."],
+        )
 
     def _refresh_approval_panel(self, session_dir: Path) -> None:
         approval = self.sessions.load_destructive_approval(session_dir)
@@ -951,6 +1189,8 @@ class ForgeControlApp:
         )
         approval_text = "approved" if approval.approved else "not approved"
         phrase_text = "ok" if approval.confirmation_phrase == "WIPE_AND_REBUILD" else "missing"
+        backup_plan_path = session_dir / "backup" / "backup-plan.json"
+        backup_plan = json.loads(backup_plan_path.read_text()) if backup_plan_path.exists() else {}
         self.approval_status.setText(
             f"Approval state: {approval_text}. Live destructive execution is currently {live_mode_text}."
         )
@@ -962,10 +1202,28 @@ class ForgeControlApp:
             f"Requires wipe: {flash_plan.requires_wipe}",
             f"Default mode: {'dry run' if flash_plan.dry_run else 'live'}",
             f"Confirmation phrase: {phrase_text}",
+            f"Backup bundle captured: {'yes' if backup_plan else 'no'}",
             f"Step count: {flash_plan.step_count}",
             "",
-            "Planned steps:",
+            "Backup and restore:",
         ]
+        if backup_plan:
+            lines.extend(
+                [
+                    f"- bundle: {backup_plan.get('backup_bundle_path', 'unknown')}",
+                    f"- metadata: {backup_plan.get('metadata_backup_path', 'unknown')}",
+                    f"- restore feasible: {backup_plan.get('restore_path_feasible')}",
+                    f"- notes: {backup_plan.get('restore_notes', 'No restore notes available.')}",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(["- No backup bundle exists yet.", ""])
+        lines.extend(
+            [
+            "Planned steps:",
+            ]
+        )
         lines.extend(
             f"- {step.get('name', 'unknown')}: {step.get('description', '')}"
             for step in flash_plan.steps
@@ -1000,11 +1258,12 @@ class ForgeControlApp:
             self.content_grid.addWidget(self.now_card, 0, 0)
             self.content_grid.addWidget(self.host_card, 1, 0)
             self.content_grid.addWidget(self.profile_card, 2, 0)
-            self.content_grid.addWidget(self.approval_card, 3, 0)
-            self.content_grid.addWidget(self.steps_card, 4, 0)
-            self.content_grid.addWidget(self.autonomous_card, 5, 0)
-            self.content_grid.addWidget(self.device_card, 6, 0)
-            self.content_grid.addWidget(self.help_card, 7, 0)
+            self.content_grid.addWidget(self.connection_help_card, 3, 0)
+            self.content_grid.addWidget(self.approval_card, 4, 0)
+            self.content_grid.addWidget(self.steps_card, 5, 0)
+            self.content_grid.addWidget(self.autonomous_card, 6, 0)
+            self.content_grid.addWidget(self.device_card, 7, 0)
+            self.content_grid.addWidget(self.help_card, 8, 0)
             self.content_grid.setColumnStretch(0, 1)
             self.content_grid.setColumnStretch(1, 0)
         else:
@@ -1012,10 +1271,11 @@ class ForgeControlApp:
             self.content_grid.addWidget(self.steps_card, 0, 1, 2, 1)
             self.content_grid.addWidget(self.host_card, 1, 0)
             self.content_grid.addWidget(self.profile_card, 2, 0)
-            self.content_grid.addWidget(self.approval_card, 2, 1)
-            self.content_grid.addWidget(self.autonomous_card, 3, 1)
-            self.content_grid.addWidget(self.device_card, 3, 0)
-            self.content_grid.addWidget(self.help_card, 4, 1)
+            self.content_grid.addWidget(self.connection_help_card, 2, 1)
+            self.content_grid.addWidget(self.approval_card, 3, 1)
+            self.content_grid.addWidget(self.autonomous_card, 4, 1)
+            self.content_grid.addWidget(self.device_card, 3, 0, 2, 1)
+            self.content_grid.addWidget(self.help_card, 5, 1)
             self.content_grid.setColumnStretch(0, 5)
             self.content_grid.setColumnStretch(1, 4)
         self.content_grid.setRowStretch(0, 0)

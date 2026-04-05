@@ -16,6 +16,7 @@ The current build now includes an operator approval surface for destructive work
 - Per-session Codex handoff generation so each detected device opens into a VS Code workspace with a structured build brief and connection plan.
 - Guided user-profile intake so OS path selection can account for seniors, developers, daily users, children, and privacy-focused profiles.
 - Explicit destructive approval capture plus approved dry-run flash execution planning.
+- Model-aware connection playbooks and automatic pre-wipe backup bundle generation.
 
 ## Repo Structure
 
