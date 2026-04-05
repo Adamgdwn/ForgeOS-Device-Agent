@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 import sys
+from time import monotonic
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,7 @@ class ForgeControlApp:
         self.layout_mode = "wide"
         self.last_refresh_reason = "Startup"
         self.show_advanced = False
+        self.last_live_sync_at = 0.0
 
         self.qt_app = QApplication.instance() or QApplication(sys.argv)
         self.qt_app.setApplicationName("ForgeOS Device Agent")
@@ -110,7 +112,7 @@ class ForgeControlApp:
 
         self.timer = QTimer()
         self.timer.timeout.connect(self._auto_refresh)
-        self.timer.start(3000)
+        self.timer.start(12000)
         self.refresh_ui("Startup")
 
     def _stylesheet(self) -> str:
@@ -490,6 +492,10 @@ class ForgeControlApp:
     def _toggle_advanced_mode(self, checked: bool) -> None:
         self.show_advanced = checked
         self.refresh_ui("Advanced view changed")
+
+    def _interaction_in_progress(self) -> bool:
+        focus = self.qt_app.focusWidget()
+        return isinstance(focus, (QComboBox, QLineEdit, QTextEdit, QCheckBox, QPushButton))
 
     def _collect_sessions(self) -> list[Path]:
         if not self.devices_dir.exists():
@@ -1324,8 +1330,16 @@ class ForgeControlApp:
             return
 
         self.current_session_dir = live_session or latest_saved
+        should_sync_live_session = False
         if live_session:
+            now = monotonic()
+            if reason != "Auto refresh":
+                should_sync_live_session = True
+            elif not self._interaction_in_progress() and (now - self.last_live_sync_at) >= 30:
+                should_sync_live_session = True
+        if should_sync_live_session and live_session:
             self._sync_live_session_evidence(self.current_session_dir)
+            self.last_live_sync_at = monotonic()
         state = json.loads((self.current_session_dir / "session-state.json").read_text())
         profile = json.loads((self.current_session_dir / "device-profile.json").read_text())
         engagement_path = self.current_session_dir / "reports" / "engagement.json"
