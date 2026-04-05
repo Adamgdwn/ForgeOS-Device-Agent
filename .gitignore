@@ -8,3 +8,10 @@ logs/
 output/
 devices/
 !.gitkeep
+.aider*
+/device-profile.json
+/session-state.json
+/destructive-approval.json
+/plans/connection-plan.json
+/reports/assessment.json
+/reports/engagement.json

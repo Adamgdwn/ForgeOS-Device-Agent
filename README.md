@@ -117,6 +117,26 @@ What is still incomplete:
 
 The learning layer records session outcomes, builds a support matrix, and generates review-only promotion candidates for the master framework.
 
+## Next Steps
+
+The next highest-value work is to make the proposal and preview flow feel like a real device-rehabilitation planning surface rather than a smart status dashboard.
+
+Near-term priorities:
+
+- Make preview generation consume accepted and rejected features so the preview output changes when the operator changes the plan.
+- Replace more simulated preview content with concrete generated UI walkthroughs, capability summaries, and build-specific artifacts.
+- Expand backup visibility so the operator can inspect bundle contents, restore steps, and rollback confidence more directly from the GUI.
+- Tighten install gating copy and sequencing so destructive actions feel clearly late-stage and never central to the experience.
+- Continue improving brand-agnostic behavior by keeping OEM-specific paths additive and evidence-triggered only.
+- Keep local-worker execution efficient by preferring lightweight runtime passes, artifact reuse, and minimal frontier escalation.
+
+If you are resuming after a break, the best starting point is to test one full recommendation-to-review cycle and confirm that:
+
+- the proposed OS name matches the selected option
+- feature keep/reject choices persist
+- the backup panel stays understandable
+- the preview and review panels feel trustworthy before any install gate appears
+
 ## Release Notes
 
 - Runtime-first architecture overview: [docs/runtime-architecture.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/docs/runtime-architecture.md)
