@@ -175,6 +175,26 @@ class ForgeControlApp:
             padding: 10px 14px;
             font-weight: 700;
         }
+        QPushButton[state="neutral"] {
+            background: #3f5673;
+            color: #eef4ff;
+        }
+        QPushButton[state="pending"] {
+            background: #4b5a70;
+            color: #eef4ff;
+        }
+        QPushButton[state="ready"] {
+            background: #f7941d;
+            color: #102137;
+        }
+        QPushButton[state="done"] {
+            background: #2f8f63;
+            color: #f4fff9;
+        }
+        QPushButton[state="blocked"] {
+            background: #5a6473;
+            color: #d0d7e3;
+        }
         QPushButton:hover {
             background: #ffb14d;
         }
@@ -224,6 +244,8 @@ class ForgeControlApp:
         self.advanced_toggle.toggled.connect(self._toggle_advanced_mode)
         button_col.addWidget(self.advanced_toggle)
         layout.addLayout(button_col)
+        for button in box.findChildren(QPushButton):
+            self._set_button_state(button, "neutral")
         return box
 
     def _build_now_what_card(self) -> QGroupBox:
@@ -394,9 +416,10 @@ class ForgeControlApp:
         layout.addWidget(self.battery_check)
         layout.addWidget(self.lockdown_check)
 
-        save_button = QPushButton("Save Profile And Recompute Strategy")
-        save_button.clicked.connect(self.save_profile_and_recompute)
-        layout.addWidget(save_button)
+        self.save_profile_button = QPushButton("Save Profile And Recompute Strategy")
+        self.save_profile_button.clicked.connect(self.save_profile_and_recompute)
+        layout.addWidget(self.save_profile_button)
+        self._set_button_state(self.save_profile_button, "pending")
         self._bind_profile_form_signals()
         return group
 
@@ -420,12 +443,27 @@ class ForgeControlApp:
         self.proposal_status.setProperty("role", "body")
         self.proposal_choice_combo = QComboBox()
         self.proposal_choice_combo.addItem("No proposed options yet", "")
+        self.proposal_choice_combo.currentIndexChanged.connect(self._proposal_selection_changed)
+        self.proposal_os_label = QLabel("Proposed OS profile will appear here once ForgeOS resolves candidate paths.")
+        self.proposal_os_label.setWordWrap(True)
+        self.proposal_os_label.setProperty("role", "body")
+        preview_buttons = QHBoxLayout()
+        self.preview_folder_button = QPushButton("Open Preview Folder")
+        self.preview_folder_button.clicked.connect(lambda: self._open_session_artifact("runtime/preview"))
+        self.preview_report_button = QPushButton("Open Build Plan")
+        self.preview_report_button.clicked.connect(lambda: self._open_session_artifact("reports/build_plan.json"))
+        preview_buttons.addWidget(self.preview_folder_button)
+        preview_buttons.addWidget(self.preview_report_button)
         self.proposal_notes = QTextEdit()
         self.proposal_notes.setReadOnly(True)
         self.proposal_notes.setMaximumHeight(260)
         layout.addWidget(self.proposal_status)
         layout.addWidget(self.proposal_choice_combo)
+        layout.addWidget(self.proposal_os_label)
+        layout.addLayout(preview_buttons)
         layout.addWidget(self.proposal_notes, 1)
+        self._set_button_state(self.preview_folder_button, "neutral")
+        self._set_button_state(self.preview_report_button, "neutral")
         return group
 
     def _build_backup_card(self) -> QGroupBox:
@@ -437,8 +475,18 @@ class ForgeControlApp:
         self.backup_text = QTextEdit()
         self.backup_text.setReadOnly(True)
         self.backup_text.setMaximumHeight(240)
+        backup_buttons = QHBoxLayout()
+        self.open_backup_bundle_button = QPushButton("Open Backup Bundle")
+        self.open_backup_bundle_button.clicked.connect(lambda: self._open_best_backup_artifact("bundle"))
+        self.open_restore_plan_button = QPushButton("Open Restore Plan")
+        self.open_restore_plan_button.clicked.connect(lambda: self._open_session_artifact("restore/restore-plan.json"))
+        backup_buttons.addWidget(self.open_backup_bundle_button)
+        backup_buttons.addWidget(self.open_restore_plan_button)
         layout.addWidget(self.backup_status)
+        layout.addLayout(backup_buttons)
         layout.addWidget(self.backup_text, 1)
+        self._set_button_state(self.open_backup_bundle_button, "pending")
+        self._set_button_state(self.open_restore_plan_button, "pending")
         return group
 
     def _build_review_card(self) -> QGroupBox:
@@ -458,6 +506,20 @@ class ForgeControlApp:
         layout.addWidget(self.review_restore_check)
         layout.addWidget(self.review_limitations_check)
 
+        feature_label = QLabel("Feature selection")
+        feature_label.setProperty("role", "hint")
+        layout.addWidget(feature_label)
+        self.review_feature_status = QLabel("ForgeOS will list the proposed features here so you can keep or reject them.")
+        self.review_feature_status.setWordWrap(True)
+        self.review_feature_status.setProperty("role", "body")
+        layout.addWidget(self.review_feature_status)
+        self.review_feature_list = QWidget()
+        self.review_feature_layout = QVBoxLayout(self.review_feature_list)
+        self.review_feature_layout.setContentsMargins(0, 0, 0, 0)
+        self.review_feature_layout.setSpacing(6)
+        layout.addWidget(self.review_feature_list)
+        self.review_feature_checks: dict[str, QCheckBox] = {}
+
         review_notes_label = QLabel("Review notes and rejected features")
         review_notes_label.setProperty("role", "hint")
         layout.addWidget(review_notes_label)
@@ -468,6 +530,7 @@ class ForgeControlApp:
         self.save_review_button = QPushButton("Save Review Decisions")
         self.save_review_button.clicked.connect(self.save_operator_review)
         layout.addWidget(self.save_review_button)
+        self._set_button_state(self.save_review_button, "pending")
 
         self.review_text = QTextEdit()
         self.review_text.setReadOnly(True)
@@ -526,6 +589,9 @@ class ForgeControlApp:
         buttons.addWidget(self.dry_run_button)
         buttons.addWidget(self.live_button)
         layout.addLayout(buttons)
+        self._set_button_state(self.approve_button, "pending")
+        self._set_button_state(self.dry_run_button, "blocked")
+        self._set_button_state(self.live_button, "blocked")
 
         self.flash_plan_text = QTextEdit()
         self.flash_plan_text.setReadOnly(True)
@@ -545,8 +611,15 @@ class ForgeControlApp:
             button.clicked.connect(lambda _checked=False, p=path: self._open_path(p))
             self.help_buttons[key] = button
             layout.addWidget(button)
+            self._set_button_state(button, "neutral")
         layout.addStretch(1)
         return group
+
+    def _set_button_state(self, button: QPushButton, state: str) -> None:
+        button.setProperty("state", state)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
 
     def _set_text_preserve_scroll(self, widget: QTextEdit, text: str) -> None:
         scrollbar = widget.verticalScrollBar()
@@ -567,6 +640,7 @@ class ForgeControlApp:
         if self.profile_form_syncing:
             return
         self.profile_form_dirty = True
+        self._set_button_state(self.save_profile_button, "ready")
 
     def _bind_profile_form_signals(self) -> None:
         for combo in [
@@ -1158,6 +1232,136 @@ class ForgeControlApp:
                 combo.setCurrentIndex(index)
                 return
 
+    def _labelize(self, value: str | None) -> str:
+        if not value:
+            return "Unknown"
+        return value.replace("_", " ").replace("-", " ").strip().title()
+
+    def _open_session_artifact(self, relative_path: str) -> None:
+        if not self.current_session_dir:
+            return
+        self._open_path(self.current_session_dir / relative_path)
+
+    def _open_best_backup_artifact(self, artifact: str) -> None:
+        if not self.current_session_dir:
+            return
+        backup_plan = self._read_json(self.current_session_dir / "backup" / "backup-plan.json")
+        if artifact == "bundle" and backup_plan.get("backup_bundle_path"):
+            self._open_path(Path(backup_plan["backup_bundle_path"]))
+            return
+        self._open_path(self.current_session_dir / "backup")
+
+    def _proposal_features(
+        self,
+        option_id: str,
+        runtime_plan: dict[str, Any],
+        session_dir: Path,
+    ) -> list[dict[str, Any]]:
+        user_profile = self.sessions.load_user_profile(session_dir)
+        os_goals = self.sessions.load_os_goals(session_dir)
+        google_pref = user_profile.google_services_preference.value
+        base_features: dict[str, list[dict[str, Any]]] = {
+            "accessibility_focused_phone": [
+                {"id": "simple_launcher", "label": "Simplified launcher and larger touch targets", "default": True},
+                {"id": "reduced_notifications", "label": "Reduced notification noise", "default": True},
+                {"id": "trusted_contacts", "label": "Trusted-contact shortcuts", "default": True},
+                {"id": "accessibility_toggles", "label": "Accessibility quick toggles", "default": True},
+            ],
+            "lightweight_custom_android": [
+                {"id": "debloated_apps", "label": "Debloated app set", "default": True},
+                {"id": "focused_home", "label": "Focused home screen with fewer distractions", "default": True},
+                {"id": "battery_profile", "label": "Battery-first tuning", "default": True},
+                {"id": "recovery_entry", "label": "Visible recovery and restore entry point", "default": True},
+            ],
+            "media_device": [
+                {"id": "offline_media", "label": "Offline media playback shell", "default": True},
+                {"id": "simple_wifi", "label": "Simple Wi-Fi reconnect flow", "default": True},
+                {"id": "screen_timeout", "label": "Long-session screen behavior tuning", "default": True},
+                {"id": "volume_controls", "label": "Large media and volume controls", "default": True},
+            ],
+            "home_control_panel": [
+                {"id": "kiosk_mode", "label": "Single-purpose kiosk shell", "default": True},
+                {"id": "always_on_power", "label": "Docked power profile", "default": True},
+                {"id": "control_tiles", "label": "Large control tiles", "default": True},
+                {"id": "recoverability", "label": "Recoverability notes pinned for operator", "default": True},
+            ],
+        }
+        features = list(base_features.get(option_id, []))
+        if not features:
+            features = [
+                {"id": "safe_defaults", "label": "Safe default configuration", "default": True},
+                {"id": "restore_visibility", "label": "Visible restore and rollback path", "default": True},
+                {"id": "task_oriented_ui", "label": "Task-oriented simplified UI", "default": True},
+            ]
+        if google_pref == GoogleServicesPreference.KEEP.value:
+            features.append({"id": "google_services", "label": "Keep Google services compatibility", "default": True})
+        elif google_pref == GoogleServicesPreference.REDUCE.value:
+            features.append({"id": "reduced_google", "label": "Reduce Google services footprint", "default": True})
+        else:
+            features.append({"id": "minimize_google", "label": "Remove Google services where feasible", "default": True})
+        if os_goals.requires_reliable_updates:
+            features.append({"id": "update_channel", "label": "Preserve a reliable update path", "default": True})
+        if os_goals.prefers_lockdown_defaults:
+            features.append({"id": "lockdown_defaults", "label": "Hardened privacy and lockdown defaults", "default": True})
+        if os_goals.prefers_long_battery_life:
+            features.append({"id": "battery_life", "label": "Battery-preserving runtime settings", "default": True})
+        return features
+
+    def _selected_or_recommended_option_id(self, runtime_plan: dict[str, Any]) -> str:
+        selected = self.proposal_choice_combo.currentData()
+        if selected:
+            return str(selected)
+        return str(runtime_plan.get("recommended_use_case", ""))
+
+    def _proposal_os_name(self, option_id: str, runtime_plan: dict[str, Any]) -> str:
+        path = str(runtime_plan.get("recommended_path", "research_only_path"))
+        option_name = self._labelize(option_id or runtime_plan.get("recommended_use_case"))
+        if path == "research_only_path":
+            return f"{option_name} concept on a hardened stock Android baseline"
+        if path == "hardened_existing_os":
+            return f"Hardened stock Android for {option_name}"
+        if path == "custom_android_build":
+            return f"Custom Android build tailored for {option_name}"
+        return f"{option_name} build on {self._labelize(path)}"
+
+    def _refresh_feature_selection(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
+        review = self._read_operator_review(session_dir)
+        selected_option_id = self._selected_or_recommended_option_id(runtime_plan)
+        features = self._proposal_features(selected_option_id, runtime_plan, session_dir)
+        accepted = set(review.get("accepted_feature_ids", []))
+        rejected = set(review.get("rejected_feature_ids", []))
+        while self.review_feature_layout.count():
+            item = self.review_feature_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.review_feature_checks = {}
+        for feature in features:
+            checkbox = QCheckBox(feature["label"])
+            feature_id = feature["id"]
+            checkbox.setProperty("feature_id", feature_id)
+            default_checked = feature.get("default", True)
+            if feature_id in accepted:
+                checkbox.setChecked(True)
+            elif feature_id in rejected:
+                checkbox.setChecked(False)
+            else:
+                checkbox.setChecked(default_checked)
+            checkbox.toggled.connect(lambda _checked=False: self._set_button_state(self.save_review_button, "ready"))
+            self.review_feature_layout.addWidget(checkbox)
+            self.review_feature_checks[feature_id] = checkbox
+        self.review_feature_layout.addStretch(1)
+        self.review_feature_status.setText(
+            f"Proposed OS profile: {self._proposal_os_name(selected_option_id, runtime_plan)}. Keep the features you want and uncheck anything ForgeOS should avoid."
+        )
+
+    def _proposal_selection_changed(self, *_args: object) -> None:
+        if not self.current_session_dir:
+            return
+        runtime_plan = self._read_json(self.current_session_dir / "runtime" / "session-plan.json")
+        self._refresh_feature_selection(self.current_session_dir, runtime_plan)
+        self._set_button_state(self.save_review_button, "ready")
+
     def _operator_review_path(self, session_dir: Path) -> Path:
         return session_dir / "runtime" / "operator-review.json"
 
@@ -1169,6 +1373,8 @@ class ForgeControlApp:
                 "fit_confirmed": False,
                 "restore_confirmed": False,
                 "limitations_accepted": False,
+                "accepted_feature_ids": [],
+                "rejected_feature_ids": [],
                 "notes": "",
             },
         )
@@ -1187,16 +1393,26 @@ class ForgeControlApp:
             "fit_confirmed": self.review_fit_check.isChecked(),
             "restore_confirmed": self.review_restore_check.isChecked(),
             "limitations_accepted": self.review_limitations_check.isChecked(),
+            "accepted_feature_ids": [
+                feature_id for feature_id, checkbox in self.review_feature_checks.items() if checkbox.isChecked()
+            ],
+            "rejected_feature_ids": [
+                feature_id for feature_id, checkbox in self.review_feature_checks.items() if not checkbox.isChecked()
+            ],
             "notes": self.review_notes.toPlainText().strip(),
             "updated_at": utc_now(),
         }
         self._write_operator_review(self.current_session_dir, payload)
         self.review_status.setText("Review decisions saved. ForgeOS will keep them visible while install remains gated.")
+        self._set_button_state(self.save_review_button, "done")
         self.refresh_ui("Review decisions saved")
 
     def _refresh_proposal_panel(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
         recommendation_options = runtime_plan.get("recommendation_options", []) or []
         preview_execution = runtime_plan.get("preview_execution", {}) or {}
+        capability_matrix = self._read_json(session_dir / "runtime" / "preview" / "capability-matrix.json")
+        walkthrough_path = session_dir / "runtime" / "preview" / "simulated-walkthrough.md"
+        build_plan = self._read_json(session_dir / "reports" / "build_plan.json")
         selected_before = self.proposal_choice_combo.currentData()
         self.proposal_choice_combo.blockSignals(True)
         self.proposal_choice_combo.clear()
@@ -1215,18 +1431,39 @@ class ForgeControlApp:
         phase = runtime_plan.get("phase", "unknown")
         recommended_use_case = runtime_plan.get("recommended_use_case", "unknown")
         recommended_path = runtime_plan.get("recommended_path", "unknown")
+        selected_option_id = self._selected_or_recommended_option_id(runtime_plan)
+        proposed_os = self._proposal_os_name(selected_option_id, runtime_plan)
         self.proposal_status.setText(
-            f"ForgeOS currently recommends `{recommended_use_case}` on the `{recommended_path}` path. This is still reviewable and does not imply a wipe/install decision."
+            f"ForgeOS currently recommends `{recommended_use_case}` on the `{recommended_path}` path. This remains a proposal only; wipe/install stays off the table until you have reviewed backup, preview, and features."
         )
+        self.proposal_os_label.setText(f"Proposed OS profile: {proposed_os}")
         lines = [
             f"Current runtime phase: {phase}",
-            f"Recommended use case: {recommended_use_case}",
-            f"Recommended path: {recommended_path}",
+            f"Proposed OS profile: {proposed_os}",
+            f"Recommended use case: {self._labelize(recommended_use_case)}",
+            f"Recommended path: {self._labelize(recommended_path)}",
+            f"Build-plan summary: {build_plan.get('summary', 'No build-plan summary available.')}",
             "",
             f"Preview status: {preview_execution.get('status', 'unknown')}",
-            f"Preview mode: {preview_execution.get('mode', 'unknown')}",
+            f"Preview mode: {preview_execution.get('mode', capability_matrix.get('preview_mode', 'unknown'))}",
             preview_execution.get("summary", "No preview summary available."),
         ]
+        if capability_matrix:
+            lines.extend(
+                [
+                    "",
+                    "Capability snapshot:",
+                    f"- transport readiness: {capability_matrix.get('transport_readiness', 'unknown')}",
+                    f"- emulator available: {capability_matrix.get('host_emulator_available', False)}",
+                    f"- support status: {capability_matrix.get('support_status', 'unknown')}",
+                ]
+            )
+        if walkthrough_path.exists():
+            walkthrough = walkthrough_path.read_text().strip().splitlines()
+            walkthrough_lines = [line for line in walkthrough if line and not line.startswith("#")]
+            if walkthrough_lines:
+                lines.extend(["", "Preview walkthrough:"])
+                lines.extend(f"- {line.lstrip('1234567890. ')}" for line in walkthrough_lines[:6])
         if recommendation_options:
             lines.extend(["", "Alternative directions:"])
             for option in recommendation_options:
@@ -1234,6 +1471,14 @@ class ForgeControlApp:
                     f"- {option.get('label', 'Unknown option')} ({option.get('fit_score', 0):.2f}): {option.get('rationale', '')}"
                 )
         self._set_text_preserve_scroll(self.proposal_notes, "\n".join(lines))
+        self._refresh_feature_selection(session_dir, runtime_plan)
+        self.preview_folder_button.setEnabled(True)
+        self.preview_report_button.setEnabled(True)
+        self._set_button_state(
+            self.preview_folder_button,
+            "done" if preview_execution.get("generated_files") else "pending",
+        )
+        self._set_button_state(self.preview_report_button, "neutral")
 
     def _refresh_backup_panel(self, session_dir: Path) -> None:
         backup_plan = self._read_json(session_dir / "backup" / "backup-plan.json")
@@ -1261,6 +1506,10 @@ class ForgeControlApp:
             lines.extend(["", "Known metadata limits:"])
             lines.extend(f"- {item}" for item in metadata_backup.get("limitations", [])[:3])
         self._set_text_preserve_scroll(self.backup_text, "\n".join(lines))
+        self.open_backup_bundle_button.setEnabled(True)
+        self.open_restore_plan_button.setEnabled(True)
+        self._set_button_state(self.open_backup_bundle_button, "done" if backup_plan else "pending")
+        self._set_button_state(self.open_restore_plan_button, "done" if restore_plan else "pending")
 
     def _refresh_review_panel(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
         review = self._read_operator_review(session_dir)
@@ -1293,6 +1542,20 @@ class ForgeControlApp:
         self.review_status.setText(
             "This is the non-destructive review stage. Confirm what you like, reject what you do not want, and save notes before the install gate ever becomes active."
         )
+        review_complete = (
+            bool(review.get("fit_confirmed"))
+            and bool(review.get("restore_confirmed"))
+            and bool(review.get("limitations_accepted"))
+        )
+        review_started = review_complete or any(
+            [
+                review.get("selected_option_id"),
+                review.get("notes"),
+                review.get("accepted_feature_ids"),
+                review.get("rejected_feature_ids"),
+            ]
+        )
+        self._set_button_state(self.save_review_button, "done" if review_complete else "ready" if review_started else "pending")
 
     def _load_profile_form(self, session_dir: Path) -> None:
         if self.profile_form_dirty and self.profile_form_session == session_dir:
@@ -1317,6 +1580,7 @@ class ForgeControlApp:
             self.profile_form_syncing = False
         self.profile_form_dirty = False
         self.profile_form_session = session_dir
+        self._set_button_state(self.save_profile_button, "done")
 
     def save_profile_and_recompute(self) -> None:
         if not self.current_session_dir:
@@ -1345,6 +1609,7 @@ class ForgeControlApp:
         self.sessions.write_os_goals(self.current_session_dir, os_goals)
         self.profile_form_dirty = False
         self.profile_form_session = self.current_session_dir
+        self._set_button_state(self.save_profile_button, "done")
 
         assessment_path = self.current_session_dir / "reports" / "assessment.json"
         assessment_report = json.loads(assessment_path.read_text()) if assessment_path.exists() else {
@@ -2010,6 +2275,12 @@ class ForgeControlApp:
             self.approve_button.setEnabled(bool(review_visible and flash_plan is not None and flash_plan.status != "deferred"))
             self.dry_run_button.setEnabled(False)
             self.live_button.setEnabled(False)
+            self._set_button_state(
+                self.approve_button,
+                "pending" if review_visible and flash_plan is not None and flash_plan.status != "deferred" else "blocked",
+            )
+            self._set_button_state(self.dry_run_button, "blocked")
+            self._set_button_state(self.live_button, "blocked")
             return
 
         live_mode_text = (
@@ -2035,6 +2306,9 @@ class ForgeControlApp:
         self.approve_button.setEnabled(can_record_approval)
         self.dry_run_button.setEnabled(can_dry_run)
         self.live_button.setEnabled(can_live)
+        self._set_button_state(self.approve_button, "done" if approval.approved else "ready" if can_record_approval else "blocked")
+        self._set_button_state(self.dry_run_button, "ready" if can_dry_run else "blocked")
+        self._set_button_state(self.live_button, "ready" if can_live else "blocked")
         lines = [
             f"Build path: {flash_plan.build_path}",
             f"Transport: {flash_plan.transport}",
