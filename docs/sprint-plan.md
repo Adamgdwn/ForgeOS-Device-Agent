@@ -14,6 +14,9 @@
 - Record retry budgets and worker confidence per task.
 - Add replayable remediation transcripts for local worker loops.
 
+Status:
+- Completed in the current branch, including transcript logging, retry telemetry, confidence scoring, adapter health artifacts, and host readiness discovery.
+
 ## Sprint 3: Device Discovery And Recommendation
 
 - Expand deep scan with richer `adb shell getprop`, partition, slot, battery, and lock-state evidence.
@@ -27,6 +30,11 @@
 - Add pre-install interactive verification checklists.
 - Add post-install verification checkpoints and runtime confidence scoring.
 - Gate install execution on deterministic policy checks and restore readiness only.
+
+Status:
+- Preview and verification now execute as real pipelines.
+- Emulator-backed preview is attempted when the host supports it, with simulated fallback otherwise.
+- Verification now records host-side and transport-aware checks.
 
 ## Sprint 5: Migration And Promotion
 

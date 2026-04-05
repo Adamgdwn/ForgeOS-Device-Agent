@@ -20,7 +20,7 @@ ForgeOS should be the runtime that rehabilitates a device, not just the interfac
 
 ## Still Ahead
 
-- Deeper Goose and Aider execution adapters with transcript capture and retry telemetry.
-- More concrete Ollama-backed helper loops for cheap routine runtime work.
-- Stronger build preview and interactive verification pipelines.
+- Deeper device-family-specific flashing and restore adapters.
+- More complete emulator-backed preview execution on hosts with Android SDK tooling installed.
+- Stronger post-install verification suites and recovery rehearsal flows.
 - Broader real-device flashing and restore coverage across Android device families.
