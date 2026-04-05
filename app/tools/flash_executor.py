@@ -36,6 +36,9 @@ class FlashExecutorTool(BaseTool):
         restore_path_available = support_status == "actionable"
         transport = device.get("transport", Transport.UNKNOWN.value)
         install_deferred = support_status != "actionable" or build_plan.get("os_path") == "research_only_path"
+        selected_option_label = build_plan.get("selected_option_label", "the proposed device profile")
+        included_feature_labels = list(build_plan.get("included_feature_labels", []))
+        rejected_feature_labels = list(build_plan.get("rejected_feature_labels", []))
         steps = [
             {
                 "name": "preflight_checks",
@@ -67,7 +70,7 @@ class FlashExecutorTool(BaseTool):
                 "name": "flash_images",
                 "kind": "flash",
                 "destructive": True,
-                "description": "Flash the selected image set for the resolved OS path.",
+                "description": f"Flash the selected image set for `{selected_option_label}` on the resolved OS path.",
             },
             {
                 "name": "boot_validation",
@@ -93,7 +96,11 @@ class FlashExecutorTool(BaseTool):
             summary=(
                 "Install planning is deferred while ForgeOS continues research, recommendation, preview, and verification."
                 if install_deferred
-                else "Prepared a conservative flash plan with preflight, backup verification, restore checkpoint, wipe, flash, and validation phases."
+                else (
+                    "Prepared a conservative flash plan with preflight, backup verification, restore checkpoint, wipe, flash, and validation phases "
+                    f"for {selected_option_label}. Included features: {', '.join(included_feature_labels[:4]) or 'default profile features'}. "
+                    f"Held back: {', '.join(rejected_feature_labels[:3]) or 'no explicit feature rejections recorded yet'}."
+                )
             ),
         )
 

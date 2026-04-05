@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 from typing import Any
 
@@ -143,8 +145,12 @@ class RuntimePlanner:
     ) -> dict[str, Any]:
         user_profile = self.sessions.load_user_profile(session_dir)
         os_goals = self.sessions.load_os_goals(session_dir)
+        operator_review = self._read_operator_review(session_dir)
         recommended_use_case = recommendation.get("recommended_use_case", "research_hold")
         recommended_path = build_plan.get("os_path", "research_only_path")
+        selected_option_id = operator_review.get("selected_option_id") or recommended_use_case
+        accepted_feature_ids = set(operator_review.get("accepted_feature_ids", []) or [])
+        rejected_feature_ids = set(operator_review.get("rejected_feature_ids", []) or [])
         options: list[dict[str, Any]] = []
         for option in recommendation.get("options", []):
             option_id = option.get("option_id", "unknown")
@@ -156,6 +162,23 @@ class RuntimePlanner:
                 prefers_lockdown=os_goals.prefers_lockdown_defaults,
                 prefers_battery=os_goals.prefers_long_battery_life,
             )
+            included_features = list(feature_groups["included_features"])
+            optional_features = list(feature_groups["optional_features"])
+            excluded_features = list(feature_groups["excluded_features"])
+            if option_id == selected_option_id:
+                if accepted_feature_ids:
+                    accepted = []
+                    for item in included_features + optional_features:
+                        if item.get("id") in accepted_feature_ids:
+                            accepted.append(item)
+                    included_features = accepted or included_features
+                    optional_features = [item for item in optional_features if item.get("id") not in accepted_feature_ids]
+                if rejected_feature_ids:
+                    excluded_features.extend(
+                        item for item in included_features + optional_features if item.get("id") in rejected_feature_ids
+                    )
+                    included_features = [item for item in included_features if item.get("id") not in rejected_feature_ids]
+                    optional_features = [item for item in optional_features if item.get("id") not in rejected_feature_ids]
             options.append(
                 {
                     "option_id": option_id,
@@ -165,23 +188,23 @@ class RuntimePlanner:
                     "constraints": option.get("constraints", []),
                     "evidence": option.get("evidence", []),
                     "proposed_os_name": self._proposal_os_name(option_id, recommended_path),
-                    "included_features": feature_groups["included_features"],
-                    "optional_features": feature_groups["optional_features"],
-                    "excluded_features": feature_groups["excluded_features"],
+                    "included_features": included_features,
+                    "optional_features": optional_features,
+                    "excluded_features": excluded_features,
                 }
             )
-        selected = next((option for option in options if option["option_id"] == recommended_use_case), None)
+        selected = next((option for option in options if option["option_id"] == selected_option_id), None)
         if not selected and options:
             selected = options[0]
         return {
             "recommended_use_case": recommended_use_case,
             "recommended_path": recommended_path,
-            "proposed_os_name": self._proposal_os_name(recommended_use_case, recommended_path),
+            "proposed_os_name": self._proposal_os_name(selected["option_id"], recommended_path) if selected else self._proposal_os_name(selected_option_id, recommended_path),
             "preview_status": preview_execution.status,
             "preview_mode": preview_execution.mode,
-            "proposal_summary": self._proposal_summary(recommended_path, recommended_use_case),
+            "proposal_summary": self._proposal_summary(recommended_path, selected["option_id"] if selected else selected_option_id),
             "options": options,
-            "selected_option_id": selected["option_id"] if selected else recommended_use_case,
+            "selected_option_id": selected["option_id"] if selected else selected_option_id,
             "selected_option": selected or {},
         }
 
@@ -270,6 +293,15 @@ class RuntimePlanner:
             "optional_features": optional_features,
             "excluded_features": excluded,
         }
+
+    def _read_operator_review(self, session_dir: Path) -> dict[str, Any]:
+        path = session_dir / "runtime" / "operator-review.json"
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            return {}
 
     def _phase_for_state(
         self,

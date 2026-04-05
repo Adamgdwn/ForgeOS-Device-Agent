@@ -443,30 +443,7 @@ class ForgeOrchestrator:
                 "backup_plan": backup_plan["plan"],
             }
         )
-        build_plan = self.build_resolver.execute(
-            {
-                "assessment": assessment,
-                "connection_plan": connection_plan,
-                "selected_strategy": current_state.selected_strategy or "research_only",
-                "user_profile": {
-                    "persona": user_profile.persona.value,
-                    "technical_comfort": user_profile.technical_comfort.value,
-                    "primary_priority": user_profile.primary_priority.value,
-                    "google_services_preference": user_profile.google_services_preference.value,
-                    "autonomy_limit": user_profile.autonomy_limit.value,
-                    "risk_tolerance": user_profile.risk_tolerance.value,
-                    "restore_expectation": user_profile.restore_expectation.value,
-                    "target_use_case": user_profile.target_use_case.value,
-                },
-                "os_goals": {
-                    "top_goal": os_goals.top_goal.value,
-                    "secondary_goal": os_goals.secondary_goal.value,
-                    "requires_reliable_updates": os_goals.requires_reliable_updates,
-                    "prefers_long_battery_life": os_goals.prefers_long_battery_life,
-                    "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
-                },
-            }
-        )
+        operator_review = self._read_operator_review(session_dir)
         recommendation = self.use_case_recommender.execute(
             {
                 "device": device_payload,
@@ -489,6 +466,32 @@ class ForgeOrchestrator:
                     "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
                 },
                 "connection_plan": connection_plan,
+            }
+        )
+        build_plan = self.build_resolver.execute(
+            {
+                "assessment": assessment,
+                "connection_plan": connection_plan,
+                "selected_strategy": current_state.selected_strategy or "research_only",
+                "user_profile": {
+                    "persona": user_profile.persona.value,
+                    "technical_comfort": user_profile.technical_comfort.value,
+                    "primary_priority": user_profile.primary_priority.value,
+                    "google_services_preference": user_profile.google_services_preference.value,
+                    "autonomy_limit": user_profile.autonomy_limit.value,
+                    "risk_tolerance": user_profile.risk_tolerance.value,
+                    "restore_expectation": user_profile.restore_expectation.value,
+                    "target_use_case": user_profile.target_use_case.value,
+                },
+                "os_goals": {
+                    "top_goal": os_goals.top_goal.value,
+                    "secondary_goal": os_goals.secondary_goal.value,
+                    "requires_reliable_updates": os_goals.requires_reliable_updates,
+                    "prefers_long_battery_life": os_goals.prefers_long_battery_life,
+                    "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
+                },
+                "recommendation": recommendation,
+                "operator_review": operator_review,
             }
         )
         self._safe_transition(session_dir, "RECOMMEND", "ForgeOS is converting evidence into a recommended use case and build path")
@@ -810,6 +813,16 @@ class ForgeOrchestrator:
             "verification_execution": verification_execution,
             "runtime_files": runtime_files,
         }
+
+    def _read_operator_review(self, session_dir: Path) -> dict[str, Any]:
+        path = session_dir / "runtime" / "operator-review.json"
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Failed to read operator review from %s", path)
+            return {}
 
     def _apply_inspection_updates(
         self,
