@@ -20,6 +20,7 @@ def test_create_session_persists_profile_and_state(tmp_path: Path) -> None:
     assert (session_dir / "device-profile.json").exists()
     assert (session_dir / "session-state.json").exists()
     assert (session_dir / "destructive-approval.json").exists()
+    assert (session_dir / "runtime").exists()
     assert manager.load_session_state(session_dir).state == SessionStateName.DEVICE_ATTACHED
 
 

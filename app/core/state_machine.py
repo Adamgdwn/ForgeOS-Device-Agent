@@ -4,11 +4,36 @@ from app.core.models import SessionStateName
 
 
 ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
-    SessionStateName.IDLE: {SessionStateName.DEVICE_ATTACHED, SessionStateName.DISCOVER},
-    SessionStateName.DEVICE_ATTACHED: {SessionStateName.DISCOVER, SessionStateName.BLOCKED},
+    SessionStateName.IDLE: {
+        SessionStateName.DEVICE_ATTACHED,
+        SessionStateName.INTAKE,
+        SessionStateName.DISCOVER,
+    },
+    SessionStateName.DEVICE_ATTACHED: {
+        SessionStateName.INTAKE,
+        SessionStateName.ACCESS_ENABLEMENT,
+        SessionStateName.DISCOVER,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.INTAKE: {
+        SessionStateName.ACCESS_ENABLEMENT,
+        SessionStateName.DISCOVER,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.ACCESS_ENABLEMENT: {
+        SessionStateName.DEEP_SCAN,
+        SessionStateName.QUESTION_GATE,
+        SessionStateName.BLOCKED,
+    },
     SessionStateName.DISCOVER: {
+        SessionStateName.DEEP_SCAN,
         SessionStateName.ASSESS,
         SessionStateName.PROFILE_SYNTHESIS,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.DEEP_SCAN: {
+        SessionStateName.PROFILE_SYNTHESIS,
+        SessionStateName.ASSESS,
         SessionStateName.BLOCKED,
     },
     SessionStateName.PROFILE_SYNTHESIS: {
@@ -18,18 +43,31 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
     },
     SessionStateName.MATCH_MASTER: {
         SessionStateName.ASSESS,
+        SessionStateName.RECOMMEND,
         SessionStateName.PATH_SELECT,
         SessionStateName.BLOCKED,
     },
     SessionStateName.ASSESS: {
+        SessionStateName.RECOMMEND,
         SessionStateName.BACKUP_PLAN,
         SessionStateName.PATH_SELECT,
         SessionStateName.BLOCKER_CLASSIFY,
         SessionStateName.BLOCKED,
     },
+    SessionStateName.RECOMMEND: {
+        SessionStateName.BACKUP_PLAN,
+        SessionStateName.PATH_SELECT,
+        SessionStateName.BLOCKED,
+    },
     SessionStateName.BACKUP_PLAN: {
+        SessionStateName.BACKUP_READY,
         SessionStateName.UNLOCK_PREP,
         SessionStateName.PATH_SELECT,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.BACKUP_READY: {
+        SessionStateName.PREVIEW_BUILD,
+        SessionStateName.FLASH_PREP,
         SessionStateName.BLOCKED,
     },
     SessionStateName.UNLOCK_PREP: {SessionStateName.UNLOCK, SessionStateName.BLOCKED},
@@ -122,10 +160,32 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
     },
     SessionStateName.BUILD_GENERIC: {SessionStateName.SIGN_IMAGES, SessionStateName.BLOCKED},
     SessionStateName.BUILD_DEVICE: {SessionStateName.SIGN_IMAGES, SessionStateName.BLOCKED},
+    SessionStateName.PREVIEW_BUILD: {
+        SessionStateName.PREVIEW_REVIEW,
+        SessionStateName.INTERACTIVE_VERIFY,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.PREVIEW_REVIEW: {
+        SessionStateName.INTERACTIVE_VERIFY,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.INTERACTIVE_VERIFY: {
+        SessionStateName.INSTALL_APPROVAL,
+        SessionStateName.BLOCKED,
+    },
     SessionStateName.SIGN_IMAGES: {SessionStateName.FLASH_PREP, SessionStateName.BLOCKED},
-    SessionStateName.FLASH_PREP: {SessionStateName.FLASH, SessionStateName.BLOCKED},
+    SessionStateName.FLASH_PREP: {
+        SessionStateName.INSTALL_APPROVAL,
+        SessionStateName.FLASH,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.INSTALL_APPROVAL: {
+        SessionStateName.FLASH,
+        SessionStateName.BLOCKED,
+    },
     SessionStateName.FLASH: {
         SessionStateName.BOOTSTRAP_DEVICE,
+        SessionStateName.POST_INSTALL_VERIFY,
         SessionStateName.RESTORE,
         SessionStateName.BLOCKED,
     },
@@ -136,10 +196,17 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
     SessionStateName.BRINGUP: {SessionStateName.HARDEN, SessionStateName.BLOCKED},
     SessionStateName.HARDEN: {SessionStateName.VALIDATE, SessionStateName.BLOCKED},
     SessionStateName.VALIDATE: {
+        SessionStateName.POST_INSTALL_VERIFY,
         SessionStateName.PROMOTE,
         SessionStateName.RESTORE,
         SessionStateName.BLOCKED,
     },
+    SessionStateName.POST_INSTALL_VERIFY: {
+        SessionStateName.COMPLETE,
+        SessionStateName.RESTORE,
+        SessionStateName.BLOCKED,
+    },
+    SessionStateName.COMPLETE: set(),
     SessionStateName.PROMOTE: set(),
     SessionStateName.RESTORE: {SessionStateName.ASSESS, SessionStateName.BLOCKED},
     SessionStateName.BLOCKED: {SessionStateName.ASSESS, SessionStateName.BLOCKER_CLASSIFY},

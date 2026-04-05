@@ -24,11 +24,16 @@ class Transport(str, Enum):
 class SessionStateName(str, Enum):
     IDLE = "IDLE"
     DEVICE_ATTACHED = "DEVICE_ATTACHED"
+    INTAKE = "INTAKE"
+    ACCESS_ENABLEMENT = "ACCESS_ENABLEMENT"
     DISCOVER = "DISCOVER"
+    DEEP_SCAN = "DEEP_SCAN"
     ASSESS = "ASSESS"
     PROFILE_SYNTHESIS = "PROFILE_SYNTHESIS"
     MATCH_MASTER = "MATCH_MASTER"
+    RECOMMEND = "RECOMMEND"
     BACKUP_PLAN = "BACKUP_PLAN"
+    BACKUP_READY = "BACKUP_READY"
     UNLOCK_PREP = "UNLOCK_PREP"
     UNLOCK = "UNLOCK"
     BASELINE_CAPTURE = "BASELINE_CAPTURE"
@@ -46,13 +51,19 @@ class SessionStateName(str, Enum):
     SECURITY_VALIDATE = "SECURITY_VALIDATE"
     BUILD_GENERIC = "BUILD_GENERIC"
     BUILD_DEVICE = "BUILD_DEVICE"
+    PREVIEW_BUILD = "PREVIEW_BUILD"
+    PREVIEW_REVIEW = "PREVIEW_REVIEW"
+    INTERACTIVE_VERIFY = "INTERACTIVE_VERIFY"
     SIGN_IMAGES = "SIGN_IMAGES"
     FLASH_PREP = "FLASH_PREP"
+    INSTALL_APPROVAL = "INSTALL_APPROVAL"
     FLASH = "FLASH"
     BOOTSTRAP_DEVICE = "BOOTSTRAP_DEVICE"
     BRINGUP = "BRINGUP"
     HARDEN = "HARDEN"
     VALIDATE = "VALIDATE"
+    POST_INSTALL_VERIFY = "POST_INSTALL_VERIFY"
+    COMPLETE = "COMPLETE"
     ITERATE = "ITERATE"
     QUESTION_GATE = "QUESTION_GATE"
     PROMOTE = "PROMOTE"
@@ -115,6 +126,69 @@ class GoogleServicesPreference(str, Enum):
     KEEP = "keep_google"
     REDUCE = "reduce_google"
     REMOVE = "remove_google"
+
+
+class AutonomyLimit(str, Enum):
+    CONSERVATIVE = "conservative"
+    BALANCED = "balanced"
+    AGENTIC = "agentic"
+
+
+class RiskTolerance(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class RestoreExpectation(str, Enum):
+    MUST_BE_ONE_CLICK = "must_be_one_click"
+    GUIDED_IS_OK = "guided_is_ok"
+    RESEARCH_OK = "research_ok"
+
+
+class UseCaseCategory(str, Enum):
+    ACCESSIBILITY = "accessibility_focused_phone"
+    KID_SAFE = "kid_safe_communication_device"
+    MEDIA = "media_device"
+    OFFLINE_UTILITY = "offline_utility_tool"
+    HOME_CONTROL = "home_control_panel"
+    LIGHTWEIGHT_ANDROID = "lightweight_custom_android"
+    EXPERIMENTAL = "experimental_hybrid_path"
+    KIOSK = "special_purpose_terminal"
+
+
+class RuntimePhase(str, Enum):
+    INTAKE = "intake"
+    ACCESS = "guided_access_enablement"
+    DISCOVERY = "deep_scan"
+    RECOMMENDATION = "recommendation"
+    BACKUP = "backup_restore"
+    PREVIEW = "build_preview"
+    VERIFICATION = "interactive_verification"
+    INSTALL = "wipe_install"
+    POST_INSTALL = "post_install_verification"
+    BLOCKED = "blocked"
+    COMPLETE = "complete"
+
+
+class WorkerRole(str, Enum):
+    FRONTIER_ARCHITECT = "frontier_architect_worker"
+    LOCAL_GENERAL = "local_general_worker"
+    LOCAL_EDITOR = "local_editor_worker"
+    POLICY_GUARD = "policy_guard"
+
+
+class WorkerTier(str, Enum):
+    FRONTIER = "frontier"
+    LOCAL = "local"
+    DETERMINISTIC = "deterministic"
+
+
+class TaskRisk(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 @dataclass
@@ -214,6 +288,10 @@ class UserProfile:
     technical_comfort: TechnicalComfort = TechnicalComfort.LOW
     primary_priority: PriorityFocus = PriorityFocus.SECURITY
     google_services_preference: GoogleServicesPreference = GoogleServicesPreference.KEEP
+    autonomy_limit: AutonomyLimit = AutonomyLimit.CONSERVATIVE
+    risk_tolerance: RiskTolerance = RiskTolerance.LOW
+    restore_expectation: RestoreExpectation = RestoreExpectation.MUST_BE_ONE_CLICK
+    target_use_case: UseCaseCategory = UseCaseCategory.LIGHTWEIGHT_ANDROID
     notes: str = ""
     updated_at: str = field(default_factory=utc_now)
 
@@ -259,6 +337,85 @@ class FlashPlan:
     summary: str = ""
     generated_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class WorkerRouteDecision:
+    task_type: str
+    selected_worker: WorkerRole
+    selected_tier: WorkerTier
+    rationale: str
+    command_hint: str
+    fallback_worker: WorkerRole | None = None
+    escalation_triggers: list[str] = field(default_factory=list)
+    generated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class RecommendationOption:
+    option_id: str
+    label: str
+    fit_score: float
+    rationale: str
+    constraints: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ApprovalGate:
+    action: str
+    allowed: bool
+    requires_explicit_approval: bool
+    reason: str
+    missing_requirements: list[str] = field(default_factory=list)
+    consequences: list[str] = field(default_factory=list)
+    generated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class PreviewPlan:
+    status: str
+    summary: str
+    mechanisms: list[str] = field(default_factory=list)
+    prerequisites: list[str] = field(default_factory=list)
+    generated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class VerificationPlan:
+    status: str
+    summary: str
+    checkpoints: list[str] = field(default_factory=list)
+    interactive_checks: list[str] = field(default_factory=list)
+    generated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class AuditEntry:
+    category: str
+    message: str
+    evidence: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    timestamp: str = field(default_factory=utc_now)
+
+
+@dataclass
+class RuntimeSessionPlan:
+    session_id: str
+    phase: RuntimePhase
+    mission: str
+    operator_summary: str
+    recommended_use_case: str
+    recommended_path: str
+    worker_routes: list[WorkerRouteDecision] = field(default_factory=list)
+    recommendation_options: list[RecommendationOption] = field(default_factory=list)
+    approval_gates: list[ApprovalGate] = field(default_factory=list)
+    preview_plan: PreviewPlan | None = None
+    verification_plan: VerificationPlan | None = None
+    evidence: list[str] = field(default_factory=list)
+    next_actions: list[str] = field(default_factory=list)
+    hard_stops: list[str] = field(default_factory=list)
+    generated_at: str = field(default_factory=utc_now)
 
 
 @dataclass
@@ -374,6 +531,14 @@ def user_profile_from_dict(data: dict[str, Any]) -> UserProfile:
                 "google_services_preference",
                 GoogleServicesPreference.KEEP.value,
             )
+        ),
+        autonomy_limit=AutonomyLimit(data.get("autonomy_limit", AutonomyLimit.CONSERVATIVE.value)),
+        risk_tolerance=RiskTolerance(data.get("risk_tolerance", RiskTolerance.LOW.value)),
+        restore_expectation=RestoreExpectation(
+            data.get("restore_expectation", RestoreExpectation.MUST_BE_ONE_CLICK.value)
+        ),
+        target_use_case=UseCaseCategory(
+            data.get("target_use_case", UseCaseCategory.LIGHTWEIGHT_ANDROID.value)
         ),
         notes=data.get("notes", ""),
         updated_at=data.get("updated_at", utc_now()),

@@ -34,9 +34,13 @@ from app.core.connection_playbook import ConnectionPlaybookEngine
 from app.core.orchestrator import ForgeOrchestrator
 from app.core.policy import PolicyEngine
 from app.core.models import (
+    AutonomyLimit,
     GoogleServicesPreference,
     PriorityFocus,
+    RestoreExpectation,
+    RiskTolerance,
     TechnicalComfort,
+    UseCaseCategory,
     UserPersona,
     utc_now,
 )
@@ -188,7 +192,7 @@ class ForgeControlApp:
         title = QLabel("ForgeOS Device Agent")
         title.setProperty("role", "title")
         subtitle = QLabel(
-            "Step-by-step Android device assessment for cautious, guided operation"
+            "Runtime control surface for device rehabilitation, approvals, evidence, and recovery"
         )
         subtitle.setProperty("role", "subtitle")
         self.status_label = QLabel("Refresh status: starting up")
@@ -215,7 +219,7 @@ class ForgeControlApp:
         return box
 
     def _build_now_what_card(self) -> QGroupBox:
-        group = QGroupBox("Current Objective")
+        group = QGroupBox("Runtime Mission")
         layout = QVBoxLayout(group)
         self.primary_label = QLabel()
         self.primary_label.setWordWrap(True)
@@ -268,7 +272,7 @@ class ForgeControlApp:
         return group
 
     def _build_autonomous_card(self) -> QGroupBox:
-        group = QGroupBox("Execution Queue")
+        group = QGroupBox("Runtime Worker Queue")
         layout = QVBoxLayout(group)
         self.autonomous_title = QLabel()
         self.autonomous_title.setWordWrap(True)
@@ -280,7 +284,7 @@ class ForgeControlApp:
         return group
 
     def _build_profile_card(self) -> QGroupBox:
-        group = QGroupBox("1. Choose Device Goals")
+        group = QGroupBox("1. Intake And Autonomy Limits")
         layout = QVBoxLayout(group)
 
         self.profile_status = QLabel("Select the intended user and goals for this device session.")
@@ -316,6 +320,34 @@ class ForgeControlApp:
         self.google_combo.addItem("Reduce Google services", GoogleServicesPreference.REDUCE.value)
         self.google_combo.addItem("Remove Google services where feasible", GoogleServicesPreference.REMOVE.value)
 
+        self.autonomy_combo = QComboBox()
+        self.autonomy_combo.addItem("Conservative autonomy", AutonomyLimit.CONSERVATIVE.value)
+        self.autonomy_combo.addItem("Balanced autonomy", AutonomyLimit.BALANCED.value)
+        self.autonomy_combo.addItem("Agentic autonomy", AutonomyLimit.AGENTIC.value)
+
+        self.risk_combo = QComboBox()
+        self.risk_combo.addItem("Low risk tolerance", RiskTolerance.LOW.value)
+        self.risk_combo.addItem("Medium risk tolerance", RiskTolerance.MEDIUM.value)
+        self.risk_combo.addItem("High risk tolerance", RiskTolerance.HIGH.value)
+
+        self.restore_combo = QComboBox()
+        self.restore_combo.addItem("One-click restore preferred", RestoreExpectation.MUST_BE_ONE_CLICK.value)
+        self.restore_combo.addItem("Guided restore is okay", RestoreExpectation.GUIDED_IS_OK.value)
+        self.restore_combo.addItem("Research-first restore path is acceptable", RestoreExpectation.RESEARCH_OK.value)
+
+        self.use_case_combo = QComboBox()
+        for label, value in [
+            ("Accessibility-focused phone", UseCaseCategory.ACCESSIBILITY.value),
+            ("Kid-safe communication", UseCaseCategory.KID_SAFE.value),
+            ("Media device", UseCaseCategory.MEDIA.value),
+            ("Offline utility tool", UseCaseCategory.OFFLINE_UTILITY.value),
+            ("Home control panel", UseCaseCategory.HOME_CONTROL.value),
+            ("Lightweight custom Android", UseCaseCategory.LIGHTWEIGHT_ANDROID.value),
+            ("Experimental hybrid path", UseCaseCategory.EXPERIMENTAL.value),
+            ("Special-purpose terminal", UseCaseCategory.KIOSK.value),
+        ]:
+            self.use_case_combo.addItem(label, value)
+
         self.secondary_goal_combo = QComboBox()
         for label, value in [
             ("Simplicity", PriorityFocus.SIMPLICITY.value),
@@ -339,6 +371,10 @@ class ForgeControlApp:
             ("Technical comfort", self.comfort_combo),
             ("Top priority", self.priority_combo),
             ("Google services preference", self.google_combo),
+            ("Autonomy limit", self.autonomy_combo),
+            ("Acceptable risk tolerance", self.risk_combo),
+            ("Restore expectation", self.restore_combo),
+            ("Target use case category", self.use_case_combo),
             ("Secondary goal", self.secondary_goal_combo),
         ]:
             label = QLabel(label_text)
@@ -380,7 +416,7 @@ class ForgeControlApp:
         return group
 
     def _build_approval_card(self) -> QGroupBox:
-        group = QGroupBox("2. Approve Wipe To Continue")
+        group = QGroupBox("2. Install Approval Gate")
         layout = QVBoxLayout(group)
 
         self.approval_status = QLabel(
@@ -712,11 +748,13 @@ class ForgeControlApp:
         state_path = session_dir / "session-state.json"
         report_path = session_dir / "reports" / "assessment.json"
         engagement_path = session_dir / "reports" / "engagement.json"
+        runtime_plan_path = session_dir / "runtime" / "session-plan.json"
 
         profile = json.loads(profile_path.read_text()) if profile_path.exists() else {}
         state = json.loads(state_path.read_text()) if state_path.exists() else {}
         report = json.loads(report_path.read_text()) if report_path.exists() else {}
         engagement = json.loads(engagement_path.read_text()) if engagement_path.exists() else {}
+        runtime_plan = json.loads(runtime_plan_path.read_text()) if runtime_plan_path.exists() else {}
         family_summary = self.knowledge.lookup_family_summary(
             profile.get("manufacturer"),
             profile.get("model"),
@@ -736,6 +774,17 @@ class ForgeControlApp:
             f"Bootloader locked: {profile.get('bootloader_locked')}",
             f"Verified boot state: {profile.get('verified_boot_state') or 'unknown'}",
         ]
+
+        if runtime_plan:
+            lines.extend(
+                [
+                    "",
+                    "Runtime session plan:",
+                    f"- phase: {runtime_plan.get('phase', 'unknown')}",
+                    f"- recommended use case: {runtime_plan.get('recommended_use_case', 'unknown')}",
+                    f"- recommended path: {runtime_plan.get('recommended_path', 'unknown')}",
+                ]
+            )
 
         if family_summary:
             lines.extend(
@@ -798,6 +847,8 @@ class ForgeControlApp:
         blocker_path = session_dir / "reports" / "blocker.json"
         build_plan_path = session_dir / "reports" / "build_plan.json"
         execution_queue_path = session_dir / "reports" / "execution_queue.json"
+        runtime_plan_path = session_dir / "runtime" / "session-plan.json"
+        worker_routing_path = session_dir / "runtime" / "worker-routing.json"
         if not engagement_path.exists():
             return (
                 "No autonomous engagement report yet.",
@@ -808,6 +859,8 @@ class ForgeControlApp:
         blocker = json.loads(blocker_path.read_text()) if blocker_path.exists() else {}
         build_plan = json.loads(build_plan_path.read_text()) if build_plan_path.exists() else {}
         execution_queue = json.loads(execution_queue_path.read_text()) if execution_queue_path.exists() else {}
+        runtime_plan = json.loads(runtime_plan_path.read_text()) if runtime_plan_path.exists() else {}
+        worker_routing = json.loads(worker_routing_path.read_text()) if worker_routing_path.exists() else {}
         details = engagement.get("details", {})
         actions_attempted = details.get("actions_attempted") or []
         findings = details.get("findings") or []
@@ -820,6 +873,17 @@ class ForgeControlApp:
         lines = [
             f"Summary: {engagement.get('summary', 'No summary available')}",
         ]
+
+        if runtime_plan:
+            lines.extend(
+                [
+                    "",
+                    "Runtime plan:",
+                    f"- phase: {runtime_plan.get('phase', 'unknown')}",
+                    f"- recommended use case: {runtime_plan.get('recommended_use_case', 'unknown')}",
+                    f"- operator summary: {runtime_plan.get('operator_summary', 'No runtime summary available')}",
+                ]
+            )
 
         if blocker:
             lines.extend(
@@ -873,6 +937,14 @@ class ForgeControlApp:
                 ]
             )
 
+        routes = worker_routing.get("routes") or []
+        if routes:
+            lines.extend(["", "Worker routing:"])
+            for route in routes[:4]:
+                lines.append(
+                    f"- {route.get('task_type', 'unknown')}: {route.get('selected_worker', 'unknown')} via `{route.get('command_hint', 'unknown')}`"
+                )
+
         return title, "\n".join(lines)
 
     def _current_codex_files(self, session_dir: Path) -> list[str]:
@@ -897,6 +969,10 @@ class ForgeControlApp:
         self._set_combo_by_value(self.comfort_combo, profile.technical_comfort.value)
         self._set_combo_by_value(self.priority_combo, profile.primary_priority.value)
         self._set_combo_by_value(self.google_combo, profile.google_services_preference.value)
+        self._set_combo_by_value(self.autonomy_combo, profile.autonomy_limit.value)
+        self._set_combo_by_value(self.risk_combo, profile.risk_tolerance.value)
+        self._set_combo_by_value(self.restore_combo, profile.restore_expectation.value)
+        self._set_combo_by_value(self.use_case_combo, profile.target_use_case.value)
         self._set_combo_by_value(self.secondary_goal_combo, goals.secondary_goal.value)
         self.updates_check.setChecked(goals.requires_reliable_updates)
         self.battery_check.setChecked(goals.prefers_long_battery_life)
@@ -914,6 +990,10 @@ class ForgeControlApp:
         user_profile.google_services_preference = GoogleServicesPreference(
             self.google_combo.currentData()
         )
+        user_profile.autonomy_limit = AutonomyLimit(self.autonomy_combo.currentData())
+        user_profile.risk_tolerance = RiskTolerance(self.risk_combo.currentData())
+        user_profile.restore_expectation = RestoreExpectation(self.restore_combo.currentData())
+        user_profile.target_use_case = UseCaseCategory(self.use_case_combo.currentData())
         self.sessions.write_user_profile(self.current_session_dir, user_profile)
 
         os_goals = self.sessions.load_os_goals(self.current_session_dir)
@@ -938,6 +1018,10 @@ class ForgeControlApp:
                     "technical_comfort": user_profile.technical_comfort.value,
                     "primary_priority": user_profile.primary_priority.value,
                     "google_services_preference": user_profile.google_services_preference.value,
+                    "autonomy_limit": user_profile.autonomy_limit.value,
+                    "risk_tolerance": user_profile.risk_tolerance.value,
+                    "restore_expectation": user_profile.restore_expectation.value,
+                    "target_use_case": user_profile.target_use_case.value,
                 },
                 "os_goals": {
                     "top_goal": os_goals.top_goal.value,

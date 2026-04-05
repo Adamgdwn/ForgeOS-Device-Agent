@@ -207,6 +207,12 @@ class SessionManager:
             return None
         return flash_plan_from_dict(json.loads(path.read_text()))
 
+    def write_runtime_artifact(self, session_dir: Path, relative_path: str, payload: dict[str, Any]) -> Path:
+        path = session_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2))
+        return path
+
     def transition(self, session_dir: Path, target: SessionStateName, reason: str) -> SessionState:
         state = self.load_session_state(session_dir)
         if not is_transition_allowed(state.state, target):
@@ -231,6 +237,7 @@ class SessionManager:
             "reports",
             "raw",
             "plans",
+            "runtime",
             "codex",
             "connection",
             "codegen",

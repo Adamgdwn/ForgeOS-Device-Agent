@@ -9,13 +9,17 @@ from app.core.codegen_runtime import CodegenRuntime
 from app.core.connection_engine import ConnectionEngine
 from app.core.knowledge import KnowledgeEngine
 from app.core.knowledge_lookup import KnowledgeLookup
+from app.core.policy_guard import PolicyGuard
 from app.core.patch_executor import PatchExecutor
 from app.core.reporting import ReportWriter
 from app.core.policy import PolicyEngine
 from app.core.promotion import PromotionEngine
 from app.core.retry_planner import RetryPlanner
+from app.core.runtime_planner import RuntimePlanner
+from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerTask
 from app.core.session_manager import SessionManager
 from app.core.state_machine import is_transition_allowed
+from app.core.models import TaskRisk, to_dict
 from app.tools.autonomous_engagement import AutonomousEngagementTool
 from app.tools.backup_restore import BackupAndRestorePlannerTool
 from app.tools.build_resolver import BuildResolverTool
@@ -24,6 +28,7 @@ from app.tools.feasibility_assessor import FeasibilityAssessorTool
 from app.tools.flash_executor import FlashExecutorTool
 from app.tools.restore_controller import RestoreControllerTool
 from app.tools.strategy_selector import BuildStrategySelectorTool
+from app.tools.use_case_recommender import UseCaseRecommenderTool
 from app.tools.vscode_opener import VSCodeOpenerTool
 from app.core.blocker_engine import BlockerEngine
 
@@ -44,15 +49,20 @@ class ForgeOrchestrator:
         self.patch_executor = PatchExecutor(root)
         self.promotion = PromotionEngine(root)
         self.retry_planner = RetryPlanner(root)
+        self.policy_guard = PolicyGuard(root)
         self.device_probe = DeviceProbeTool(root)
         self.assessor = FeasibilityAssessorTool(root)
         self.build_resolver = BuildResolverTool(root)
         self.strategy_selector = BuildStrategySelectorTool(root)
+        self.use_case_recommender = UseCaseRecommenderTool(root)
         self.autonomous_engagement = AutonomousEngagementTool(root)
         self.backup_restore = BackupAndRestorePlannerTool(root)
         self.flash_executor = FlashExecutorTool(root)
         self.restore_controller = RestoreControllerTool(root)
         self.vscode_opener = VSCodeOpenerTool(root)
+        self.worker_registry = WorkerRegistry(root).discover()
+        self.worker_router = WorkerRouter(self.worker_registry)
+        self.runtime_planner = RuntimePlanner(root, self.sessions)
 
     def handle_device_event(self, event: dict[str, Any]) -> Path:
         probe_result = self.device_probe.execute({"event": event})
@@ -86,6 +96,10 @@ class ForgeOrchestrator:
                         "technical_comfort": user_profile.technical_comfort.value,
                         "primary_priority": user_profile.primary_priority.value,
                         "google_services_preference": user_profile.google_services_preference.value,
+                        "autonomy_limit": user_profile.autonomy_limit.value,
+                        "risk_tolerance": user_profile.risk_tolerance.value,
+                        "restore_expectation": user_profile.restore_expectation.value,
+                        "target_use_case": user_profile.target_use_case.value,
                     },
                     "os_goals": {
                         "top_goal": os_goals.top_goal.value,
@@ -132,6 +146,11 @@ class ForgeOrchestrator:
         blocker_path = self.blockers.write(session_dir, blocker)
         flash_plan_path = self.sessions.write_flash_plan(session_dir, flash_plan)
         retry_plan_path = self.retry_planner.write(session_dir, retry_plan)
+        runtime_files = runtime_result["runtime_files"]
+        recommendation = runtime_result["recommendation"]
+        worker_routes = runtime_result["worker_routes"]
+        install_gate = runtime_result["install_gate"]
+        runtime_gate = runtime_result["runtime_gate"]
 
         if self.policy.open_vscode_on_session_create:
             self.vscode_opener.execute(
@@ -175,6 +194,10 @@ class ForgeOrchestrator:
                     "technical_comfort": user_profile.technical_comfort.value,
                     "primary_priority": user_profile.primary_priority.value,
                     "google_services_preference": user_profile.google_services_preference.value,
+                    "autonomy_limit": user_profile.autonomy_limit.value,
+                    "risk_tolerance": user_profile.risk_tolerance.value,
+                    "restore_expectation": user_profile.restore_expectation.value,
+                    "target_use_case": user_profile.target_use_case.value,
                 },
                 "os_goals": {
                     "top_goal": os_goals.top_goal.value,
@@ -189,6 +212,8 @@ class ForgeOrchestrator:
                 "backup_plan": backup_plan["plan"],
                 "restore_plan_path": restore_plan["restore_plan_path"],
                 "inspection": inspection,
+                "recommendation": recommendation,
+                "runtime_files": runtime_files,
             },
         )
         self.reports.write_session_report(
@@ -282,6 +307,21 @@ class ForgeOrchestrator:
                 "build_plan": build_plan,
                 "flash_plan_path": str(flash_plan_path),
                 "backup_bundle_path": backup_plan["plan"]["backup_bundle_path"],
+                "runtime_plan_path": runtime_files["runtime_plan_path"],
+            },
+        )
+        self.reports.write_session_report(
+            session_dir,
+            report_type="runtime",
+            status=runtime_gate.action,
+            summary="ForgeOS updated the runtime session plan, worker routing, and approval gates.",
+            details={
+                "runtime_files": runtime_files,
+                "worker_routes": [to_dict(route) for route in worker_routes],
+                "recommendation": recommendation,
+                "install_gate": to_dict(install_gate),
+                "runtime_gate": to_dict(runtime_gate),
+                "worker_inventory": self.worker_registry.inventory(),
             },
         )
         self.logger.info("Handled device event for session %s", session_dir.name)
@@ -323,6 +363,10 @@ class ForgeOrchestrator:
                     "technical_comfort": user_profile.technical_comfort.value,
                     "primary_priority": user_profile.primary_priority.value,
                     "google_services_preference": user_profile.google_services_preference.value,
+                    "autonomy_limit": user_profile.autonomy_limit.value,
+                    "risk_tolerance": user_profile.risk_tolerance.value,
+                    "restore_expectation": user_profile.restore_expectation.value,
+                    "target_use_case": user_profile.target_use_case.value,
                 },
                 "os_goals": {
                     "top_goal": os_goals.top_goal.value,
@@ -331,6 +375,30 @@ class ForgeOrchestrator:
                     "prefers_long_battery_life": os_goals.prefers_long_battery_life,
                     "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
                 },
+            }
+        )
+        recommendation = self.use_case_recommender.execute(
+            {
+                "device": device_payload,
+                "assessment": assessment,
+                "user_profile": {
+                    "persona": user_profile.persona.value,
+                    "technical_comfort": user_profile.technical_comfort.value,
+                    "primary_priority": user_profile.primary_priority.value,
+                    "google_services_preference": user_profile.google_services_preference.value,
+                    "autonomy_limit": user_profile.autonomy_limit.value,
+                    "risk_tolerance": user_profile.risk_tolerance.value,
+                    "restore_expectation": user_profile.restore_expectation.value,
+                    "target_use_case": user_profile.target_use_case.value,
+                },
+                "os_goals": {
+                    "top_goal": os_goals.top_goal.value,
+                    "secondary_goal": os_goals.secondary_goal.value,
+                    "requires_reliable_updates": os_goals.requires_reliable_updates,
+                    "prefers_long_battery_life": os_goals.prefers_long_battery_life,
+                    "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
+                },
+                "connection_plan": connection_plan,
             }
         )
         flash_plan = self.flash_executor.build_plan(
@@ -360,11 +428,40 @@ class ForgeOrchestrator:
         current_state.blocker_confidence = blocker["confidence"]
         self.sessions.write_session_state(session_dir, current_state)
 
+        worker_routes = [
+            self.worker_router.route(
+                WorkerTask(
+                    task_type="device_discovery",
+                    summary="Interrogate the current device state and collect transport evidence.",
+                    risk=TaskRisk.LOW,
+                    repetitive=True,
+                )
+            ),
+            self.worker_router.route(
+                WorkerTask(
+                    task_type="use_case_recommendation",
+                    summary="Infer the best attainable use case from the device evidence and user goals.",
+                    risk=TaskRisk.MEDIUM,
+                )
+            ),
+        ]
+
         generated_runtime: dict[str, Any] = {}
         patch_result: dict[str, Any] = {}
         execution_result: dict[str, Any] = {}
         inspection: dict[str, Any] = {}
         if blocker.get("machine_solvable"):
+            worker_routes.append(
+                self.worker_router.route(
+                    WorkerTask(
+                        task_type="machine_remediation",
+                        summary=str(blocker.get("summary", "Recoverable blocker remediation")),
+                        risk=TaskRisk.MEDIUM,
+                        needs_repo_edit=True,
+                        local_retry_count=int(current_state.remediation_iteration),
+                    )
+                )
+            )
             self._safe_transition(session_dir, "REMEDIATION_DECIDE", f"Runtime selected remediation path `{blocker['planned_next_action']}`")
             self._safe_transition(session_dir, "TASK_CREATE", "Creating a remediation task from the current blocker")
             current_state = self.sessions.load_session_state(session_dir)
@@ -402,6 +499,40 @@ class ForgeOrchestrator:
             self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires minimal external action or approval")
 
         retry_plan = self.retry_planner.build_plan(blocker, generated_runtime or None)
+        if flash_plan.requires_wipe:
+            worker_routes.append(
+                self.worker_router.route(
+                    WorkerTask(
+                        task_type="install_planning",
+                        summary="Review destructive install planning and safety gates.",
+                        risk=TaskRisk.HIGH,
+                        architecture_level=True,
+                    )
+                )
+            )
+
+        approval = self.sessions.load_destructive_approval(session_dir)
+        install_gate = self.policy_guard.evaluate_install_gate(
+            policy=self.policy,
+            flash_plan=flash_plan,
+            approval=approval,
+            backup_plan=backup_plan["plan"],
+        )
+        runtime_gate = self.policy_guard.evaluate_research_gate(blocker)
+        runtime_files = self.runtime_planner.materialize(
+            session_dir=session_dir,
+            state=self.sessions.load_session_state(session_dir),
+            assessment=assessment,
+            connection_plan=connection_plan,
+            build_plan=build_plan,
+            backup_plan=backup_plan["plan"],
+            restore_plan=restore_plan,
+            blocker=blocker,
+            worker_routes=worker_routes,
+            install_gate=install_gate,
+            runtime_gate=runtime_gate,
+            recommendation=recommendation,
+        )
         if blocker["blocker_type"] == "none":
             self._safe_transition(session_dir, "CONNECTIVITY_VALIDATE", "Runtime resolved immediate blocker and can continue validation")
         elif not blocker.get("machine_solvable"):
@@ -423,6 +554,11 @@ class ForgeOrchestrator:
             "execution_result": execution_result,
             "inspection": inspection,
             "retry_plan": retry_plan,
+            "recommendation": recommendation,
+            "worker_routes": worker_routes,
+            "install_gate": install_gate,
+            "runtime_gate": runtime_gate,
+            "runtime_files": runtime_files,
         }
 
     def _apply_inspection_updates(
