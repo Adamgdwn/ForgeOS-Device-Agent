@@ -23,7 +23,7 @@
     },
     "samsung-usb-attached-android-499ecd74-20260404": {
       "session_id": "samsung-usb-attached-android-499ecd74-20260404",
-      "recorded_at": "2026-04-05T01:07:26.518266+00:00",
+      "recorded_at": "2026-04-05T01:42:48.035378+00:00",
       "family_key": "samsung:usb-attached-android",
       "canonical_name": "samsung-usb-attached-android-499ecd74-20260404",
       "device_codename": "samsun-499e",
@@ -35,7 +35,7 @@
       "verified_boot_state": null,
       "support_status": "research_only",
       "selected_strategy": "transport_recovery",
-      "current_state": "PATH_SELECT",
+      "current_state": "QUESTION_GATE",
       "restore_path_feasible": false,
       "assessment_summary": "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
       "notes": [

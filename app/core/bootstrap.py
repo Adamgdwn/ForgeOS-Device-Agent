@@ -6,6 +6,7 @@ import platform
 import shutil
 from pathlib import Path
 
+from app.integrations import adb, fastboot
 from app.core.models import ForgePaths
 from app.core.policy import PolicyEngine
 from app.core.reporting import ReportWriter
@@ -214,8 +215,8 @@ def run_bootstrap(root: Path) -> dict[str, object]:
         "platform_release": platform.release(),
         "desktop_session": os.environ.get("XDG_CURRENT_DESKTOP"),
         "code_available": shutil.which("code") is not None,
-        "adb_available": shutil.which("adb") is not None,
-        "fastboot_available": shutil.which("fastboot") is not None,
+        "adb_available": adb.adb_available(),
+        "fastboot_available": fastboot.fastboot_available(),
         "udev_present": Path("/dev").exists(),
         "usb_access_likely": os.access("/dev", os.R_OK),
         "workspace_file": str(workspace_path),

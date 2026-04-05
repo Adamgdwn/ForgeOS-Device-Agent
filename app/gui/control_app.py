@@ -73,13 +73,13 @@ class ForgeControlApp:
         self.window.setMinimumSize(860, 620)
         self.window.resizeEvent = self._handle_resize
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.window.setCentralWidget(scroll)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.window.setCentralWidget(self.scroll)
 
         central = QWidget()
-        scroll.setWidget(central)
+        self.scroll.setWidget(central)
         outer = QVBoxLayout(central)
         outer.setContentsMargins(18, 18, 18, 18)
         outer.setSpacing(14)
@@ -420,11 +420,8 @@ class ForgeControlApp:
         layout = QVBoxLayout(group)
         for label, path in [
             ("Open User Guide", self.project_root / "USER_GUIDE.md"),
-            ("Open Master Policies", self.project_root / "master" / "policies"),
-            ("Open Session Codex Brief", self.project_root / "devices"),
+            ("Open Session Folder", self.project_root / "devices"),
             ("Open Session Backup", self.project_root / "devices"),
-            ("Open Knowledge", self.project_root / "knowledge"),
-            ("Open Promotion", self.project_root / "promotion"),
             ("Open Logs", self.project_root / "logs"),
             ("Open Output Reports", self.project_root / "output"),
         ]:
@@ -433,6 +430,17 @@ class ForgeControlApp:
             layout.addWidget(button)
         layout.addStretch(1)
         return group
+
+    def _set_text_preserve_scroll(self, widget: QTextEdit, text: str) -> None:
+        scrollbar = widget.verticalScrollBar()
+        previous_value = scrollbar.value()
+        was_at_bottom = previous_value >= max(0, scrollbar.maximum() - 2)
+        widget.setPlainText(text)
+        new_max = scrollbar.maximum()
+        if was_at_bottom:
+            scrollbar.setValue(new_max)
+        else:
+            scrollbar.setValue(min(previous_value, new_max))
 
     def _collect_sessions(self) -> list[Path]:
         if not self.devices_dir.exists():
@@ -869,18 +877,20 @@ class ForgeControlApp:
                     "- Current mode looks like MTP or generic USB only.\n"
                     "- ForgeOS needs adb, fastboot, or recovery visibility to create a device session.\n"
                 )
-            self.device_text.setPlainText(waiting_text)
+            self._set_text_preserve_scroll(self.device_text, waiting_text)
             self.autonomous_title.setText("Current autonomous status: waiting for a manageable device")
             self.profile_status.setText("Connect or select a device session before setting the user profile.")
             self.connection_help_title.setText("No device session is loaded yet.")
-            self.connection_help_text.setPlainText(
+            self._set_text_preserve_scroll(
+                self.connection_help_text,
                 "Connect a phone and ForgeOS will show vendor- and model-specific setup steps here.\n\n"
                 "This panel is meant to tell the operator exactly how to get from USB-only visibility to adb, fastboot, or another manageable transport."
             )
             self.approval_status.setText("Connect or select a device session before recording wipe approval.")
-            self.flash_plan_text.setPlainText("No flash plan is available yet.")
+            self._set_text_preserve_scroll(self.flash_plan_text, "No flash plan is available yet.")
             if usb_only_device:
-                self.autonomous_text.setPlainText(
+                self._set_text_preserve_scroll(
+                    self.autonomous_text,
                     "ForgeOS can see a phone at the USB level and is waiting for a manageable transport.\n\n"
                     "Agent is waiting for:\n"
                     "- Unlock the phone.\n"
@@ -889,11 +899,13 @@ class ForgeControlApp:
                     "- Reconnect the USB cable if needed.\n"
                 )
             else:
-                self.autonomous_text.setPlainText(
+                self._set_text_preserve_scroll(
+                    self.autonomous_text,
                     "ForgeOS is idle and waiting for a phone that exposes USB, adb, fastboot, or recovery visibility."
                 )
             self.open_folder_button.setEnabled(False)
             self.open_code_button.setEnabled(False)
+            self._update_card_visibility(False, bool(usb_only_device), "usb_only_detected" if usb_only_device else "unknown")
             self._update_refresh_status(reason, has_live_device=False, has_usb_only=bool(usb_only_device))
             return
 
@@ -937,13 +949,13 @@ class ForgeControlApp:
         self.device_title.setText(
             f"{title_prefix}: {self.current_session_dir.name}  |  State: {state.get('state', 'unknown')}"
         )
-        self.device_text.setPlainText(self._format_device_text(self.current_session_dir))
+        self._set_text_preserve_scroll(self.device_text, self._format_device_text(self.current_session_dir))
         autonomous_title, autonomous_text = self._format_autonomous_text(self.current_session_dir)
         codex_files = self._current_codex_files(self.current_session_dir)
         if codex_files:
             autonomous_text += "\n\nCodex handoff files:\n" + "\n".join(f"- {path}" for path in codex_files)
         self.autonomous_title.setText(autonomous_title)
-        self.autonomous_text.setPlainText(autonomous_text)
+        self._set_text_preserve_scroll(self.autonomous_text, autonomous_text)
         self._load_profile_form(self.current_session_dir)
         self.profile_status.setText("Profile is loaded for this session. Save changes to recompute the OS path.")
         self._refresh_connection_help(self.current_session_dir)
@@ -973,6 +985,7 @@ class ForgeControlApp:
         self._refresh_approval_panel(self.current_session_dir)
         self.open_folder_button.setEnabled(True)
         self.open_code_button.setEnabled(True)
+        self._update_card_visibility(True, bool(usb_only_device), engagement_status)
         self._update_refresh_status(reason, has_live_device=bool(live_session), has_usb_only=bool(usb_only_device))
 
     def _refresh_connection_help(self, session_dir: Path) -> None:
@@ -989,8 +1002,36 @@ class ForgeControlApp:
         lines = [
             playbook["summary"],
             "",
-            "Steps:",
+            "How to find USB debugging:",
         ]
+        if "samsung" in str(playbook.get("playbook_id", "")):
+            lines.extend(
+                [
+                    "- Open Settings.",
+                    "- Open About device or About phone.",
+                    "- If Software information exists, open it.",
+                    "- Tap Build number 7 times.",
+                    "- Go back and open Developer Options.",
+                    "- Turn on USB debugging.",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "- Open Settings.",
+                    "- Open About phone.",
+                    "- Tap Build number 7 times.",
+                    "- Go back and open Developer Options.",
+                    "- Turn on USB debugging.",
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+            "Steps:",
+            ]
+        )
         lines.extend(f"- {step}" for step in playbook.get("steps", []))
         lines.extend(
             [
@@ -1002,7 +1043,7 @@ class ForgeControlApp:
         if troubleshooting:
             lines.extend(["", "Troubleshooting:"])
             lines.extend(f"- {item}" for item in troubleshooting)
-        self.connection_help_text.setPlainText("\n".join(lines))
+        self._set_text_preserve_scroll(self.connection_help_text, "\n".join(lines))
 
     def _playbook_for_context(
         self,
@@ -1028,8 +1069,7 @@ class ForgeControlApp:
         self.primary_label.setText(headline)
         self.secondary_label.setText(subheadline)
         if playbook:
-            steps = playbook.get("steps", [])[:3]
-            troubleshooting = playbook.get("troubleshooting", [])[:2]
+            steps = playbook.get("steps", [])[:2]
             lines = [
                 "Agent is doing now:",
                 f"- {agent_action or 'Watching USB, adb, and fastboot, retrying safe engagement, and updating the session automatically.'}",
@@ -1040,12 +1080,10 @@ class ForgeControlApp:
             expected = playbook.get("expected_next_state")
             if expected:
                 lines.extend(["", f"Expected next result: {expected}"])
-            if troubleshooting:
-                lines.extend(["", "If it still does not move forward:"])
-                lines.extend(f"- {item}" for item in troubleshooting)
-            self.objective_text.setPlainText("\n".join(lines))
+            self._set_text_preserve_scroll(self.objective_text, "\n".join(lines))
         else:
-            self.objective_text.setPlainText(
+            self._set_text_preserve_scroll(
+                self.objective_text,
                 "\n".join(
                     [
                         "Agent is doing now:",
@@ -1056,7 +1094,7 @@ class ForgeControlApp:
                         "- Unlock the phone if Android is booted.",
                         "- Approve USB debugging if the phone asks.",
                     ]
-                )
+                ),
             )
 
     def _set_execution_checklist(
@@ -1073,7 +1111,7 @@ class ForgeControlApp:
             lines.append("")
         lines.append("Execution checklist:")
         lines.extend(f"- {item}" for item in checklist)
-        self.steps_text.setPlainText("\n".join(lines))
+        self._set_text_preserve_scroll(self.steps_text, "\n".join(lines))
 
     def _build_execution_checklist(
         self,
@@ -1181,7 +1219,7 @@ class ForgeControlApp:
             self.approval_status.setText(
                 "No flash plan has been generated for this session yet. Complete assessment and planning first."
             )
-            self.flash_plan_text.setPlainText("No flash plan available.")
+            self._set_text_preserve_scroll(self.flash_plan_text, "No flash plan available.")
             return
 
         live_mode_text = (
@@ -1228,7 +1266,18 @@ class ForgeControlApp:
             f"- {step.get('name', 'unknown')}: {step.get('description', '')}"
             for step in flash_plan.steps
         )
-        self.flash_plan_text.setPlainText("\n".join(lines))
+        self._set_text_preserve_scroll(self.flash_plan_text, "\n".join(lines))
+
+    def _update_card_visibility(
+        self,
+        has_session: bool,
+        usb_only_device: bool,
+        engagement_status: str,
+    ) -> None:
+        show_connection_help = usb_only_device or engagement_status in {"usb_only_detected", "awaiting_user_approval"}
+        self.connection_help_card.setVisible(show_connection_help)
+        self.approval_card.setVisible(has_session)
+        self.profile_card.setVisible(has_session)
 
     def _update_refresh_status(self, reason: str, has_live_device: bool, has_usb_only: bool) -> None:
         timestamp = utc_now().split("T", 1)[1].split(".", 1)[0]

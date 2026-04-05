@@ -24,5 +24,12 @@ class ADBWatcher:
                 if serial in self.seen_serials:
                     continue
                 self.seen_serials.add(serial)
-                self.event_bus.publish("device_detected", device)
+                enriched = adb.describe_device(serial)
+                if not enriched.get("model") and device.get("model"):
+                    enriched["model"] = device.get("model", "")
+                if not enriched.get("device_codename") and device.get("device"):
+                    enriched["device_codename"] = device.get("device", "")
+                if device.get("product"):
+                    enriched["product"] = device.get("product", "")
+                self.event_bus.publish("device_detected", enriched)
             time.sleep(self.poll_interval)
