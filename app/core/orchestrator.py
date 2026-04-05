@@ -15,8 +15,9 @@ from app.core.reporting import ReportWriter
 from app.core.policy import PolicyEngine
 from app.core.promotion import PromotionEngine
 from app.core.retry_planner import RetryPlanner
+from app.core.runtime_pipelines import PreviewPipeline, VerificationPipeline
 from app.core.runtime_planner import RuntimePlanner
-from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerTask
+from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerRuntime, WorkerTask
 from app.core.session_manager import SessionManager
 from app.core.state_machine import is_transition_allowed
 from app.core.models import TaskRisk, to_dict
@@ -62,6 +63,9 @@ class ForgeOrchestrator:
         self.vscode_opener = VSCodeOpenerTool(root)
         self.worker_registry = WorkerRegistry(root).discover()
         self.worker_router = WorkerRouter(self.worker_registry)
+        self.worker_runtime = WorkerRuntime(root, self.worker_registry)
+        self.preview_pipeline = PreviewPipeline(root)
+        self.verification_pipeline = VerificationPipeline(root)
         self.runtime_planner = RuntimePlanner(root, self.sessions)
 
     def handle_device_event(self, event: dict[str, Any]) -> Path:
@@ -151,6 +155,9 @@ class ForgeOrchestrator:
         worker_routes = runtime_result["worker_routes"]
         install_gate = runtime_result["install_gate"]
         runtime_gate = runtime_result["runtime_gate"]
+        worker_executions = runtime_result["worker_executions"]
+        preview_execution = runtime_result["preview_execution"]
+        verification_execution = runtime_result["verification_execution"]
 
         if self.policy.open_vscode_on_session_create:
             self.vscode_opener.execute(
@@ -318,9 +325,12 @@ class ForgeOrchestrator:
             details={
                 "runtime_files": runtime_files,
                 "worker_routes": [to_dict(route) for route in worker_routes],
+                "worker_executions": [to_dict(execution) for execution in worker_executions],
                 "recommendation": recommendation,
                 "install_gate": to_dict(install_gate),
                 "runtime_gate": to_dict(runtime_gate),
+                "preview_execution": to_dict(preview_execution),
+                "verification_execution": to_dict(verification_execution),
                 "worker_inventory": self.worker_registry.inventory(),
             },
         )
@@ -433,6 +443,11 @@ class ForgeOrchestrator:
                 WorkerTask(
                     task_type="device_discovery",
                     summary="Interrogate the current device state and collect transport evidence.",
+                    prompt=(
+                        "Summarize the current device transport evidence and the next safest runtime action.\n\n"
+                        f"Assessment: {assessment.get('summary', '')}\n"
+                        f"Connection plan: {json_safe(connection_plan)}"
+                    ),
                     risk=TaskRisk.LOW,
                     repetitive=True,
                 )
@@ -441,9 +456,43 @@ class ForgeOrchestrator:
                 WorkerTask(
                     task_type="use_case_recommendation",
                     summary="Infer the best attainable use case from the device evidence and user goals.",
+                    prompt=(
+                        "Given the device evidence and user goals, summarize the best attainable device rehabilitation outcome.\n\n"
+                        f"Recommendation seed: {json_safe(recommendation)}"
+                    ),
                     risk=TaskRisk.MEDIUM,
                 )
             ),
+        ]
+        worker_tasks: list[WorkerTask] = [
+            WorkerTask(
+                task_type="device_discovery",
+                summary="Interrogate the current device state and collect transport evidence.",
+                prompt=(
+                    "Summarize the current device transport evidence and the next safest runtime action.\n\n"
+                    f"Assessment: {assessment.get('summary', '')}\n"
+                    f"Connection plan: {json_safe(connection_plan)}"
+                ),
+                risk=TaskRisk.LOW,
+                repetitive=True,
+                retry_budget=1,
+                context={"assessment": assessment, "connection_plan": connection_plan},
+            ),
+            WorkerTask(
+                task_type="use_case_recommendation",
+                summary="Infer the best attainable use case from the device evidence and user goals.",
+                prompt=(
+                    "Given the device evidence and user goals, summarize the best attainable device rehabilitation outcome.\n\n"
+                    f"Recommendation seed: {json_safe(recommendation)}"
+                ),
+                risk=TaskRisk.MEDIUM,
+                retry_budget=1,
+                context={"recommendation": recommendation},
+            ),
+        ]
+        worker_executions = [
+            self.worker_runtime.execute(route, task, session_dir)
+            for route, task in zip(worker_routes, worker_tasks, strict=False)
         ]
 
         generated_runtime: dict[str, Any] = {}
@@ -456,10 +505,36 @@ class ForgeOrchestrator:
                     WorkerTask(
                         task_type="machine_remediation",
                         summary=str(blocker.get("summary", "Recoverable blocker remediation")),
+                        prompt=(
+                            "Review this machine-solvable blocker and propose the smallest safe repo-aware fix path.\n\n"
+                            f"Blocker: {json_safe(blocker)}"
+                        ),
                         risk=TaskRisk.MEDIUM,
                         needs_repo_edit=True,
                         local_retry_count=int(current_state.remediation_iteration),
+                        retry_budget=2,
+                        context={"blocker": blocker},
                     )
+                )
+            )
+            worker_executions.append(
+                self.worker_runtime.execute(
+                    worker_routes[-1],
+                    WorkerTask(
+                        task_type="machine_remediation",
+                        summary=str(blocker.get("summary", "Recoverable blocker remediation")),
+                        prompt=(
+                            "Review this machine-solvable blocker and propose the smallest safe repo-aware fix path.\n\n"
+                            f"Blocker: {json_safe(blocker)}"
+                        ),
+                        risk=TaskRisk.MEDIUM,
+                        needs_repo_edit=True,
+                        local_retry_count=int(current_state.remediation_iteration),
+                        retry_budget=2,
+                        context={"blocker": blocker},
+                        target_files=["app/core/orchestrator.py", "app/core/runtime_workers.py"],
+                    ),
+                    session_dir,
                 )
             )
             self._safe_transition(session_dir, "REMEDIATION_DECIDE", f"Runtime selected remediation path `{blocker['planned_next_action']}`")
@@ -510,6 +585,24 @@ class ForgeOrchestrator:
                     )
                 )
             )
+            worker_executions.append(
+                self.worker_runtime.execute(
+                    worker_routes[-1],
+                    WorkerTask(
+                        task_type="install_planning",
+                        summary="Review destructive install planning and safety gates.",
+                        prompt=(
+                            "Review this install plan and explain whether ForgeOS should escalate rather than continue locally.\n\n"
+                            f"Flash plan: {json_safe(to_dict(flash_plan))}"
+                        ),
+                        risk=TaskRisk.HIGH,
+                        architecture_level=True,
+                        retry_budget=1,
+                        context={"flash_plan": to_dict(flash_plan)},
+                    ),
+                    session_dir,
+                )
+            )
 
         approval = self.sessions.load_destructive_approval(session_dir)
         install_gate = self.policy_guard.evaluate_install_gate(
@@ -519,6 +612,20 @@ class ForgeOrchestrator:
             backup_plan=backup_plan["plan"],
         )
         runtime_gate = self.policy_guard.evaluate_research_gate(blocker)
+        preview_execution = self.preview_pipeline.execute(
+            session_dir=session_dir,
+            build_plan=build_plan,
+            recommendation=recommendation,
+            assessment=assessment,
+            connection_plan=connection_plan,
+        )
+        verification_execution = self.verification_pipeline.execute(
+            session_dir=session_dir,
+            assessment=assessment,
+            backup_plan=backup_plan["plan"],
+            restore_plan=restore_plan,
+            flash_plan=to_dict(flash_plan),
+        )
         runtime_files = self.runtime_planner.materialize(
             session_dir=session_dir,
             state=self.sessions.load_session_state(session_dir),
@@ -529,9 +636,12 @@ class ForgeOrchestrator:
             restore_plan=restore_plan,
             blocker=blocker,
             worker_routes=worker_routes,
+            worker_executions=worker_executions,
             install_gate=install_gate,
             runtime_gate=runtime_gate,
             recommendation=recommendation,
+            preview_execution=preview_execution,
+            verification_execution=verification_execution,
         )
         if blocker["blocker_type"] == "none":
             self._safe_transition(session_dir, "CONNECTIVITY_VALIDATE", "Runtime resolved immediate blocker and can continue validation")
@@ -556,8 +666,11 @@ class ForgeOrchestrator:
             "retry_plan": retry_plan,
             "recommendation": recommendation,
             "worker_routes": worker_routes,
+            "worker_executions": worker_executions,
             "install_gate": install_gate,
             "runtime_gate": runtime_gate,
+            "preview_execution": preview_execution,
+            "verification_execution": verification_execution,
             "runtime_files": runtime_files,
         }
 
@@ -707,3 +820,10 @@ class ForgeOrchestrator:
         target = state.state.__class__[target_name]
         if is_transition_allowed(state.state, target):
             self.sessions.transition(session_dir, target, reason)
+
+
+def json_safe(payload: Any) -> str:
+    try:
+        return str(to_dict(payload) if not isinstance(payload, (str, int, float, bool)) else payload)
+    except Exception:
+        return str(payload)

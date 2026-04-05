@@ -4,21 +4,25 @@ from app.core.models import (
     ApprovalGate,
     DestructiveApproval,
     FlashPlan,
+    PreviewExecution,
     PolicyModel,
     SessionState,
     SessionStateName,
     TaskRisk,
     Transport,
+    VerificationExecution,
     WorkerRole,
 )
 from app.core.policy_guard import PolicyGuard
+from app.core.runtime_pipelines import PreviewPipeline, VerificationPipeline
 from app.core.runtime_planner import RuntimePlanner
-from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerTask
+from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerRuntime, WorkerTask
 from app.core.session_manager import SessionManager
 
 
 def test_worker_router_prefers_local_editor_for_repo_edits(tmp_path: Path) -> None:
-    router = WorkerRouter(WorkerRegistry(tmp_path).discover())
+    registry = WorkerRegistry(tmp_path).discover()
+    router = WorkerRouter(registry)
     decision = router.route(
         WorkerTask(
             task_type="machine_remediation",
@@ -27,7 +31,12 @@ def test_worker_router_prefers_local_editor_for_repo_edits(tmp_path: Path) -> No
             risk=TaskRisk.MEDIUM,
         )
     )
-    assert decision.selected_worker == WorkerRole.LOCAL_EDITOR
+    if registry.get(WorkerRole.LOCAL_EDITOR).available:
+        assert decision.selected_worker == WorkerRole.LOCAL_EDITOR
+        assert decision.adapter_name == "aider_local_editor"
+    else:
+        assert decision.selected_worker == WorkerRole.FRONTIER_ARCHITECT
+    assert isinstance(registry.inventory(), list)
 
 
 def test_worker_router_escalates_high_risk_work(tmp_path: Path) -> None:
@@ -60,6 +69,49 @@ def test_policy_guard_blocks_install_without_restore_confirmation(tmp_path: Path
     assert "Operator has not confirmed the restore path." in gate.missing_requirements
 
 
+def test_worker_runtime_executes_with_transcript(tmp_path: Path) -> None:
+    registry = WorkerRegistry(tmp_path).discover()
+    router = WorkerRouter(registry)
+    runtime = WorkerRuntime(tmp_path, registry)
+    session_dir = tmp_path / "devices" / "demo"
+    (session_dir / "runtime").mkdir(parents=True)
+    task = WorkerTask(
+        task_type="device_discovery",
+        summary="Summarize device discovery",
+        prompt="hello",
+        repetitive=True,
+        invocation_override=["/bin/sh", "-lc", "printf '{\"result\":\"ok\"}'"],
+    )
+    route = router.route(task)
+    execution = runtime.execute(route, task, session_dir)
+    assert execution.status == "completed"
+    assert execution.confidence > 0.5
+    assert Path(execution.transcript_path).exists()
+
+
+def test_runtime_pipelines_write_execution_outputs(tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "demo"
+    session_dir.mkdir(parents=True)
+    preview = PreviewPipeline(tmp_path).execute(
+        session_dir=session_dir,
+        build_plan={"os_path": "maintainable_hardened_path"},
+        recommendation={"recommended_use_case": "lightweight_custom_android"},
+        assessment={"support_status": "actionable"},
+        connection_plan={"recommended_adapter": {"adapter_id": "adb"}},
+    )
+    verification = VerificationPipeline(tmp_path).execute(
+        session_dir=session_dir,
+        assessment={"support_status": "actionable", "summary": "ready"},
+        backup_plan={"backup_bundle_path": "/tmp/bundle.tar.gz"},
+        restore_plan={"details": {"steps": ["restore"]}},
+        flash_plan={"build_path": "maintainable_hardened_path"},
+    )
+    assert preview.status == "executed"
+    assert verification.status == "executed"
+    assert any(path.endswith("preview-execution.json") for path in preview.generated_files)
+    assert any(path.endswith("verification-execution.json") for path in verification.generated_files)
+
+
 def test_runtime_planner_writes_runtime_artifacts(tmp_path: Path) -> None:
     (tmp_path / "master" / "strategies").mkdir(parents=True)
     manager = SessionManager(tmp_path)
@@ -83,6 +135,7 @@ def test_runtime_planner_writes_runtime_artifacts(tmp_path: Path) -> None:
         restore_plan={"details": {"steps": ["Restore from the saved bundle."]}},
         blocker={"blocker_type": "none", "machine_solvable": True},
         worker_routes=[],
+        worker_executions=[],
         install_gate=ApprovalGate(
             action="wipe_and_install",
             allowed=False,
@@ -106,6 +159,15 @@ def test_runtime_planner_writes_runtime_artifacts(tmp_path: Path) -> None:
                 }
             ],
         },
+        preview_execution=PreviewExecution(
+            status="executed",
+            summary="Preview done",
+            mode="simulated",
+        ),
+        verification_execution=VerificationExecution(
+            status="executed",
+            summary="Verification done",
+        ),
     )
     assert Path(files["runtime_plan_path"]).exists()
     assert Path(files["worker_routing_path"]).exists()

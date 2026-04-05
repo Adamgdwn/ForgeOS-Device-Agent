@@ -5,13 +5,14 @@ from typing import Any
 
 from app.core.models import (
     ApprovalGate,
-    PreviewPlan,
     RecommendationOption,
     RuntimePhase,
     RuntimeSessionPlan,
     SessionState,
     SessionStateName,
-    VerificationPlan,
+    VerificationExecution,
+    PreviewExecution,
+    WorkerExecution,
     WorkerRouteDecision,
     to_dict,
 )
@@ -55,9 +56,12 @@ class RuntimePlanner:
         restore_plan: dict[str, Any],
         blocker: dict[str, Any],
         worker_routes: list[WorkerRouteDecision],
+        worker_executions: list[WorkerExecution],
         install_gate: ApprovalGate,
         runtime_gate: ApprovalGate,
         recommendation: dict[str, Any],
+        preview_execution: PreviewExecution,
+        verification_execution: VerificationExecution,
     ) -> dict[str, str]:
         plan = RuntimeSessionPlan(
             session_id=state.session_id,
@@ -67,10 +71,11 @@ class RuntimePlanner:
             recommended_use_case=recommendation.get("recommended_use_case", "research_hold"),
             recommended_path=build_plan.get("os_path", "research_only_path"),
             worker_routes=worker_routes,
+            worker_executions=worker_executions,
             recommendation_options=self._options_from_recommendation(recommendation),
             approval_gates=[runtime_gate, install_gate],
-            preview_plan=self._preview_plan(build_plan, connection_plan),
-            verification_plan=self._verification_plan(assessment, backup_plan, restore_plan),
+            preview_execution=preview_execution,
+            verification_execution=verification_execution,
             evidence=self._evidence_paths(session_dir),
             next_actions=self._next_actions(blocker, install_gate),
             hard_stops=self._hard_stops(blocker, install_gate),
@@ -87,6 +92,7 @@ class RuntimePlanner:
                     {
                         "session_id": state.session_id,
                         "routes": [to_dict(route) for route in worker_routes],
+                        "executions": [to_dict(execution) for execution in worker_executions],
                     },
                 )
             ),
@@ -137,63 +143,6 @@ class RuntimePlanner:
             )
         return options
 
-    def _preview_plan(self, build_plan: dict[str, Any], connection_plan: dict[str, Any]) -> PreviewPlan:
-        mechanisms = [
-            "android_emulator",
-            "android_studio_avd",
-            "generated_ui_walkthrough",
-            "capability_matrix_preview",
-        ]
-        prerequisites = [
-            "Resolved OS path or customization target",
-            "Device capability assumptions recorded",
-            "Any missing artifacts called out before install",
-        ]
-        if build_plan.get("os_path") == "research_only_path":
-            return PreviewPlan(
-                status="research_hold",
-                summary="Preview stays at a simulated walkthrough until a stronger build path and transport are available.",
-                mechanisms=["generated_ui_walkthrough", "capability_matrix_preview"],
-                prerequisites=prerequisites,
-            )
-        return PreviewPlan(
-            status="planned",
-            summary=f"ForgeOS should preview the selected path using emulator-backed or simulated review before install. Recommended adapter: {connection_plan.get('recommended_adapter', {}).get('adapter_id', 'unknown')}.",
-            mechanisms=mechanisms,
-            prerequisites=prerequisites,
-        )
-
-    def _verification_plan(
-        self,
-        assessment: dict[str, Any],
-        backup_plan: dict[str, Any],
-        restore_plan: dict[str, Any],
-    ) -> VerificationPlan:
-        interactive = [
-            "Confirm the intended user profile still matches the recommended device use case.",
-            "Review expected feature limitations before install.",
-            "Confirm that rollback and restore notes are understandable.",
-        ]
-        checkpoints = [
-            "Boot success",
-            "Core transport availability",
-            "Battery and storage sanity",
-            "Accessibility or special-needs requirements",
-            "Restore fallback visibility",
-        ]
-        if not backup_plan.get("restore_path_feasible"):
-            interactive.append("Acknowledge that restore is currently limited to captured host-side evidence.")
-        return VerificationPlan(
-            status="planned",
-            summary=(
-                "ForgeOS should verify assumptions before install and validate core features again after boot."
-                if assessment.get("support_status") != "blocked"
-                else "Verification remains limited until the current support blocker is cleared."
-            ),
-            checkpoints=checkpoints,
-            interactive_checks=interactive + restore_plan.get("details", {}).get("steps", [])[:1],
-        )
-
     def _evidence_paths(self, session_dir: Path) -> list[str]:
         candidates = [
             session_dir / "device-profile.json",
@@ -203,6 +152,9 @@ class RuntimePlanner:
             session_dir / "backup" / "backup-plan.json",
             session_dir / "restore" / "restore-plan.json",
             session_dir / "execution" / "flash-plan.json",
+            session_dir / "runtime" / "adapter-health.json",
+            session_dir / "runtime" / "preview" / "preview-execution.json",
+            session_dir / "runtime" / "verification" / "verification-execution.json",
         ]
         return [str(path) for path in candidates if path.exists()]
 

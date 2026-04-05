@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from app.integrations import adb, fastboot
+from app.core.host_capabilities import discover_host_capabilities
 from app.core.models import ForgePaths
 from app.core.policy import PolicyEngine
 from app.core.reporting import ReportWriter
@@ -224,6 +225,7 @@ def run_bootstrap(root: Path) -> dict[str, object]:
         "knowledge_dir": str(paths.knowledge),
         "promotion_dir": str(paths.promotion),
         "default_dry_run": policy.default_dry_run,
+        "host_capabilities": discover_host_capabilities(root),
     }
 
     report_writer = ReportWriter(paths.output)

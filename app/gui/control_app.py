@@ -655,19 +655,24 @@ class ForgeControlApp:
 
     def _compose_host_status(self) -> tuple[str, str]:
         details = self.bootstrap_report
+        host = details.get("host_capabilities", {})
         lines = [
             f"VS Code CLI: {'ready' if details.get('code_available') else 'missing'}",
             f"ADB: {'ready' if details.get('adb_available') else 'missing'}",
             f"Fastboot: {'ready' if details.get('fastboot_available') else 'missing'}",
+            f"Goose: {'ready' if host.get('goose_ready') else 'limited'}",
+            f"Aider: {'ready' if host.get('aider_ready') else 'limited'}",
+            f"Ollama: {'ready' if host.get('ollama_model_available') else 'limited'}",
+            f"Local model: {host.get('local_model', 'unknown')}",
             f"udev support: {'present' if details.get('udev_present') else 'missing'}",
             f"Workspace file: {details.get('workspace_file')}",
         ]
-        if details.get("adb_available") and details.get("fastboot_available"):
-            summary = "This computer is ready for guided device assessment."
+        if details.get("adb_available") and details.get("fastboot_available") and host.get("goose_ready"):
+            summary = "This computer is ready for guided device assessment and local worker execution."
         else:
             summary = (
-                "ForgeOS can start, but missing transport tools will limit automatic phone detection. "
-                "Use the bundled local tools path or rerun the environment setup if needed."
+                "ForgeOS can start, but missing transport or local-worker capabilities will limit autonomous execution depth. "
+                "Install or configure the missing tools and model providers to unlock the full runtime."
             )
         return "\n".join(lines), summary
 
@@ -942,7 +947,15 @@ class ForgeControlApp:
             lines.extend(["", "Worker routing:"])
             for route in routes[:4]:
                 lines.append(
-                    f"- {route.get('task_type', 'unknown')}: {route.get('selected_worker', 'unknown')} via `{route.get('command_hint', 'unknown')}`"
+                    f"- {route.get('task_type', 'unknown')}: {route.get('selected_worker', 'unknown')} via `{route.get('adapter_name', 'unknown')}`"
+                )
+
+        executions = worker_routing.get("executions") or []
+        if executions:
+            lines.extend(["", "Worker execution:"])
+            for execution in executions[:4]:
+                lines.append(
+                    f"- {execution.get('task_type', 'unknown')}: {execution.get('status', 'unknown')} with confidence {execution.get('confidence', 0)}"
                 )
 
         return title, "\n".join(lines)

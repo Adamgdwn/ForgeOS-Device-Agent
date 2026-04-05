@@ -12,3 +12,5 @@ def test_bootstrap_creates_workspace_and_master(tmp_path: Path) -> None:
     assert (tmp_path / "promotion" / "promotion_rules.json").exists()
     assert (tmp_path / "output").exists()
     assert Path(details["bootstrap_report"]).exists()
+    assert "host_capabilities" in details
+    assert "tools" in details["host_capabilities"]

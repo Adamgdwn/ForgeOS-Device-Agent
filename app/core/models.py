@@ -345,7 +345,7 @@ class WorkerRouteDecision:
     selected_worker: WorkerRole
     selected_tier: WorkerTier
     rationale: str
-    command_hint: str
+    adapter_name: str
     fallback_worker: WorkerRole | None = None
     escalation_triggers: list[str] = field(default_factory=list)
     generated_at: str = field(default_factory=utc_now)
@@ -373,20 +373,52 @@ class ApprovalGate:
 
 
 @dataclass
-class PreviewPlan:
+class RetryTelemetry:
+    attempts: int = 0
+    retry_budget: int = 0
+    repeated_failure: bool = False
+    exhausted: bool = False
+    last_error: str = ""
+    durations_ms: list[int] = field(default_factory=list)
+
+
+@dataclass
+class WorkerExecution:
+    worker: str
+    adapter_name: str
+    task_type: str
     status: str
     summary: str
-    mechanisms: list[str] = field(default_factory=list)
-    prerequisites: list[str] = field(default_factory=list)
+    command: list[str] = field(default_factory=list)
+    transcript_path: str = ""
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int | None = None
+    confidence: float = 0.0
+    escalation_triggers: list[str] = field(default_factory=list)
+    telemetry: RetryTelemetry = field(default_factory=RetryTelemetry)
+    structured_output: dict[str, Any] = field(default_factory=dict)
     generated_at: str = field(default_factory=utc_now)
 
 
 @dataclass
-class VerificationPlan:
+class PreviewExecution:
     status: str
     summary: str
-    checkpoints: list[str] = field(default_factory=list)
-    interactive_checks: list[str] = field(default_factory=list)
+    mode: str
+    generated_files: list[str] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    capability_matrix: dict[str, Any] = field(default_factory=dict)
+    generated_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class VerificationExecution:
+    status: str
+    summary: str
+    checkpoints: list[dict[str, Any]] = field(default_factory=list)
+    interactive_checks: list[dict[str, Any]] = field(default_factory=list)
+    generated_files: list[str] = field(default_factory=list)
     generated_at: str = field(default_factory=utc_now)
 
 
@@ -408,10 +440,11 @@ class RuntimeSessionPlan:
     recommended_use_case: str
     recommended_path: str
     worker_routes: list[WorkerRouteDecision] = field(default_factory=list)
+    worker_executions: list[WorkerExecution] = field(default_factory=list)
     recommendation_options: list[RecommendationOption] = field(default_factory=list)
     approval_gates: list[ApprovalGate] = field(default_factory=list)
-    preview_plan: PreviewPlan | None = None
-    verification_plan: VerificationPlan | None = None
+    preview_execution: PreviewExecution | None = None
+    verification_execution: VerificationExecution | None = None
     evidence: list[str] = field(default_factory=list)
     next_actions: list[str] = field(default_factory=list)
     hard_stops: list[str] = field(default_factory=list)
