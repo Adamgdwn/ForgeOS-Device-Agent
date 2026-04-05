@@ -13,6 +13,8 @@ The current build includes a runtime-first session model, a GUI control surface,
 - Connectivity-first probing so transport, recovery, and restore viability are established before build ambition.
 - Structured JSON artifacts and JSON Schema contracts for auditability and crash recovery.
 - Controlled learning through `knowledge/` and `promotion/`, where session evidence improves support guidance without silently mutating policy.
+- OEM-specific adapters and playbooks are additive. The default runtime path should remain generic unless live evidence matches a brand-specific branch.
+- Learned runtime knowledge is persisted locally. If you want a clean evaluation across brands, clear or isolate `knowledge/` and `promotion/` before testing.
 - Blocker-driven remediation so machine-solvable blockers create runtime tasks instead of stopping at guidance.
 - Session-local codegen, execution, and patch registration for remediation artifacts.
 - Explicit worker routing across frontier reasoning, local general execution, local editing, and deterministic policy checks.

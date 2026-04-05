@@ -51,6 +51,13 @@ ForgeOS is a device rehabilitation agent with a GUI, not a GUI with some agent f
 - `policy_guard`
   Deterministic application logic for approvals, hard stops, and destructive boundaries.
 
+## OEM Neutrality
+
+- ForgeOS should start from generic Android transport and assessment logic, then add OEM-specific behavior only when live evidence matches that OEM.
+- OEM-specific adapters such as Samsung download-mode support are extension paths, not the default runtime path.
+- GUI guidance should come from resolved playbooks and runtime evidence, not hardcoded brand branches in application code.
+- A device from another brand should still get a coherent session using the generic transport, recommendation, backup, preview, and verification layers even when no OEM-specific adapter exists yet.
+
 ## Runtime Artifacts
 
 Each device session now includes:
@@ -124,3 +131,13 @@ docs/
 - Real execution depth still depends on host readiness.
 - On a host without `adb`, `fastboot`, or emulator tooling, ForgeOS now records those capability gaps explicitly instead of pretending those pipelines are fully available.
 - Aider depends on the local model or provider path being reachable. ForgeOS now defaults toward an Ollama-backed path when possible, but that still requires the Ollama service and configured model to be present.
+- ForgeOS currently persists learned runtime knowledge under `knowledge/` and `promotion/`. That is useful for controlled learning, but it also means prior device-family sessions can influence later recommendations unless those learned artifacts are reset, isolated, or ignored for a clean test run.
+
+## Clean-Run Expectation
+
+- If you want a brand-agnostic validation run, treat the checked-in master data as seed data and the `knowledge/` plus `promotion/` directories as learned state.
+- A truly clean run should either:
+  - clear learned runtime knowledge before testing, or
+  - route the session through an isolated test workspace, or
+  - explicitly disable learned-family influence during evaluation.
+- Until that isolation work lands in product code, ForgeOS should be described as OEM-capable but not yet guaranteed clean-room neutral across repeated mixed-brand sessions.

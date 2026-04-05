@@ -1447,23 +1447,15 @@ class ForgeControlApp:
             profile.get("transport", "unknown"),
         )
         self.connection_help_title.setText(playbook["title"])
+        playbook_steps = list(playbook.get("steps", []))
         lines = [
             playbook["summary"],
             "",
-            "How to find USB debugging:",
+            "Operator steps:",
         ]
-        if "samsung" in str(playbook.get("playbook_id", "")):
-            lines.extend(
-                [
-                    "- Open Settings.",
-                    "- Open About device or About phone.",
-                    "- If Software information exists, open it.",
-                    "- Tap Build number 7 times.",
-                    "- Go back and open Developer Options.",
-                    "- Turn on USB debugging.",
-                    "",
-                ]
-            )
+        if playbook_steps:
+            lines.extend(f"- {step}" for step in playbook_steps)
+            lines.append("")
         else:
             lines.extend(
                 [
@@ -1480,7 +1472,7 @@ class ForgeControlApp:
             "Steps:",
             ]
         )
-        lines.extend(f"- {step}" for step in playbook.get("steps", []))
+        lines.extend(f"- {step}" for step in playbook_steps)
         lines.extend(
             [
                 "",
