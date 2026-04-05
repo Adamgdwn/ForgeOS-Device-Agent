@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -82,6 +83,8 @@ class ForgeControlApp:
         self.runtime_recompute_in_flight = False
         self.runtime_recompute_session: Path | None = None
         self.runtime_recompute_error = ""
+        self.activity_spinner_angle = 0
+        self.activity_active = False
 
         self.qt_app = QApplication.instance() or QApplication(sys.argv)
         self.qt_app.setApplicationName("ForgeOS Device Agent")
@@ -131,6 +134,10 @@ class ForgeControlApp:
         self.timer = QTimer()
         self.timer.timeout.connect(self._auto_refresh)
         self.timer.start(12000)
+
+        self.activity_timer = QTimer()
+        self.activity_timer.timeout.connect(self._animate_activity_indicator)
+        self.activity_timer.start(120)
         self.refresh_ui("Startup")
 
     def _stylesheet(self) -> str:
@@ -223,6 +230,8 @@ class ForgeControlApp:
 
     def _build_header(self) -> QWidget:
         box = QFrame()
+        box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.header_box = box
         self.header_layout = QHBoxLayout(box)
         layout = self.header_layout
         layout.setContentsMargins(0, 0, 0, 0)
@@ -233,17 +242,30 @@ class ForgeControlApp:
         title = QLabel("ForgeOS Device Agent")
         title.setProperty("role", "title")
         title.setWordWrap(True)
+        title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         subtitle = QLabel(
             "Runtime control surface for device rehabilitation, approvals, evidence, and recovery"
         )
         subtitle.setProperty("role", "subtitle")
         subtitle.setWordWrap(True)
+        subtitle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        text_col.addWidget(title)
+        text_col.addWidget(subtitle)
+
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
+        self.activity_icon_label = QLabel()
+        self.activity_icon_label.setProperty("role", "activity")
+        self.activity_icon_label.setFixedSize(24, 24)
+        self.activity_icon_label.setToolTip("ForgeOS activity indicator")
         self.status_label = QLabel("Refresh status: starting up")
         self.status_label.setProperty("role", "subtitle")
         self.status_label.setWordWrap(True)
-        text_col.addWidget(title)
-        text_col.addWidget(subtitle)
-        text_col.addWidget(self.status_label)
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        status_row.addWidget(self.activity_icon_label, 0, Qt.AlignmentFlag.AlignTop)
+        status_row.addWidget(self.status_label, 1)
+        text_col.addLayout(status_row)
         layout.addLayout(text_col, 1)
 
         self.button_col = QHBoxLayout()
@@ -695,6 +717,47 @@ class ForgeControlApp:
     def _toggle_advanced_mode(self, checked: bool) -> None:
         self.show_advanced = checked
         self.refresh_ui("Advanced view changed")
+
+    def _render_activity_icon(self, angle: int, active: bool) -> QPixmap:
+        size = 24
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(size / 2, size / 2)
+        painter.rotate(angle if active else 0)
+
+        color = QColor("#f7941d" if active else "#5a6473")
+        font = QFont("DejaVu Sans", 16)
+        painter.setFont(font)
+        painter.setPen(color)
+        painter.drawText(-10, 9, "\u2622")
+        painter.end()
+        return pixmap
+
+    def _set_activity_indicator(self, active: bool) -> None:
+        self.activity_active = active
+        if not active:
+            self.activity_spinner_angle = 0
+        self.activity_icon_label.setPixmap(
+            self._render_activity_icon(self.activity_spinner_angle, active)
+        )
+        self.activity_icon_label.setToolTip(
+            "ForgeOS is actively working"
+            if active
+            else "ForgeOS is idle and waiting for the next action"
+        )
+
+    def _animate_activity_indicator(self) -> None:
+        active = self.activity_active or self.runtime_recompute_in_flight
+        if active:
+            self.activity_spinner_angle = (self.activity_spinner_angle + 24) % 360
+        elif self.activity_spinner_angle != 0:
+            self.activity_spinner_angle = 0
+        self.activity_icon_label.setPixmap(
+            self._render_activity_icon(self.activity_spinner_angle, active)
+        )
 
     def _mark_profile_form_dirty(self, *_args: object) -> None:
         if self.profile_form_syncing:
@@ -2603,6 +2666,7 @@ class ForgeControlApp:
             state += f" | autonomous improvement running for {self.runtime_recompute_session.name}"
         elif self.runtime_recompute_error:
             state += f" | autonomous improvement error: {self.runtime_recompute_error}"
+        self._set_activity_indicator(has_live_device or has_usb_only or self.runtime_recompute_in_flight)
         self.status_label.setText(f"Refresh status: {reason} at {timestamp} | {state}")
         self.logger.info("GUI refresh: reason=%s state=%s", reason, state)
 
@@ -2705,6 +2769,13 @@ class ForgeControlApp:
             self.button_col.setDirection(QVBoxLayout.Direction.TopToBottom)
         else:
             self.button_col.setDirection(QHBoxLayout.Direction.LeftToRight)
+        self.button_col.invalidate()
+        self.header_layout.invalidate()
+        self.header_box.updateGeometry()
+        container = self.scroll.widget()
+        if container is not None:
+            container.updateGeometry()
+            container.adjustSize()
 
     def _handle_resize(self, event) -> None:
         width = self.window.width()

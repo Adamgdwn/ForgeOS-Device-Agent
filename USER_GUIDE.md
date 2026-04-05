@@ -71,7 +71,7 @@ When you open ForgeOS from the Pop!_OS app menu:
 
 By default, focus on these panels only:
 
-1. `Current Objective`
+1. `Runtime Mission`
 2. `Agent Execution`
 3. `1. Intake And Autonomy Limits`
 4. `2. Proposed Outcome And Preview`
@@ -84,13 +84,20 @@ These are the two questions ForgeOS is trying to answer for you:
 - what has the runtime already done
 - what is the one thing you need to do next, if anything
 
+At the top of the window, the status line now includes a spinning radioactive symbol when ForgeOS is actively working.
+
+Use that indicator as a quick heartbeat:
+
+- spinning `☢` means ForgeOS is actively scanning, refreshing, or recomputing the session
+- dim `☢` means ForgeOS is idle and waiting for the next device event or operator action
+
 Use `Show Advanced Details` only when you want the deeper session dump, execution queue, and other lower-level diagnostics.
 
 ## What To Do When A Phone Is Connected
 
 If a phone is already connected and ForgeOS shows it as live:
 
-1. Read `Current Objective`.
+1. Read `Runtime Mission`.
 2. Check `Agent Execution`.
 3. If the phone is fully connected over `adb`, leave it connected and unlocked.
 4. Set the intended user profile only if you want a different OS strategy.
