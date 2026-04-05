@@ -20,7 +20,7 @@ def test_create_session_persists_profile_and_state(tmp_path: Path) -> None:
     assert (session_dir / "device-profile.json").exists()
     assert (session_dir / "session-state.json").exists()
     assert (session_dir / "destructive-approval.json").exists()
-    assert manager.load_session_state(session_dir).state == SessionStateName.ASSESS
+    assert manager.load_session_state(session_dir).state == SessionStateName.DEVICE_ATTACHED
 
 
 def test_transition_persists_history(tmp_path: Path) -> None:
@@ -35,6 +35,9 @@ def test_transition_persists_history(tmp_path: Path) -> None:
         }
     )
 
+    manager.transition(session_dir, SessionStateName.DISCOVER, "Discovery started")
+    manager.transition(session_dir, SessionStateName.PROFILE_SYNTHESIS, "Profile synthesis started")
+    manager.transition(session_dir, SessionStateName.MATCH_MASTER, "Matching master")
     manager.transition(session_dir, SessionStateName.PATH_SELECT, "Planning path selected")
     state = manager.load_session_state(session_dir)
     assert state.state == SessionStateName.PATH_SELECT
@@ -66,3 +69,32 @@ def test_flash_plan_round_trip(tmp_path: Path) -> None:
     flash_plan = manager.load_flash_plan(session_dir)
     assert flash_plan is not None
     assert flash_plan.build_path == "hardened_stock_path"
+
+
+def test_create_or_resume_upgrades_coarse_usb_session(tmp_path: Path) -> None:
+    (tmp_path / "master" / "strategies").mkdir(parents=True)
+    manager = SessionManager(tmp_path)
+    session_dir = manager.create_or_resume(
+        {
+            "manufacturer": "Samsung",
+            "model": "Galaxy A5",
+            "serial": "usb-04e8-6860",
+            "transport": Transport.USB_MTP,
+        }
+    )
+
+    upgraded_dir = manager.create_or_resume(
+        {
+            "manufacturer": "Samsung",
+            "model": "Galaxy A5",
+            "serial": "52102d68fc3c240f",
+            "transport": Transport.USB_ADB,
+            "android_version": "8.0.0",
+            "device_codename": "a5y17ltecan",
+        }
+    )
+
+    profile = manager.load_device_profile(upgraded_dir)
+    assert upgraded_dir == session_dir
+    assert profile.serial == "52102d68fc3c240f"
+    assert profile.transport == Transport.USB_ADB

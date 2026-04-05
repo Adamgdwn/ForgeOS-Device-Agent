@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-05T01:42:48.037747+00:00",
+  "generated_at": "2026-04-05T03:09:07.780074+00:00",
   "rules": {
     "min_observations_for_candidate": 3,
     "min_confidence_for_candidate": 0.75,

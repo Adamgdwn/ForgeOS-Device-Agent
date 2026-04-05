@@ -57,26 +57,30 @@ class ForgeOrchestrator:
     def handle_device_event(self, event: dict[str, Any]) -> Path:
         probe_result = self.device_probe.execute({"event": event})
         session_dir = self.sessions.create_or_resume(probe_result["device"])
+        self._safe_transition(session_dir, "DEVICE_ATTACHED", "Device attachment event received")
+        self._safe_transition(session_dir, "DISCOVER", "Runtime discovery started")
         self._safe_transition(session_dir, "PROFILE_SYNTHESIS", "Device profile synthesis started")
-        assessment = self.assessor.execute({"device": probe_result["device"], "session_dir": str(session_dir)})
+
+        device_payload = probe_result["device"]
+        assessment = self.assessor.execute({"device": device_payload, "session_dir": str(session_dir)})
         self.sessions.annotate(session_dir, assessment["summary"])
         engagement = self.autonomous_engagement.execute(
-            {"device": probe_result["device"], "session_dir": str(session_dir)}
+            {"device": device_payload, "session_dir": str(session_dir)}
         )
         self.sessions.annotate(session_dir, engagement["summary"])
-        state = self.sessions.load_session_state(session_dir)
         self._safe_transition(session_dir, "MATCH_MASTER", "Matching master framework and prior knowledge")
         user_profile = self.sessions.load_user_profile(session_dir)
         os_goals = self.sessions.load_os_goals(session_dir)
-
+        self._safe_transition(session_dir, "BACKUP_PLAN", "Entering safety-first backup and restore planning")
+        current_state = self.sessions.load_session_state(session_dir)
         if assessment["support_status"] == "blocked":
-            if is_transition_allowed(state.state, state.state.__class__.BLOCKED):
-                self.sessions.transition(session_dir, state.state.__class__.BLOCKED, assessment["summary"])
+            if is_transition_allowed(current_state.state, current_state.state.__class__.BLOCKED):
+                self.sessions.transition(session_dir, current_state.state.__class__.BLOCKED, assessment["summary"])
         else:
             strategy = self.strategy_selector.execute(
                 {
                     "assessment": assessment,
-                    "device": probe_result["device"],
+                    "device": device_payload,
                     "user_profile": {
                         "persona": user_profile.persona.value,
                         "technical_comfort": user_profile.technical_comfort.value,
@@ -98,86 +102,41 @@ class ForgeOrchestrator:
             self.sessions.write_session_state(session_dir, updated)
             self._safe_transition(session_dir, "PATH_SELECT", f"Selected strategy {strategy['strategy_id']}")
 
-        current_profile = self.sessions.load_device_profile(session_dir)
-        current_state = self.sessions.load_session_state(session_dir)
-        knowledge_match = self.knowledge_lookup.lookup(current_profile.manufacturer, current_profile.model)
-        connection_plan = self.connection_engine.build_plan(
-            current_profile,
-            current_state,
-            assessment,
-            engagement,
-        )
-        connection_plan_path = self.connection_engine.write_plan(session_dir, connection_plan)
-        self._safe_transition(session_dir, "BLOCKER_CLASSIFY", "Classifying current blocker state")
-        blocker = self.blockers.classify(
-            current_profile,
-            current_state,
-            assessment,
-            engagement,
-            connection_plan,
-        )
-        blocker_path = self.blockers.write(session_dir, blocker)
-        build_plan = self.build_resolver.execute(
-            {
-                "assessment": assessment,
-                "connection_plan": connection_plan,
-                "selected_strategy": current_state.selected_strategy or "research_only",
-                "user_profile": {
-                    "persona": user_profile.persona.value,
-                    "technical_comfort": user_profile.technical_comfort.value,
-                    "primary_priority": user_profile.primary_priority.value,
-                    "google_services_preference": user_profile.google_services_preference.value,
-                },
-                "os_goals": {
-                    "top_goal": os_goals.top_goal.value,
-                    "secondary_goal": os_goals.secondary_goal.value,
-                    "requires_reliable_updates": os_goals.requires_reliable_updates,
-                    "prefers_long_battery_life": os_goals.prefers_long_battery_life,
-                    "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
-                },
-            }
-        )
-        backup_plan = self.backup_restore.execute(
-            {
-                "device": probe_result["device"],
-                "session_dir": str(session_dir),
-                "assessment": assessment,
-            }
-        )
-        restore_plan = self.restore_controller.execute(
-            {
-                "session_dir": str(session_dir),
-                "backup_plan": backup_plan["plan"],
-            }
-        )
-        flash_plan = self.flash_executor.build_plan(
-            session_id=current_state.session_id,
-            device={
-                "transport": current_profile.transport.value,
-                "manufacturer": current_profile.manufacturer,
-                "model": current_profile.model,
-                "serial": current_profile.serial,
-            },
+        runtime_result = self._run_runtime_cycle(
+            session_dir=session_dir,
+            device_payload=device_payload,
             assessment=assessment,
-            build_plan=build_plan,
-            backup_plan=backup_plan["plan"],
-            policy=self.policy,
-            live_mode=False,
+            engagement=engagement,
+            user_profile=user_profile,
+            os_goals=os_goals,
         )
+
+        current_profile = runtime_result["profile"]
+        current_state = runtime_result["state"]
+        assessment = runtime_result["assessment"]
+        engagement = runtime_result["engagement"]
+        knowledge_match = runtime_result["knowledge_match"]
+        connection_plan = runtime_result["connection_plan"]
+        blocker = runtime_result["blocker"]
+        build_plan = runtime_result["build_plan"]
+        backup_plan = runtime_result["backup_plan"]
+        restore_plan = runtime_result["restore_plan"]
+        flash_plan = runtime_result["flash_plan"]
+        generated_runtime = runtime_result["generated_runtime"]
+        patch_result = runtime_result["patch_result"]
+        execution_result = runtime_result["execution_result"]
+        inspection = runtime_result["inspection"]
+        retry_plan = runtime_result["retry_plan"]
+
+        connection_plan_path = self.connection_engine.write_plan(session_dir, connection_plan)
+        blocker_path = self.blockers.write(session_dir, blocker)
         flash_plan_path = self.sessions.write_flash_plan(session_dir, flash_plan)
-        generated_runtime = {}
-        patch_result = {}
-        retry_plan = {}
-        if blocker.get("machine_solvable"):
-            self._safe_transition(session_dir, "CODEGEN_TASK", "Generating session-local runtime artifacts")
-            generated_runtime = self.codegen_runtime.generate(session_dir, blocker, connection_plan, build_plan)
-            self._safe_transition(session_dir, "PATCH_APPLY", "Registering generated runtime artifacts")
-            patch_result = self.patch_executor.apply(session_dir, generated_runtime)
-            self._safe_transition(session_dir, "EXECUTE_STEP", "Prepared next autonomous execution step")
-        else:
-            self._safe_transition(session_dir, "QUESTION_GATE", "Waiting for minimum required external action")
-        retry_plan = self.retry_planner.build_plan(blocker, generated_runtime or None)
         retry_plan_path = self.retry_planner.write(session_dir, retry_plan)
+
+        if self.policy.open_vscode_on_session_create:
+            self.vscode_opener.execute(
+                {"target_path": str(session_dir), "new_window": True}
+            )
         handoff_files: dict[str, str] = {}
         if self.policy.enable_codex_handoff:
             handoff_files = self.codex_handoff.prepare(
@@ -193,10 +152,6 @@ class ForgeOrchestrator:
                 build_plan,
                 knowledge_match,
             )
-            if self.policy.open_vscode_on_session_create:
-                self.vscode_opener.execute(
-                    {"target_path": handoff_files["workspace_file"], "new_window": True}
-                )
         learning_summary = self.knowledge.record_session_outcome(
             current_profile,
             current_state,
@@ -233,6 +188,7 @@ class ForgeOrchestrator:
                 "flash_plan_path": str(flash_plan_path),
                 "backup_plan": backup_plan["plan"],
                 "restore_plan_path": restore_plan["restore_plan_path"],
+                "inspection": inspection,
             },
         )
         self.reports.write_session_report(
@@ -306,6 +262,8 @@ class ForgeOrchestrator:
                 "retry_plan": retry_plan,
                 "generated_runtime": generated_runtime,
                 "patch_result": patch_result,
+                "execution_result": execution_result,
+                "inspection": inspection,
                 "knowledge_match": knowledge_match,
             },
         )
@@ -328,6 +286,167 @@ class ForgeOrchestrator:
         )
         self.logger.info("Handled device event for session %s", session_dir.name)
         return session_dir
+
+    def _run_runtime_cycle(
+        self,
+        session_dir: Path,
+        device_payload: dict[str, Any],
+        assessment: dict[str, Any],
+        engagement: dict[str, Any],
+        user_profile: Any,
+        os_goals: Any,
+    ) -> dict[str, Any]:
+        current_profile = self.sessions.load_device_profile(session_dir)
+        current_state = self.sessions.load_session_state(session_dir)
+        knowledge_match = self.knowledge_lookup.lookup(current_profile.manufacturer, current_profile.model)
+        connection_plan = self.connection_engine.build_plan(current_profile, current_state, assessment, engagement)
+        backup_plan = self.backup_restore.execute(
+            {
+                "device": device_payload,
+                "session_dir": str(session_dir),
+                "assessment": assessment,
+            }
+        )
+        restore_plan = self.restore_controller.execute(
+            {
+                "session_dir": str(session_dir),
+                "backup_plan": backup_plan["plan"],
+            }
+        )
+        build_plan = self.build_resolver.execute(
+            {
+                "assessment": assessment,
+                "connection_plan": connection_plan,
+                "selected_strategy": current_state.selected_strategy or "research_only",
+                "user_profile": {
+                    "persona": user_profile.persona.value,
+                    "technical_comfort": user_profile.technical_comfort.value,
+                    "primary_priority": user_profile.primary_priority.value,
+                    "google_services_preference": user_profile.google_services_preference.value,
+                },
+                "os_goals": {
+                    "top_goal": os_goals.top_goal.value,
+                    "secondary_goal": os_goals.secondary_goal.value,
+                    "requires_reliable_updates": os_goals.requires_reliable_updates,
+                    "prefers_long_battery_life": os_goals.prefers_long_battery_life,
+                    "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
+                },
+            }
+        )
+        flash_plan = self.flash_executor.build_plan(
+            session_id=current_state.session_id,
+            device={
+                "transport": current_profile.transport.value,
+                "manufacturer": current_profile.manufacturer,
+                "model": current_profile.model,
+                "serial": current_profile.serial,
+            },
+            assessment=assessment,
+            build_plan=build_plan,
+            backup_plan=backup_plan["plan"],
+            policy=self.policy,
+            live_mode=False,
+        )
+        self._safe_transition(session_dir, "BLOCKER_CLASSIFY", "Classifying blocker state for autonomous continuation")
+        blocker = self.blockers.classify(
+            current_profile,
+            current_state,
+            assessment,
+            engagement,
+            connection_plan,
+        )
+        current_state = self.sessions.load_session_state(session_dir)
+        current_state.current_blocker_type = blocker["blocker_type"]
+        current_state.blocker_confidence = blocker["confidence"]
+        self.sessions.write_session_state(session_dir, current_state)
+
+        generated_runtime: dict[str, Any] = {}
+        patch_result: dict[str, Any] = {}
+        execution_result: dict[str, Any] = {}
+        inspection: dict[str, Any] = {}
+        if blocker.get("machine_solvable"):
+            self._safe_transition(session_dir, "REMEDIATION_DECIDE", f"Runtime selected remediation path `{blocker['planned_next_action']}`")
+            self._safe_transition(session_dir, "TASK_CREATE", "Creating a remediation task from the current blocker")
+            current_state = self.sessions.load_session_state(session_dir)
+            current_state.remediation_iteration += 1
+            self.sessions.write_session_state(session_dir, current_state)
+            self._safe_transition(session_dir, "CODEGEN_WRITE", "Writing executable remediation artifact into the active session")
+            generated_runtime = self.codegen_runtime.generate(session_dir, blocker, connection_plan, build_plan)
+            self._safe_transition(session_dir, "PATCH_APPLY", "Registering generated remediation artifacts")
+            patch_result = self.patch_executor.apply(session_dir, generated_runtime)
+            self._safe_transition(session_dir, "EXECUTE_ARTIFACT", "Executing generated remediation artifact")
+            execution_result = self.codegen_runtime.execute_generated(session_dir, generated_runtime)
+            self._safe_transition(session_dir, "INSPECT_RESULT", "Inspecting remediation artifact result")
+            inspection = self.codegen_runtime.inspect_result(execution_result)
+            self._apply_inspection_updates(session_dir, inspection, assessment, engagement)
+            current_profile = self.sessions.load_device_profile(session_dir)
+            current_state = self.sessions.load_session_state(session_dir)
+            assessment = {**assessment, **inspection.get("assessment_updates", {})}
+            engagement = {**engagement, **inspection.get("engagement_updates", {})}
+            knowledge_match = self.knowledge_lookup.lookup(current_profile.manufacturer, current_profile.model)
+            connection_plan = self.connection_engine.build_plan(current_profile, current_state, assessment, engagement)
+            blocker = self.blockers.classify(
+                current_profile,
+                current_state,
+                assessment,
+                engagement,
+                connection_plan,
+                remediation_result=inspection,
+            )
+            current_state.current_blocker_type = blocker["blocker_type"]
+            current_state.blocker_confidence = blocker["confidence"]
+            self.sessions.write_session_state(session_dir, current_state)
+            if blocker["blocker_type"] != "none":
+                self._safe_transition(session_dir, "BLOCKER_CLASSIFY", "Reclassifying blocker after remediation artifact execution")
+        else:
+            self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires minimal external action or approval")
+
+        retry_plan = self.retry_planner.build_plan(blocker, generated_runtime or None)
+        if blocker["blocker_type"] == "none":
+            self._safe_transition(session_dir, "CONNECTIVITY_VALIDATE", "Runtime resolved immediate blocker and can continue validation")
+        elif not blocker.get("machine_solvable"):
+            self._safe_transition(session_dir, "QUESTION_GATE", "Runtime hit a true external-action or approval boundary")
+        return {
+            "profile": current_profile,
+            "state": self.sessions.load_session_state(session_dir),
+            "assessment": assessment,
+            "engagement": engagement,
+            "knowledge_match": knowledge_match,
+            "connection_plan": connection_plan,
+            "blocker": blocker,
+            "build_plan": build_plan,
+            "backup_plan": backup_plan,
+            "restore_plan": restore_plan,
+            "flash_plan": flash_plan,
+            "generated_runtime": generated_runtime,
+            "patch_result": patch_result,
+            "execution_result": execution_result,
+            "inspection": inspection,
+            "retry_plan": retry_plan,
+        }
+
+    def _apply_inspection_updates(
+        self,
+        session_dir: Path,
+        inspection: dict[str, Any],
+        assessment: dict[str, Any],
+        engagement: dict[str, Any],
+    ) -> None:
+        profile_updates = inspection.get("profile_updates", {})
+        if profile_updates:
+            profile = self.sessions.load_device_profile(session_dir)
+            for key, value in profile_updates.items():
+                if hasattr(profile, key) and value not in {None, ""}:
+                    if key == "transport":
+                        profile.transport = profile.transport.__class__(value)
+                    else:
+                        setattr(profile, key, value)
+            self.sessions.write_device_profile(session_dir, profile)
+            self.sessions.annotate(session_dir, inspection.get("summary", "Remediation artifact updated the device profile."))
+        if inspection.get("engagement_updates"):
+            engagement.update(inspection["engagement_updates"])
+        if inspection.get("assessment_updates"):
+            assessment.update(inspection["assessment_updates"])
 
     def record_wipe_approval(
         self,

@@ -34,9 +34,14 @@ class SessionStateName(str, Enum):
     BASELINE_CAPTURE = "BASELINE_CAPTURE"
     PATH_SELECT = "PATH_SELECT"
     BLOCKER_CLASSIFY = "BLOCKER_CLASSIFY"
+    REMEDIATION_DECIDE = "REMEDIATION_DECIDE"
+    TASK_CREATE = "TASK_CREATE"
     CODEGEN_TASK = "CODEGEN_TASK"
+    CODEGEN_WRITE = "CODEGEN_WRITE"
     PATCH_APPLY = "PATCH_APPLY"
     EXECUTE_STEP = "EXECUTE_STEP"
+    EXECUTE_ARTIFACT = "EXECUTE_ARTIFACT"
+    INSPECT_RESULT = "INSPECT_RESULT"
     CONNECTIVITY_VALIDATE = "CONNECTIVITY_VALIDATE"
     SECURITY_VALIDATE = "SECURITY_VALIDATE"
     BUILD_GENERIC = "BUILD_GENERIC"
@@ -165,6 +170,9 @@ class SessionState:
     destructive_actions_approved: bool = False
     selected_strategy: str | None = None
     support_status: SupportStatus = SupportStatus.RESEARCH_ONLY
+    current_blocker_type: str | None = None
+    blocker_confidence: float = 0.0
+    remediation_iteration: int = 0
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
     notes: list[str] = field(default_factory=list)
@@ -315,6 +323,9 @@ def session_state_from_dict(data: dict[str, Any]) -> SessionState:
         destructive_actions_approved=data.get("destructive_actions_approved", False),
         selected_strategy=data.get("selected_strategy"),
         support_status=SupportStatus(data.get("support_status", SupportStatus.RESEARCH_ONLY.value)),
+        current_blocker_type=data.get("current_blocker_type"),
+        blocker_confidence=float(data.get("blocker_confidence", 0.0)),
+        remediation_iteration=int(data.get("remediation_iteration", 0)),
         created_at=data.get("created_at", utc_now()),
         updated_at=data.get("updated_at", utc_now()),
         notes=data.get("notes", []),

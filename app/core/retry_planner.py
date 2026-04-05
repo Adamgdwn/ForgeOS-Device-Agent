@@ -13,10 +13,14 @@ class RetryPlanner:
 
     def build_plan(self, blocker: dict[str, Any], generated: dict[str, Any] | None = None) -> dict[str, Any]:
         machine_solvable = blocker.get("machine_solvable", False)
-        if machine_solvable:
-            action = "retry_with_generated_artifacts"
-            rationale = "The blocker is machine-solvable, so the runtime should attempt another step with generated artifacts."
-        elif blocker.get("blocker_type") in {"trust_blocker", "transport_blocker", "physical_action_blocker"}:
+        blocker_type = blocker.get("blocker_type")
+        if blocker_type == "none":
+            action = "return_to_main_plan"
+            rationale = "The current blocker has been resolved enough for the runtime to continue the main execution path."
+        elif machine_solvable:
+            action = "continue_autonomous_remediation"
+            rationale = "The blocker is machine-solvable, so the runtime should generate, execute, inspect, and reclassify before asking for help."
+        elif blocker_type in {"trust_blocker", "physical_action_blocker"}:
             action = "await_user_action"
             rationale = "The next action depends on physical interaction or on-device approval."
         else:

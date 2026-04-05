@@ -93,8 +93,10 @@ Recent additions that are already implemented:
 - build-path resolution is persisted into session reports
 - each session now gets a persisted `destructive-approval.json`
 - each session now gets an `execution/flash-plan.json`
-- the GUI includes a wipe-approval and execution panel
+- the GUI now defaults to a simplified operator-monitor view with advanced details behind a toggle
 - approved dry-run flash execution is wired end to end
+- per-session backup bundles and restore plans are generated before destructive approval
+- live `adb` hardware refresh is surfaced in the operator monitor when transport is available
 
 ## What Must Change
 
@@ -204,6 +206,8 @@ It should evolve toward one or more of these roles:
 
 It should not represent the primary way ForgeOS moves forward.
 
+At the current checkpoint, Codex handoff is already policy-demoted. The runtime can still emit handoff artifacts for audit or external review, but the intended center of gravity is the remediation loop inside the active session.
+
 ### Knowledge and Controlled Learning
 
 - `app/core/knowledge.py`
@@ -258,6 +262,19 @@ Current idea:
 New idea:
 
 - ForgeOS creates a device-specific execution workspace
+- ForgeOS writes remediation artifacts directly into that workspace
+- ForgeOS executes and inspects those artifacts as part of the normal runtime
+- Codex handoff files become secondary exports only when useful
+
+That shift is already partially underway in this repository through:
+
+- `app/core/codegen_runtime.py`
+- `app/core/patch_executor.py`
+- `app/core/retry_planner.py`
+- `app/core/blocker_engine.py`
+- the expanded remediation states in `app/core/state_machine.py`
+
+The next developer picking this up should preserve that direction and avoid re-centering the workflow around handoff generation or GUI guidance.
 - ForgeOS invokes an internal code generation/runtime capability to generate missing device-specific logic
 - ForgeOS writes those outputs directly into the session workspace
 - ForgeOS then runs the next action, validates results, and iterates

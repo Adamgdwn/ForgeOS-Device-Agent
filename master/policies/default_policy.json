@@ -7,7 +7,7 @@
   "allow_bootloader_relock": false,
   "open_vscode_on_launch": false,
   "open_vscode_on_session_create": true,
-  "enable_codex_handoff": true,
+  "enable_codex_handoff": false,
   "priority_order": [
     "restore_path",
     "security",

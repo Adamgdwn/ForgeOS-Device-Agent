@@ -52,6 +52,8 @@ def raw_devices() -> list[dict[str, str]]:
     completed = subprocess.run([_adb_path(), "devices", "-l"], capture_output=True, text=True, check=False)
     devices: list[dict[str, str]] = []
     for line in completed.stdout.splitlines():
+        if not line.strip() or line.startswith("List of devices attached"):
+            continue
         parts = line.split()
         if len(parts) < 2:
             continue
@@ -146,3 +148,22 @@ def describe_device(serial: str) -> dict[str, str]:
         "device_codename": device_codename,
         "reachability": "adb-visible",
     }
+
+
+def hardware_snapshot(serial: str) -> dict[str, str]:
+    keys = {
+        "board": "ro.product.board",
+        "hardware": "ro.hardware",
+        "abi": "ro.product.cpu.abi",
+        "fingerprint": "ro.build.fingerprint",
+        "build_id": "ro.build.id",
+        "security_patch": "ro.build.version.security_patch",
+        "boot_slot": "ro.boot.slot_suffix",
+        "bootloader": "ro.bootloader",
+        "verified_boot_state": "ro.boot.verifiedbootstate",
+        "dynamic_partitions": "ro.boot.dynamic_partitions",
+    }
+    snapshot = {name: getprop(serial, prop) for name, prop in keys.items()}
+    battery = shell(serial, ["dumpsys", "battery"])
+    snapshot["battery_dump"] = str(battery.get("stdout", "")).strip() if battery.get("ok") else ""
+    return snapshot

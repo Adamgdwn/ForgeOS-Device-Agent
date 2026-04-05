@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-05T01:42:48.035792+00:00",
+  "generated_at": "2026-04-05T03:09:07.779484+00:00",
   "families": {
     "google:pixel-8": {
       "manufacturer": "Google",
@@ -50,6 +50,23 @@
       "latest_summary": "USB phone detected in MTP/media mode. ForgeOS can engage autonomously only after adb, fastboot, or recovery transport becomes available.",
       "confidence": 0.27,
       "recommended_strategy": "transport_recovery",
+      "support_level": "research_only"
+    },
+    "unknown:unknown": {
+      "manufacturer": "Unknown",
+      "model": "Unknown",
+      "observations": 1,
+      "actionable": 1,
+      "research_only": 0,
+      "blocked": 0,
+      "experimental": 0,
+      "restore_path_confirmed": 1,
+      "strategies": {
+        "hardened_existing_os": 1
+      },
+      "latest_summary": "Assessment passed initial feasibility gates for non-destructive planning.",
+      "confidence": 0.82,
+      "recommended_strategy": "hardened_existing_os",
       "support_level": "research_only"
     }
   }

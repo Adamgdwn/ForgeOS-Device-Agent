@@ -25,7 +25,7 @@ MASTER_SEEDS: dict[str, dict] = {
         "allow_bootloader_relock": False,
         "open_vscode_on_launch": False,
         "open_vscode_on_session_create": True,
-        "enable_codex_handoff": True,
+        "enable_codex_handoff": False,
         "priority_order": [
             "restore_path",
             "security",

@@ -44,7 +44,31 @@ class SessionManager:
         )
         session_name = canonical_session_name(fingerprint)
         session_dir = self.devices_dir / session_name
+        if not session_dir.exists():
+            session_dir = self._find_upgrade_candidate(probe_data) or session_dir
         if session_dir.exists():
+            profile = self.load_device_profile(session_dir)
+            for key in [
+                "manufacturer",
+                "model",
+                "serial",
+                "android_version",
+                "bootloader_locked",
+                "verified_boot_state",
+                "slot_info",
+                "battery",
+            ]:
+                value = probe_data.get(key)
+                if value is not None and value != "" and value != {}:
+                    setattr(profile, key, value)
+            transport = probe_data.get("transport")
+            if transport:
+                profile.transport = transport
+            device_codename = probe_data.get("device_codename")
+            if device_codename:
+                profile.device_codename = device_codename
+            profile.raw_probe_data |= probe_data
+            self.write_device_profile(session_dir, profile)
             return session_dir
 
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -68,18 +92,13 @@ class SessionManager:
         )
         state = SessionState(
             session_id=session_name,
-            state=SessionStateName.ASSESS,
+            state=SessionStateName.DEVICE_ATTACHED,
             support_status=SupportStatus.RESEARCH_ONLY,
             history=[
                 TransitionRecord(
                     from_state=SessionStateName.IDLE,
-                    to_state=SessionStateName.DISCOVER,
+                    to_state=SessionStateName.DEVICE_ATTACHED,
                     reason="Device detected",
-                ),
-                TransitionRecord(
-                    from_state=SessionStateName.DISCOVER,
-                    to_state=SessionStateName.ASSESS,
-                    reason="Assessment started automatically",
                 ),
             ],
         )
@@ -92,6 +111,27 @@ class SessionManager:
             DestructiveApproval(session_id=session_name),
         )
         return session_dir
+
+    def _find_upgrade_candidate(self, probe_data: dict[str, Any]) -> Path | None:
+        manufacturer = str(probe_data.get("manufacturer") or "").strip().lower()
+        model = str(probe_data.get("model") or "").strip().lower()
+        device_codename = str(probe_data.get("device_codename") or "").strip().lower()
+        if not manufacturer and not model:
+            return None
+        for profile_path in sorted(self.devices_dir.glob("*/device-profile.json")):
+            profile_data = json.loads(profile_path.read_text())
+            existing_manufacturer = str(profile_data.get("manufacturer") or "").strip().lower()
+            existing_model = str(profile_data.get("model") or "").strip().lower()
+            existing_codename = str(profile_data.get("device_codename") or "").strip().lower()
+            existing_serial = str(profile_data.get("serial") or "")
+            same_identity = (
+                (manufacturer and model and existing_manufacturer == manufacturer and existing_model == model)
+                or (device_codename and existing_codename == device_codename)
+            )
+            coarse_serial = existing_serial.startswith("usb-")
+            if same_identity and coarse_serial:
+                return profile_path.parent
+        return None
 
     def write_device_profile(self, session_dir: Path, profile: DeviceProfile) -> Path:
         path = session_dir / "device-profile.json"

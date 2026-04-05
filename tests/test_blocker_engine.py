@@ -29,4 +29,4 @@ def test_blocker_engine_classifies_usb_mtp_as_transport_blocker(tmp_path: Path) 
         {"recommended_adapter": {"adapter_id": "mtp-bridge"}},
     )
     assert result["blocker_type"] == "transport_blocker"
-    assert result["machine_solvable"] is False
+    assert result["machine_solvable"] is True

@@ -39,3 +39,28 @@ def list_devices() -> list[dict[str, str]]:
             }
         )
     return devices
+
+
+def run(args: list[str]) -> dict[str, object]:
+    if not fastboot_available():
+        return {"ok": False, "reason": "fastboot not available"}
+    completed = subprocess.run(
+        [_fastboot_path(), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return {
+        "ok": completed.returncode == 0,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+        "returncode": completed.returncode,
+    }
+
+
+def getvar_all(serial: str | None = None) -> dict[str, object]:
+    args: list[str] = []
+    if serial:
+        args.extend(["-s", serial])
+    args.extend(["getvar", "all"])
+    return run(args)
