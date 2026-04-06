@@ -25,7 +25,7 @@ class BlockerEngine:
         next_steps = engagement.get("next_steps") or []
         remediation_result = remediation_result or {}
         remediation_status = remediation_result.get("status", "")
-        machine_solvable = True
+        machine_solvable = False
         blocker_type = BlockerType.NONE
         summary = "No immediate blocker classified."
         escalation_condition = "None"

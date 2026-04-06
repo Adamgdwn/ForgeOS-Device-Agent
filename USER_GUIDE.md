@@ -96,6 +96,8 @@ The `Autonomous Self-Heal` panel now reports when ForgeOS detects a repeated loc
 
 ForgeOS now gives the local workers up to three autonomous fix rounds before it asks for help. If that is still not enough, it pauses and asks for permission for another batch of three through `Approve 3 More Fix Loops`.
 
+When ForgeOS is simply in `recommendation` or `research_only_path` with no real machine-solvable blocker, it should now stay in honest research mode instead of generating a no-op remediation artifact.
+
 Use `Show Advanced Details` only when you want the deeper session dump, execution queue, and other lower-level diagnostics.
 
 ## What To Do When A Phone Is Connected

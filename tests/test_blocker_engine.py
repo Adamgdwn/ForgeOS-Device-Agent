@@ -30,3 +30,32 @@ def test_blocker_engine_classifies_usb_mtp_as_transport_blocker(tmp_path: Path) 
     )
     assert result["blocker_type"] == "transport_blocker"
     assert result["machine_solvable"] is True
+
+
+def test_blocker_engine_leaves_no_blocker_non_machine_solvable(tmp_path: Path) -> None:
+    engine = BlockerEngine(tmp_path)
+    profile = DeviceProfile(
+        session_id="sample",
+        canonical_name="sample",
+        device_codename="sam-1234",
+        fingerprint="abc",
+        manufacturer="Samsung",
+        model="Galaxy A5",
+        serial="usb-1",
+        transport=Transport.USB_ADB,
+    )
+    state = SessionState(
+        session_id="sample",
+        state=SessionStateName.RECOMMEND,
+        support_status=SupportStatus.ACTIONABLE,
+    )
+    result = engine.classify(
+        profile,
+        state,
+        {"support_status": "actionable", "summary": "ADB transport is working."},
+        {"engagement_status": "adb_connected", "next_steps": []},
+        {"recommended_adapter": {"adapter_id": "adb"}, "requires_codex_generation": False},
+    )
+    assert result["blocker_type"] == "none"
+    assert result["machine_solvable"] is False
+    assert result["retry_budget"] == 0
