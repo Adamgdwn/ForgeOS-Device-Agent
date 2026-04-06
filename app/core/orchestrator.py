@@ -37,6 +37,8 @@ from app.tools.vscode_opener import VSCodeOpenerTool
 from app.core.blocker_engine import BlockerEngine
 
 MANAGEABLE_TRANSPORTS = {"usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery"}
+DEFAULT_SELF_HEAL_ROUNDS = 3
+EXTRA_SELF_HEAL_ROUND_BATCH = 3
 
 
 class ForgeOrchestrator:
@@ -938,7 +940,7 @@ class ForgeOrchestrator:
         recovered = 0
         consumed_extra_loops = 0
         remaining_failures = failing_triplets[:3]
-        rounds_allowed = 1 + available_extra_loops
+        rounds_allowed = DEFAULT_SELF_HEAL_ROUNDS + available_extra_loops
         last_remediation_status = "not_run"
 
         for round_index in range(rounds_allowed):
@@ -1049,7 +1051,7 @@ class ForgeOrchestrator:
                 ),
                 "consumed_extra_loops": int(self_heal_policy.get("consumed_extra_loops", 0)),
                 "permission_message": (
-                    "ForgeOS can try another autonomous fix round if the operator grants extra self-heal permission."
+                    f"ForgeOS can try another batch of {EXTRA_SELF_HEAL_ROUND_BATCH} autonomous fix rounds if the operator grants extra self-heal permission."
                     if remaining_failures
                     else ""
                 ),

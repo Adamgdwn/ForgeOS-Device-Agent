@@ -389,7 +389,7 @@ class ForgeControlApp:
         self.self_heal_text = QTextEdit()
         self.self_heal_text.setReadOnly(True)
         self.self_heal_text.setMaximumHeight(180)
-        self.allow_extra_fix_button = QPushButton("Approve One Extra Fix Loop")
+        self.allow_extra_fix_button = QPushButton("Approve 3 More Fix Loops")
         self.allow_extra_fix_button.clicked.connect(self.approve_extra_fix_loop)
         layout.addWidget(self.self_heal_status)
         layout.addWidget(self.self_heal_text)
@@ -1465,18 +1465,18 @@ class ForgeControlApp:
             self.self_heal_status.setText("No active session is loaded yet, so no extra fix loop can be approved.")
             return
         policy = self._read_self_heal_policy(self.current_session_dir)
-        granted = int(policy.get("granted_extra_loops", 0)) + 1
+        granted = int(policy.get("granted_extra_loops", 0)) + 3
         updated = {
             **policy,
             "granted_extra_loops": granted,
             "updated_at": utc_now(),
-            "last_operator_action": "approve_one_extra_fix_loop",
+            "last_operator_action": "approve_three_extra_fix_loops",
         }
         self.sessions.write_runtime_artifact(self.current_session_dir, "runtime/self-heal-policy.json", updated)
         self.self_heal_status.setText(
-            f"Approved one extra autonomous fix loop for this session. ForgeOS now has {granted - int(updated.get('consumed_extra_loops', 0))} extra loop(s) available."
+            f"Approved three more autonomous fix loops for this session. ForgeOS now has {granted - int(updated.get('consumed_extra_loops', 0))} extra loop(s) available."
         )
-        self.refresh_ui("Extra fix loop approved")
+        self.refresh_ui("Extra fix loops approved")
 
     def _refresh_self_heal_status(self, session_dir: Path) -> None:
         retry_plan = self._read_json(session_dir / "reports" / "retry-plan.json")

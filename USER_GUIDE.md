@@ -94,7 +94,7 @@ Use that indicator as a quick heartbeat:
 
 The `Autonomous Self-Heal` panel now reports when ForgeOS detects a repeated local-worker failure, what it retried, and whether the bounded fix loop recovered the task.
 
-If the first autonomous fix pass is not enough, ForgeOS can pause and ask for permission to spend one more repair round. Use `Approve One Extra Fix Loop` only when you want the local workers to take another bounded repair attempt for the current session.
+ForgeOS now gives the local workers up to three autonomous fix rounds before it asks for help. If that is still not enough, it pauses and asks for permission for another batch of three through `Approve 3 More Fix Loops`.
 
 Use `Show Advanced Details` only when you want the deeper session dump, execution queue, and other lower-level diagnostics.
 
