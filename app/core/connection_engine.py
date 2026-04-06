@@ -121,19 +121,27 @@ class ConnectionEngine:
             reverse=True,
         )
         recommended = ranked[0] if ranked else None
+        engagement_status = engagement.get("engagement_status")
+        transport = profile.transport.value
+        managed_transport_active = transport in {"usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery"}
+        requires_codex_generation = (
+            transport in {"usb-mtp", "unknown"}
+            or session_state.support_status in {SupportStatus.RESEARCH_ONLY, SupportStatus.EXPERIMENTAL}
+        )
+        if managed_transport_active and engagement_status in {"adb_connected", "fastboot_connected", "recovery_connected"}:
+            requires_codex_generation = False
+        elif recommended and recommended.get("adapter_id") in {"adb", "fastboot", "recovery"} and managed_transport_active:
+            requires_codex_generation = False
         plan = {
             "generated_at": utc_now(),
             "device_session": profile.session_id,
-            "transport": profile.transport.value,
+            "transport": transport,
             "support_status": session_state.support_status.value,
             "assessment_summary": assessment.get("summary"),
-            "engagement_status": engagement.get("engagement_status"),
+            "engagement_status": engagement_status,
             "recommended_adapter": recommended,
             "adapter_candidates": ranked,
-            "requires_codex_generation": (
-                profile.transport.value in {"usb-mtp", "unknown"}
-                or session_state.support_status in {SupportStatus.RESEARCH_ONLY, SupportStatus.EXPERIMENTAL}
-            ),
+            "requires_codex_generation": requires_codex_generation,
         }
         return plan
 

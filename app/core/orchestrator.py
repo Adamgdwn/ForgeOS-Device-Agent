@@ -610,7 +610,10 @@ class ForgeOrchestrator:
             ),
         ]
         artifact_missing_requirements = list(build_plan.get("artifact_missing_requirements", []))
-        if artifact_missing_requirements:
+        should_run_artifact_research = (
+            bool(artifact_missing_requirements) and build_plan.get("os_path") != "research_only_path"
+        )
+        if should_run_artifact_research:
             worker_routes.append(
                 self.worker_router.route(
                     WorkerTask(

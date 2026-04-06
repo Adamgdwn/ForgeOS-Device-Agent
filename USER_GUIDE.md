@@ -98,6 +98,8 @@ ForgeOS now gives the local workers up to three autonomous fix rounds before it 
 
 When ForgeOS is simply in `recommendation` or `research_only_path` with no real machine-solvable blocker, it should now stay in honest research mode instead of generating a no-op remediation artifact.
 
+When ForgeOS already has a managed transport such as live `adb`, it should no longer ask for generated adapter work just because the session is still cautious. In the same way, `artifact_research` should stay quiet while the build path is still explicitly `research_only_path`.
+
 Use `Show Advanced Details` only when you want the deeper session dump, execution queue, and other lower-level diagnostics.
 
 ## What To Do When A Phone Is Connected

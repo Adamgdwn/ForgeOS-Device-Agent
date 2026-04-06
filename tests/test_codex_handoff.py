@@ -71,3 +71,28 @@ def test_codex_handoff_writes_expected_files(tmp_path: Path) -> None:
     payload = json.loads(Path(result["handoff_json"]).read_text())
     assert payload["device"]["model"] == "Galaxy A5"
     assert payload["user_profile"]["persona"] == UserPersona.SENIOR.value
+
+
+def test_connection_engine_does_not_require_codegen_when_adb_is_connected(tmp_path: Path) -> None:
+    profile = DeviceProfile(
+        session_id="sample",
+        canonical_name="sample",
+        device_codename="samp-1234",
+        fingerprint="abc",
+        manufacturer="Samsung",
+        model="Galaxy A5",
+        serial="SER123",
+        transport=Transport.USB_ADB,
+    )
+    state = SessionState(
+        session_id="sample",
+        state=SessionStateName.ASSESS,
+        support_status=SupportStatus.RESEARCH_ONLY,
+    )
+    assessment = {"summary": "ADB is available.", "support_status": "research_only"}
+    engagement = {"summary": "ForgeOS can talk to the phone over adb.", "engagement_status": "adb_connected"}
+
+    plan = ConnectionEngine(tmp_path).build_plan(profile, state, assessment, engagement)
+
+    assert plan["recommended_adapter"]["adapter_id"] == "adb"
+    assert plan["requires_codex_generation"] is False
