@@ -73,11 +73,12 @@ By default, focus on these panels only:
 
 1. `Runtime Mission`
 2. `Agent Execution`
-3. `1. Intake And Autonomy Limits`
-4. `2. Proposed Outcome And Preview`
-5. `3. Backup And Restore`
-6. `4. Build Artifacts`
-7. `6. Install Gate`
+3. `Autonomous Self-Heal`
+4. `1. Intake And Autonomy Limits`
+5. `2. Proposed Outcome And Preview`
+6. `3. Backup And Restore`
+7. `4. Build Artifacts`
+8. `6. Install Gate`
 
 These are the two questions ForgeOS is trying to answer for you:
 
@@ -90,6 +91,10 @@ Use that indicator as a quick heartbeat:
 
 - spinning `☢` means ForgeOS is actively scanning, refreshing, or recomputing the session
 - dim `☢` means ForgeOS is idle and waiting for the next device event or operator action
+
+The `Autonomous Self-Heal` panel now reports when ForgeOS detects a repeated local-worker failure, what it retried, and whether the bounded fix loop recovered the task.
+
+If the first autonomous fix pass is not enough, ForgeOS can pause and ask for permission to spend one more repair round. Use `Approve One Extra Fix Loop` only when you want the local workers to take another bounded repair attempt for the current session.
 
 Use `Show Advanced Details` only when you want the deeper session dump, execution queue, and other lower-level diagnostics.
 

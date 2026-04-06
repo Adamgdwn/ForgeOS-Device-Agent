@@ -11,7 +11,12 @@ class RetryPlanner:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def build_plan(self, blocker: dict[str, Any], generated: dict[str, Any] | None = None) -> dict[str, Any]:
+    def build_plan(
+        self,
+        blocker: dict[str, Any],
+        generated: dict[str, Any] | None = None,
+        worker_self_heal: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         machine_solvable = blocker.get("machine_solvable", False)
         blocker_type = blocker.get("blocker_type")
         if blocker_type == "none":
@@ -33,6 +38,7 @@ class RetryPlanner:
             "rationale": rationale,
             "retry_budget": blocker.get("retry_budget", 0),
             "generated_files": (generated or {}).get("generated_files", []),
+            "worker_self_heal": worker_self_heal or {},
         }
 
     def write(self, session_dir: Path, payload: dict[str, Any]) -> Path:

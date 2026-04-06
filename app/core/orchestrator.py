@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -20,7 +22,7 @@ from app.core.runtime_planner import RuntimePlanner
 from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerRuntime, WorkerTask
 from app.core.session_manager import SessionManager
 from app.core.state_machine import is_transition_allowed
-from app.core.models import TaskRisk, to_dict
+from app.core.models import TaskRisk, WorkerTier, to_dict
 from app.tools.autonomous_engagement import AutonomousEngagementTool
 from app.tools.backup_restore import BackupAndRestorePlannerTool
 from app.tools.build_resolver import BuildResolverTool
@@ -648,6 +650,16 @@ class ForgeOrchestrator:
             if execute_workers
             else []
         )
+        worker_self_heal = {"status": "not_needed", "summary": "No local worker self-heal loop was needed."}
+        if execute_workers:
+            extra_routes, extra_executions, worker_self_heal = self._run_local_worker_fix_loop(
+                session_dir=session_dir,
+                worker_routes=worker_routes,
+                worker_tasks=worker_tasks,
+                worker_executions=worker_executions,
+            )
+            worker_routes.extend(extra_routes)
+            worker_executions.extend(extra_executions)
 
         generated_runtime: dict[str, Any] = {}
         patch_result: dict[str, Any] = {}
@@ -727,7 +739,11 @@ class ForgeOrchestrator:
         else:
             self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires minimal external action or approval")
 
-        retry_plan = self.retry_planner.build_plan(blocker, generated_runtime or None)
+        retry_plan = self.retry_planner.build_plan(
+            blocker,
+            generated_runtime or None,
+            worker_self_heal=worker_self_heal,
+        )
         if flash_plan.requires_wipe and execute_workers:
             worker_routes.append(
                 self.worker_router.route(
@@ -879,7 +895,179 @@ class ForgeOrchestrator:
             "preview_execution": preview_execution,
             "verification_execution": verification_execution,
             "runtime_files": runtime_files,
+            "worker_self_heal": worker_self_heal,
         }
+
+    def _run_local_worker_fix_loop(
+        self,
+        *,
+        session_dir: Path,
+        worker_routes: list[WorkerRouteDecision],
+        worker_tasks: list[WorkerTask],
+        worker_executions: list[WorkerExecution],
+    ) -> tuple[list[WorkerRouteDecision], list[WorkerExecution], dict[str, Any]]:
+        self_heal_policy = self._read_self_heal_policy(session_dir)
+        available_extra_loops = max(
+            0,
+            int(self_heal_policy.get("granted_extra_loops", 0)) - int(self_heal_policy.get("consumed_extra_loops", 0)),
+        )
+        failing_triplets: list[tuple[WorkerRouteDecision, WorkerTask, WorkerExecution]] = []
+        for route, task, execution in zip(worker_routes, worker_tasks, worker_executions, strict=False):
+            if route.selected_tier != WorkerTier.LOCAL:
+                continue
+            if execution.status not in {"failed", "unavailable"} and not execution.telemetry.repeated_failure:
+                continue
+            failing_triplets.append((route, task, execution))
+
+        if not failing_triplets:
+            return [], [], {
+                "status": "not_needed",
+                "summary": "Local workers completed without needing self-heal remediation.",
+                "available_extra_loops": available_extra_loops,
+                "consumed_extra_loops": int(self_heal_policy.get("consumed_extra_loops", 0)),
+            }
+
+        remediation_targets = [
+            "app/core/orchestrator.py",
+            "app/core/runtime_workers.py",
+            "app/core/retry_planner.py",
+        ]
+        extra_routes: list[WorkerRouteDecision] = []
+        extra_executions: list[WorkerExecution] = []
+        retried = 0
+        recovered = 0
+        consumed_extra_loops = 0
+        remaining_failures = failing_triplets[:3]
+        rounds_allowed = 1 + available_extra_loops
+        last_remediation_status = "not_run"
+
+        for round_index in range(rounds_allowed):
+            failure_summary = [
+                {
+                    "task_type": execution.task_type,
+                    "worker": execution.worker,
+                    "adapter_name": execution.adapter_name,
+                    "status": execution.status,
+                    "summary": execution.summary,
+                    "stderr": execution.stderr[:1200],
+                    "exit_code": execution.exit_code,
+                    "telemetry": to_dict(execution.telemetry),
+                }
+                for _, _, execution in remaining_failures
+            ]
+            remediation_task = WorkerTask(
+                task_type="worker_self_heal",
+                summary="Diagnose and repair repeated local worker failures in the ForgeOS runtime.",
+                prompt=(
+                    "A local runtime worker failed or repeated the same failure. "
+                    "Apply the smallest safe repo fix that improves ForgeOS resilience, then stop.\n\n"
+                    f"Self-heal round: {round_index + 1}\n"
+                    f"Recent local worker failures: {json_safe(failure_summary)}"
+                ),
+                risk=TaskRisk.MEDIUM,
+                needs_repo_edit=True,
+                repetitive=True,
+                retry_budget=1,
+                context={"failures": failure_summary, "self_heal_round": round_index + 1},
+                target_files=remediation_targets,
+            )
+            remediation_route = self.worker_router.route(remediation_task)
+            remediation_execution = self.worker_runtime.execute(remediation_route, remediation_task, session_dir)
+            extra_routes.append(remediation_route)
+            extra_executions.append(remediation_execution)
+            last_remediation_status = remediation_execution.status
+            if round_index > 0:
+                consumed_extra_loops += 1
+
+            next_failures: list[tuple[WorkerRouteDecision, WorkerTask, WorkerExecution]] = []
+            for route, task, execution in remaining_failures:
+                retry_task = replace(
+                    task,
+                    local_retry_count=task.local_retry_count + 1 + round_index,
+                    retry_budget=1,
+                    repetitive=True,
+                    prompt=(
+                        (task.prompt or task.summary)
+                        + "\n\nRetry after a local self-heal remediation pass. "
+                        + f"Previous failure summary: {execution.summary}"
+                    ),
+                    context=task.context
+                    | {
+                        "self_heal_retry": True,
+                        "self_heal_round": round_index + 1,
+                        "previous_failure": {
+                            "status": execution.status,
+                            "summary": execution.summary,
+                            "stderr": execution.stderr[:1200],
+                        },
+                    },
+                )
+                retry_route = self.worker_router.route(retry_task)
+                retry_execution = self.worker_runtime.execute(retry_route, retry_task, session_dir)
+                extra_routes.append(retry_route)
+                extra_executions.append(retry_execution)
+                retried += 1
+                if retry_execution.status == "completed":
+                    recovered += 1
+                else:
+                    next_failures.append((retry_route, retry_task, retry_execution))
+            remaining_failures = next_failures
+            if not remaining_failures:
+                break
+
+        if consumed_extra_loops:
+            self_heal_policy["consumed_extra_loops"] = int(self_heal_policy.get("consumed_extra_loops", 0)) + consumed_extra_loops
+            self._write_self_heal_policy(session_dir, self_heal_policy)
+
+        loop_status = "attempted"
+        if retried and recovered == retried:
+            loop_status = "recovered"
+        elif last_remediation_status not in {"completed"}:
+            loop_status = "repair_failed"
+        elif remaining_failures and available_extra_loops == 0:
+            loop_status = "permission_required"
+        elif remaining_failures:
+            loop_status = "retry_failed"
+
+        return (
+            extra_routes,
+            extra_executions,
+            {
+                "status": loop_status,
+                "summary": (
+                    f"ForgeOS ran a bounded local self-heal loop for {retried} failed local worker task(s) "
+                    f"and recovered {recovered} of them."
+                ),
+                "failed_tasks": [execution.task_type for _, _, execution in failing_triplets[:3]],
+                "retried_tasks": retried,
+                "recovered_tasks": recovered,
+                "repair_execution_status": last_remediation_status,
+                "repair_transcript_path": extra_executions[0].transcript_path if extra_executions else "",
+                "available_extra_loops": max(
+                    0,
+                    int(self_heal_policy.get("granted_extra_loops", 0)) - int(self_heal_policy.get("consumed_extra_loops", 0)),
+                ),
+                "consumed_extra_loops": int(self_heal_policy.get("consumed_extra_loops", 0)),
+                "permission_message": (
+                    "ForgeOS can try another autonomous fix round if the operator grants extra self-heal permission."
+                    if remaining_failures
+                    else ""
+                ),
+            },
+        )
+
+    def _read_self_heal_policy(self, session_dir: Path) -> dict[str, Any]:
+        path = session_dir / "runtime" / "self-heal-policy.json"
+        if not path.exists():
+            return {"granted_extra_loops": 0, "consumed_extra_loops": 0}
+        try:
+            return json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Failed to read self-heal policy from %s", path)
+            return {"granted_extra_loops": 0, "consumed_extra_loops": 0}
+
+    def _write_self_heal_policy(self, session_dir: Path, payload: dict[str, Any]) -> Path:
+        return self.sessions.write_runtime_artifact(session_dir, "runtime/self-heal-policy.json", payload)
 
     def _read_operator_review(self, session_dir: Path) -> dict[str, Any]:
         path = session_dir / "runtime" / "operator-review.json"

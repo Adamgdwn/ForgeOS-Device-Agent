@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -96,19 +97,25 @@ class ForgeControlApp:
         self.window.setMinimumSize(640, 560)
         self.window.resizeEvent = self._handle_resize
 
+        root = QWidget()
+        self.window.setCentralWidget(root)
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(18, 18, 18, 18)
+        root_layout.setSpacing(14)
+
+        root_layout.addWidget(self._build_header())
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.window.setCentralWidget(self.scroll)
+        root_layout.addWidget(self.scroll, 1)
 
         central = QWidget()
         self.scroll.setWidget(central)
         outer = QVBoxLayout(central)
         outer.setContentsMargins(18, 18, 18, 18)
         outer.setSpacing(14)
-
-        outer.addWidget(self._build_header())
 
         self.content_grid = QGridLayout()
         self.content_grid.setHorizontalSpacing(14)
@@ -125,6 +132,7 @@ class ForgeControlApp:
         self.review_card = self._build_review_card()
         self.connection_help_card = self._build_connection_help_card()
         self.approval_card = self._build_approval_card()
+        self.self_heal_card = self._build_self_heal_card()
         self.autonomous_card = self._build_autonomous_card()
         self.device_card = self._build_device_card()
         self.help_card = self._build_help_card()
@@ -231,14 +239,19 @@ class ForgeControlApp:
     def _build_header(self) -> QWidget:
         box = QFrame()
         box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        box.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.header_box = box
-        self.header_layout = QHBoxLayout(box)
+        self.header_layout = QVBoxLayout(box)
         layout = self.header_layout
+        layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        self.header_text_col = QVBoxLayout()
+        text_frame = QWidget()
+        self.header_text_col = QVBoxLayout(text_frame)
         text_col = self.header_text_col
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(6)
         title = QLabel("ForgeOS Device Agent")
         title.setProperty("role", "title")
         title.setWordWrap(True)
@@ -266,10 +279,13 @@ class ForgeControlApp:
         status_row.addWidget(self.activity_icon_label, 0, Qt.AlignmentFlag.AlignTop)
         status_row.addWidget(self.status_label, 1)
         text_col.addLayout(status_row)
-        layout.addLayout(text_col, 1)
+        layout.addWidget(text_frame)
 
-        self.button_col = QHBoxLayout()
+        button_frame = QWidget()
+        self.button_col = QHBoxLayout(button_frame)
         button_col = self.button_col
+        button_col.setContentsMargins(0, 0, 0, 0)
+        button_col.setSpacing(12)
         for label, callback in [
             ("Refresh", self.manual_refresh),
             ("Open User Guide", lambda: self._open_path(self.project_root / "USER_GUIDE.md")),
@@ -283,10 +299,16 @@ class ForgeControlApp:
         self.advanced_toggle.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.advanced_toggle.toggled.connect(self._toggle_advanced_mode)
         button_col.addWidget(self.advanced_toggle)
-        layout.addLayout(button_col)
+        button_col.addStretch(1)
+        layout.addWidget(button_frame)
         for button in box.findChildren(QPushButton):
             self._set_button_state(button, "neutral")
         return box
+
+    def _sync_header_height(self) -> None:
+        self.header_layout.activate()
+        self.button_col.activate()
+        self.header_box.setMinimumHeight(self.header_box.sizeHint().height())
 
     def _build_now_what_card(self) -> QGroupBox:
         group = QGroupBox("Runtime Mission")
@@ -355,6 +377,24 @@ class ForgeControlApp:
         self.autonomous_text.setReadOnly(True)
         layout.addWidget(self.autonomous_title)
         layout.addWidget(self.autonomous_text, 1)
+        return group
+
+    def _build_self_heal_card(self) -> QGroupBox:
+        group = QGroupBox("Autonomous Self-Heal")
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        layout = QVBoxLayout(group)
+        self.self_heal_status = QLabel("ForgeOS will report autonomous fix-loop activity here.")
+        self.self_heal_status.setWordWrap(True)
+        self.self_heal_status.setProperty("role", "body")
+        self.self_heal_text = QTextEdit()
+        self.self_heal_text.setReadOnly(True)
+        self.self_heal_text.setMaximumHeight(180)
+        self.allow_extra_fix_button = QPushButton("Approve One Extra Fix Loop")
+        self.allow_extra_fix_button.clicked.connect(self.approve_extra_fix_loop)
+        layout.addWidget(self.self_heal_status)
+        layout.addWidget(self.self_heal_text)
+        layout.addWidget(self.allow_extra_fix_button)
+        self._set_button_state(self.allow_extra_fix_button, "blocked")
         return group
 
     def _build_profile_card(self) -> QGroupBox:
@@ -758,6 +798,24 @@ class ForgeControlApp:
         self.activity_icon_label.setPixmap(
             self._render_activity_icon(self.activity_spinner_angle, active)
         )
+
+    def _align_viewport_top(self) -> None:
+        self.header_box.setFocus(Qt.FocusReason.OtherFocusReason)
+        scrollbar = self.scroll.verticalScrollBar()
+        scrollbar.setValue(scrollbar.minimum())
+        self.scroll.ensureVisible(0, 0, 0, 0)
+
+    def _place_window_on_screen(self) -> None:
+        screen = self.window.screen() or self.qt_app.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        target_width = min(max(self.window.width(), 960), max(960, available.width() - 48))
+        target_height = min(max(self.window.height(), 720), max(720, available.height() - 48))
+        self.window.resize(target_width, target_height)
+        centered_x = available.x() + max(12, (available.width() - target_width) // 2)
+        centered_y = available.y() + max(12, (available.height() - target_height) // 2)
+        self.window.move(centered_x, centered_y)
 
     def _mark_profile_form_dirty(self, *_args: object) -> None:
         if self.profile_form_syncing:
@@ -1395,6 +1453,64 @@ class ForgeControlApp:
 
     def _read_artifact_manifest(self, session_dir: Path) -> dict[str, Any]:
         return self._read_json(session_dir / "runtime" / "build" / "artifact-manifest.json")
+
+    def _read_self_heal_policy(self, session_dir: Path) -> dict[str, Any]:
+        return self._read_json(
+            session_dir / "runtime" / "self-heal-policy.json",
+            {"granted_extra_loops": 0, "consumed_extra_loops": 0},
+        )
+
+    def approve_extra_fix_loop(self) -> None:
+        if not self.current_session_dir:
+            self.self_heal_status.setText("No active session is loaded yet, so no extra fix loop can be approved.")
+            return
+        policy = self._read_self_heal_policy(self.current_session_dir)
+        granted = int(policy.get("granted_extra_loops", 0)) + 1
+        updated = {
+            **policy,
+            "granted_extra_loops": granted,
+            "updated_at": utc_now(),
+            "last_operator_action": "approve_one_extra_fix_loop",
+        }
+        self.sessions.write_runtime_artifact(self.current_session_dir, "runtime/self-heal-policy.json", updated)
+        self.self_heal_status.setText(
+            f"Approved one extra autonomous fix loop for this session. ForgeOS now has {granted - int(updated.get('consumed_extra_loops', 0))} extra loop(s) available."
+        )
+        self.refresh_ui("Extra fix loop approved")
+
+    def _refresh_self_heal_status(self, session_dir: Path) -> None:
+        retry_plan = self._read_json(session_dir / "reports" / "retry-plan.json")
+        self_heal = retry_plan.get("worker_self_heal", {}) or {}
+        policy = self._read_self_heal_policy(session_dir)
+        granted = int(policy.get("granted_extra_loops", 0))
+        consumed = int(policy.get("consumed_extra_loops", 0))
+        available = max(0, granted - consumed)
+        status = self_heal.get("status", "not_needed")
+        summary = self_heal.get("summary", "No self-heal report recorded yet.")
+        permission_message = self_heal.get("permission_message", "")
+        self.self_heal_status.setText(
+            f"Self-heal report: {summary} Extra approved loops available: {available}."
+            + (f" {permission_message}" if permission_message else "")
+        )
+        detail_lines = [
+            f"Status: {status}",
+            f"Failed tasks: {', '.join(self_heal.get('failed_tasks', [])) or 'none recorded'}",
+            f"Retried tasks: {self_heal.get('retried_tasks', 0)}",
+            f"Recovered tasks: {self_heal.get('recovered_tasks', 0)}",
+            f"Repair execution status: {self_heal.get('repair_execution_status', 'not_run')}",
+            f"Extra loops granted: {granted}",
+            f"Extra loops consumed: {consumed}",
+            f"Extra loops available: {available}",
+        ]
+        if self_heal.get("repair_transcript_path"):
+            detail_lines.append(f"Repair transcript: {self_heal['repair_transcript_path']}")
+        self._set_text_preserve_scroll(self.self_heal_text, "\n".join(detail_lines))
+        needs_permission = status in {"permission_required", "retry_failed", "repair_failed"}
+        self.allow_extra_fix_button.setEnabled(bool(needs_permission and self.current_session_dir))
+        self._set_button_state(
+            self.allow_extra_fix_button,
+            "ready" if needs_permission else "blocked",
+        )
 
     def _preview_generated_path(self, session_dir: Path, suffix: str) -> Path | None:
         preview_execution = self._read_json(session_dir / "runtime" / "preview" / "preview-execution.json")
@@ -2193,6 +2309,7 @@ class ForgeControlApp:
             autonomous_text += "\n\nCodex handoff files:\n" + "\n".join(f"- {path}" for path in codex_files)
         self.autonomous_title.setText(autonomous_title)
         self._set_text_preserve_scroll(self.autonomous_text, autonomous_text)
+        self._refresh_self_heal_status(self.current_session_dir)
         self._load_profile_form(self.current_session_dir)
         self.profile_status.setText("Profile is loaded for this session. Save changes to recompute the OS path.")
         self._refresh_proposal_panel(self.current_session_dir, runtime_plan)
@@ -2647,6 +2764,7 @@ class ForgeControlApp:
         self.backup_card.setVisible(has_session)
         self.artifact_card.setVisible(has_session)
         self.review_card.setVisible(has_session and phase in {"recommendation", "build_preview", "interactive_verification", "wipe_install"})
+        self.self_heal_card.setVisible(has_session)
         self.help_card.setVisible(has_session or usb_only_device)
         self.device_card.setVisible(self.show_advanced and has_session)
         self.autonomous_card.setVisible(self.show_advanced and has_session)
@@ -2668,6 +2786,7 @@ class ForgeControlApp:
             state += f" | autonomous improvement error: {self.runtime_recompute_error}"
         self._set_activity_indicator(has_live_device or has_usb_only or self.runtime_recompute_in_flight)
         self.status_label.setText(f"Refresh status: {reason} at {timestamp} | {state}")
+        self._sync_header_height()
         self.logger.info("GUI refresh: reason=%s state=%s", reason, state)
 
     def manual_refresh(self) -> None:
@@ -2709,12 +2828,13 @@ class ForgeControlApp:
             self.content_grid.addWidget(self.backup_card, 4, 0)
             self.content_grid.addWidget(self.artifact_card, 5, 0)
             self.content_grid.addWidget(self.review_card, 6, 0)
-            self.content_grid.addWidget(self.connection_help_card, 7, 0)
-            self.content_grid.addWidget(self.host_card, 8, 0)
-            self.content_grid.addWidget(self.device_card, 9, 0)
-            self.content_grid.addWidget(self.autonomous_card, 10, 0)
-            self.content_grid.addWidget(self.approval_card, 11, 0)
-            self.content_grid.addWidget(self.help_card, 12, 0)
+            self.content_grid.addWidget(self.self_heal_card, 7, 0)
+            self.content_grid.addWidget(self.connection_help_card, 8, 0)
+            self.content_grid.addWidget(self.host_card, 9, 0)
+            self.content_grid.addWidget(self.device_card, 10, 0)
+            self.content_grid.addWidget(self.autonomous_card, 11, 0)
+            self.content_grid.addWidget(self.approval_card, 12, 0)
+            self.content_grid.addWidget(self.help_card, 13, 0)
             self.content_grid.setColumnStretch(0, 1)
             self.content_grid.setColumnStretch(1, 0)
         else:
@@ -2727,6 +2847,7 @@ class ForgeControlApp:
                 self.profile_card,
                 self.backup_card,
                 self.artifact_card,
+                self.self_heal_card,
                 self.connection_help_card,
                 self.device_card,
             ]:
@@ -2761,16 +2882,14 @@ class ForgeControlApp:
         desired_mode = "narrow" if width < 1380 else "wide"
         if desired_mode != self.layout_mode:
             self._apply_layout_mode(desired_mode)
-        if width < 1500:
-            self.header_layout.setDirection(QVBoxLayout.Direction.TopToBottom)
-        else:
-            self.header_layout.setDirection(QHBoxLayout.Direction.LeftToRight)
-        if width < 980:
+        buttons_stacked = width < 980
+        if buttons_stacked:
             self.button_col.setDirection(QVBoxLayout.Direction.TopToBottom)
         else:
             self.button_col.setDirection(QHBoxLayout.Direction.LeftToRight)
         self.button_col.invalidate()
         self.header_layout.invalidate()
+        self._sync_header_height()
         self.header_box.updateGeometry()
         container = self.scroll.widget()
         if container is not None:
@@ -2794,5 +2913,16 @@ class ForgeControlApp:
             self._open_path(self.current_session_dir)
 
     def run(self) -> None:
-        self.window.show()
+        session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+        if session_type == "wayland":
+            self.window.showMaximized()
+        else:
+            self._place_window_on_screen()
+            self.window.show()
+            QTimer.singleShot(0, self._place_window_on_screen)
+        QTimer.singleShot(0, self._align_viewport_top)
+        if session_type != "wayland":
+            QTimer.singleShot(100, self._place_window_on_screen)
+        QTimer.singleShot(100, self._align_viewport_top)
+        QTimer.singleShot(300, self._align_viewport_top)
         self.qt_app.exec()

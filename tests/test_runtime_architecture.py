@@ -10,9 +10,13 @@ from app.core.models import (
     SessionStateName,
     TaskRisk,
     Transport,
+    WorkerExecution,
+    WorkerRouteDecision,
     VerificationExecution,
     WorkerRole,
+    WorkerTier,
 )
+from app.core.orchestrator import ForgeOrchestrator
 from app.core.policy_guard import PolicyGuard
 from app.core.runtime_pipelines import PreviewPipeline, VerificationPipeline
 from app.core.runtime_planner import RuntimePlanner
@@ -184,3 +188,80 @@ def test_runtime_planner_writes_runtime_artifacts(tmp_path: Path) -> None:
     manifest = Path(files["proposal_manifest_path"]).read_text()
     assert "included_features" in manifest
     assert "proposed_os_name" in manifest
+
+
+def test_orchestrator_runs_bounded_worker_self_heal_loop(tmp_path: Path) -> None:
+    (tmp_path / "master" / "policies").mkdir(parents=True)
+    (tmp_path / "master" / "policies" / "default_policy.json").write_text(
+        """{
+  "policy_version": "1.0",
+  "default_dry_run": true,
+  "require_restore_path": true,
+  "allow_live_destructive_actions": false,
+  "require_explicit_wipe_phrase": true,
+  "allow_bootloader_relock": false,
+  "open_vscode_on_launch": false,
+  "open_vscode_on_session_create": false,
+  "enable_codex_handoff": false,
+  "priority_order": ["restore_path"],
+  "host_requirements": {"platforms": ["linux"], "preferred_desktop": "Pop!_OS", "tools": ["adb", "fastboot"]}
+}"""
+    )
+    orchestrator = ForgeOrchestrator(tmp_path)
+    session_dir = tmp_path / "devices" / "demo"
+    session_dir.mkdir(parents=True)
+
+    route = WorkerRouteDecision(
+        task_type="device_discovery",
+        selected_worker=WorkerRole.LOCAL_GENERAL,
+        selected_tier=WorkerTier.LOCAL,
+        rationale="test route",
+        adapter_name="goose_local_worker",
+    )
+    task = WorkerTask(
+        task_type="device_discovery",
+        summary="Discover device",
+        prompt="discover",
+        retry_budget=1,
+    )
+    failed = WorkerExecution(
+        worker=WorkerRole.LOCAL_GENERAL.value,
+        adapter_name="goose_local_worker",
+        task_type="device_discovery",
+        status="failed",
+        summary="device_discovery failed",
+        stderr="boom",
+        confidence=0.1,
+    )
+    calls: list[str] = []
+
+    def fake_execute(route_arg, task_arg, session_dir_arg):
+        calls.append(task_arg.task_type)
+        status = "completed"
+        summary = f"{task_arg.task_type} recovered"
+        if task_arg.task_type == "worker_self_heal":
+            summary = "self heal applied"
+        return WorkerExecution(
+            worker=route_arg.selected_worker.value,
+            adapter_name=route_arg.adapter_name,
+            task_type=task_arg.task_type,
+            status=status,
+            summary=summary,
+            transcript_path=str(session_dir_arg / "runtime" / f"{task_arg.task_type}.json"),
+            confidence=0.8,
+        )
+
+    orchestrator.worker_runtime.execute = fake_execute  # type: ignore[method-assign]
+
+    extra_routes, extra_execs, loop_report = orchestrator._run_local_worker_fix_loop(
+        session_dir=session_dir,
+        worker_routes=[route],
+        worker_tasks=[task],
+        worker_executions=[failed],
+    )
+
+    assert calls == ["worker_self_heal", "device_discovery"]
+    assert len(extra_routes) == 2
+    assert len(extra_execs) == 2
+    assert loop_report["status"] == "recovered"
+    assert loop_report["recovered_tasks"] == 1
