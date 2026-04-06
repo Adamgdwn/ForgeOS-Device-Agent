@@ -185,6 +185,10 @@ class ForgeControlApp:
         QLabel[role="hint"] {
             color: #b8cae4;
         }
+        QLabel[role="legend"] {
+            color: #b8cae4;
+            font-size: 12px;
+        }
         QTextEdit {
             background: #102137;
             border: 1px solid #29456a;
@@ -204,6 +208,10 @@ class ForgeControlApp:
         }
         QPushButton[state="neutral"] {
             background: #3f5673;
+            color: #eef4ff;
+        }
+        QPushButton[state="view"] {
+            background: #466a91;
             color: #eef4ff;
         }
         QPushButton[state="pending"] {
@@ -279,6 +287,11 @@ class ForgeControlApp:
         status_row.addWidget(self.activity_icon_label, 0, Qt.AlignmentFlag.AlignTop)
         status_row.addWidget(self.status_label, 1)
         text_col.addLayout(status_row)
+        self.button_legend = QLabel("Button colors: blue = view, orange = your action, green = done, gray = unavailable")
+        self.button_legend.setProperty("role", "legend")
+        self.button_legend.setWordWrap(True)
+        self.button_legend.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        text_col.addWidget(self.button_legend)
         layout.addWidget(text_frame)
 
         button_frame = QWidget()
@@ -537,7 +550,7 @@ class ForgeControlApp:
         preview_buttons = QHBoxLayout()
         self.preview_folder_button = QPushButton("Open Preview Folder")
         self.preview_folder_button.clicked.connect(lambda: self._open_session_artifact("runtime/preview"))
-        self.preview_report_button = QPushButton("Open Build Plan")
+        self.preview_report_button = QPushButton("View Build Plan")
         self.preview_report_button.clicked.connect(lambda: self._open_session_artifact("reports/build_plan.json"))
         preview_buttons.addWidget(self.preview_folder_button)
         preview_buttons.addWidget(self.preview_report_button)
@@ -564,9 +577,9 @@ class ForgeControlApp:
         self.backup_text.setReadOnly(True)
         self.backup_text.setMaximumHeight(240)
         backup_buttons = QHBoxLayout()
-        self.open_backup_bundle_button = QPushButton("Open Backup Bundle")
+        self.open_backup_bundle_button = QPushButton("View Backup Bundle")
         self.open_backup_bundle_button.clicked.connect(lambda: self._open_best_backup_artifact("bundle"))
-        self.open_restore_plan_button = QPushButton("Open Restore Plan")
+        self.open_restore_plan_button = QPushButton("View Restore Plan")
         self.open_restore_plan_button.clicked.connect(lambda: self._open_session_artifact("restore/restore-plan.json"))
         backup_buttons.addWidget(self.open_backup_bundle_button)
         backup_buttons.addWidget(self.open_restore_plan_button)
@@ -592,9 +605,9 @@ class ForgeControlApp:
         buttons = QHBoxLayout()
         self.open_artifact_source_button = QPushButton("Open Source Staging")
         self.open_artifact_source_button.clicked.connect(lambda: self._open_session_artifact("artifacts/os-source"))
-        self.open_artifact_manifest_button = QPushButton("Open Artifact Manifest")
+        self.open_artifact_manifest_button = QPushButton("View Artifact Manifest")
         self.open_artifact_manifest_button.clicked.connect(lambda: self._open_session_artifact("runtime/build/artifact-manifest.json"))
-        self.open_artifact_bundle_button = QPushButton("Open Flashable Bundle")
+        self.open_artifact_bundle_button = QPushButton("View Flashable Bundle")
         self.open_artifact_bundle_button.clicked.connect(lambda: self._open_session_artifact("runtime/build/flashable-artifacts.tar.gz"))
         buttons.addWidget(self.open_artifact_source_button)
         buttons.addWidget(self.open_artifact_manifest_button)
@@ -1791,9 +1804,9 @@ class ForgeControlApp:
         self.preview_report_button.setEnabled(True)
         self._set_button_state(
             self.preview_folder_button,
-            "done" if preview_execution.get("generated_files") else "pending",
+            "view" if preview_execution.get("generated_files") else "pending",
         )
-        self._set_button_state(self.preview_report_button, "neutral")
+        self._set_button_state(self.preview_report_button, "view")
 
     def _refresh_backup_panel(self, session_dir: Path) -> None:
         backup_plan = self._read_json(session_dir / "backup" / "backup-plan.json")
@@ -1823,8 +1836,8 @@ class ForgeControlApp:
         self._set_text_preserve_scroll(self.backup_text, "\n".join(lines))
         self.open_backup_bundle_button.setEnabled(True)
         self.open_restore_plan_button.setEnabled(True)
-        self._set_button_state(self.open_backup_bundle_button, "done" if backup_plan else "pending")
-        self._set_button_state(self.open_restore_plan_button, "done" if restore_plan else "pending")
+        self._set_button_state(self.open_backup_bundle_button, "view" if backup_plan else "pending")
+        self._set_button_state(self.open_restore_plan_button, "view" if restore_plan else "pending")
 
     def _refresh_artifact_panel(self, session_dir: Path) -> None:
         manifest = self._read_artifact_manifest(session_dir)
@@ -1865,9 +1878,9 @@ class ForgeControlApp:
         self.open_artifact_source_button.setEnabled(True)
         self.open_artifact_manifest_button.setEnabled(bool(manifest))
         self.open_artifact_bundle_button.setEnabled(bool(bundle_path))
-        self._set_button_state(self.open_artifact_source_button, "neutral")
-        self._set_button_state(self.open_artifact_manifest_button, "done" if manifest else "pending")
-        self._set_button_state(self.open_artifact_bundle_button, "done" if bundle_path else "pending")
+        self._set_button_state(self.open_artifact_source_button, "view")
+        self._set_button_state(self.open_artifact_manifest_button, "view" if manifest else "pending")
+        self._set_button_state(self.open_artifact_bundle_button, "view" if bundle_path else "pending")
 
     def _refresh_review_panel(self, session_dir: Path, runtime_plan: dict[str, Any]) -> None:
         review = self._current_operator_review(session_dir)

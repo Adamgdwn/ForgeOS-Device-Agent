@@ -92,6 +92,13 @@ Use that indicator as a quick heartbeat:
 - spinning `☢` means ForgeOS is actively scanning, refreshing, or recomputing the session
 - dim `☢` means ForgeOS is idle and waiting for the next device event or operator action
 
+The header now also includes a button legend:
+
+- blue means `view` or `open information`
+- orange means `ForgeOS is waiting for your action`
+- green means `done` or `saved`
+- gray means `not available yet`
+
 The `Autonomous Self-Heal` panel now reports when ForgeOS detects a repeated local-worker failure, what it retried, and whether the bounded fix loop recovered the task.
 
 ForgeOS now gives the local workers up to three autonomous fix rounds before it asks for help. If that is still not enough, it pauses and asks for permission for another batch of three through `Approve 3 More Fix Loops`.
