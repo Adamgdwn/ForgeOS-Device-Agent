@@ -88,6 +88,7 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
         SessionStateName.QUESTION_GATE,
         SessionStateName.BUILD_GENERIC,
         SessionStateName.BUILD_DEVICE,
+        SessionStateName.ITERATE,
         SessionStateName.BLOCKED,
     },
     SessionStateName.REMEDIATION_DECIDE: {
@@ -150,6 +151,9 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
     SessionStateName.ITERATE: {
         SessionStateName.BLOCKER_CLASSIFY,
         SessionStateName.PATH_SELECT,
+        SessionStateName.DEEP_SCAN,
+        SessionStateName.BUILD_GENERIC,
+        SessionStateName.BUILD_DEVICE,
         SessionStateName.BLOCKED,
     },
     SessionStateName.QUESTION_GATE: {

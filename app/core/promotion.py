@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.models import utc_now
+
+if TYPE_CHECKING:
+    from app.core.adapter_registry import AdapterRegistry
 
 
 DEFAULT_RULES = {
@@ -74,6 +79,119 @@ class PromotionEngine:
         }
         self._write_json(self.candidates_path, payload)
         return payload
+
+    def apply_to_master(
+        self,
+        adapter_registry: "AdapterRegistry",
+        candidate_key: str,
+    ) -> dict[str, Any]:
+        """Copy a promotion-ready adapter from promotion/adapters/<key>/ into master/.
+
+        Writes:
+          master/integrations/oem_adapters/<key>.py
+          master/playbooks/connection/<key>.json
+
+        Safe to call multiple times — overwrites existing master files.
+        """
+        review_dir = adapter_registry.get_review_dir_by_key(candidate_key)
+        meta_path = review_dir / "meta.json"
+        if not meta_path.exists():
+            return {
+                "status": "skipped",
+                "reason": f"No promotion candidate found at {review_dir}",
+                "candidate_key": candidate_key,
+            }
+        meta = json.loads(meta_path.read_text())
+        src_adapter = Path(str(meta["adapter_path"]))
+        src_playbook = Path(str(meta["playbook_path"]))
+        if not src_adapter.exists():
+            return {
+                "status": "skipped",
+                "reason": f"Adapter source file missing: {src_adapter}",
+                "candidate_key": candidate_key,
+            }
+
+        dest_adapter = adapter_registry.get_master_adapter_path_by_key(candidate_key)
+        dest_playbook = adapter_registry.get_master_playbook_path_by_key(candidate_key)
+        dest_adapter.parent.mkdir(parents=True, exist_ok=True)
+        dest_playbook.parent.mkdir(parents=True, exist_ok=True)
+
+        shutil.copy2(src_adapter, dest_adapter)
+        if src_playbook.exists():
+            shutil.copy2(src_playbook, dest_playbook)
+
+        # Update meta to reflect promotion
+        meta["status"] = "promoted"
+        meta["master_adapter_path"] = str(dest_adapter)
+        meta["master_playbook_path"] = str(dest_playbook)
+        meta["promoted_at"] = utc_now()
+        meta_path.write_text(json.dumps(meta, indent=2))
+
+        return {
+            "status": "promoted",
+            "candidate_key": candidate_key,
+            "master_adapter_path": str(dest_adapter),
+            "master_playbook_path": str(dest_playbook),
+            "summary": (
+                f"Adapter `{candidate_key}` promoted to master — "
+                f"future sessions for {meta.get('manufacturer')} {meta.get('model')} "
+                "will load this adapter automatically."
+            ),
+        }
+
+    def deprecate_adapter(self, family_key: str, reason: str) -> None:
+        adapter_src = self.root / "master" / "integrations" / "oem_adapters" / f"{family_key}.py"
+        playbook_src = self.root / "master" / "playbooks" / "connection" / f"{family_key}.json"
+        deprecated_dir = self.root / "master" / "integrations" / "oem_adapters" / "_deprecated" / (
+            f"{family_key}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        )
+        deprecated_dir.mkdir(parents=True, exist_ok=True)
+        if adapter_src.exists():
+            shutil.move(str(adapter_src), str(deprecated_dir / adapter_src.name))
+        if playbook_src.exists():
+            shutil.move(str(playbook_src), str(deprecated_dir / playbook_src.name))
+        (deprecated_dir / "deprecation.json").write_text(
+            json.dumps(
+                {
+                    "deprecated_at": utc_now(),
+                    "reason": reason,
+                    "family_key": family_key,
+                },
+                indent=2,
+            )
+        )
+
+        if self.root.joinpath("knowledge", "support_matrix.json").exists():
+            matrix = self._load_json(self.root / "knowledge" / "support_matrix.json", {"families": {}})
+            if family_key in matrix.get("families", {}):
+                matrix["families"][family_key]["support_level"] = "deprecated"
+                matrix["families"][family_key]["deprecated_reason"] = reason
+            self._write_json(self.root / "knowledge" / "support_matrix.json", matrix)
+
+    def audit_promoted_adapters(self) -> list[str]:
+        flagged: list[str] = []
+        outcomes = self._load_json(self.root / "knowledge" / "session_outcomes.json", {"outcomes": {}})
+        confirmed_families = {
+            f"{str(outcome.get('manufacturer') or '').strip().lower().replace(' ', '_')}_{str(outcome.get('model') or '').strip().lower().replace(' ', '_')}"
+            for outcome in outcomes.get("outcomes", {}).values()
+            if str(outcome.get("serial") or "") and not str(outcome.get("serial") or "").startswith("usb-")
+        }
+        if not (self.root / "promotion" / "adapters").exists():
+            return flagged
+        for meta_path in sorted((self.root / "promotion" / "adapters").glob("*/meta.json")):
+            try:
+                meta = json.loads(meta_path.read_text())
+            except Exception:
+                continue
+            key = str(meta.get("key") or meta_path.parent.name)
+            if str(meta.get("status", "")) != "promoted":
+                continue
+            test_source = str(meta.get("test_source") or meta.get("test_result", {}).get("status", ""))
+            if test_source != "probe_no_device":
+                continue
+            if key not in confirmed_families:
+                flagged.append(key)
+        return flagged
 
     def _load_json(self, path: Path, default: dict[str, Any]) -> dict[str, Any]:
         if not path.exists():

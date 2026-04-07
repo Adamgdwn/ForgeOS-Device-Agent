@@ -247,6 +247,7 @@ class SessionState:
     current_blocker_type: str | None = None
     blocker_confidence: float = 0.0
     remediation_iteration: int = 0
+    iterate_count: int = 0
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
     notes: list[str] = field(default_factory=list)

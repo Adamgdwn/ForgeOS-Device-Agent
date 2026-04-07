@@ -17,6 +17,8 @@ The current build includes a runtime-first session model, a GUI control surface,
 - Learned runtime knowledge is persisted locally. If you want a clean evaluation across brands, clear or isolate `knowledge/` and `promotion/` before testing.
 - Blocker-driven remediation so machine-solvable blockers create runtime tasks instead of stopping at guidance.
 - Session-local codegen, execution, and patch registration for remediation artifacts.
+- Retry heat tracking so repeated non-advancing remediation cycles escalate instead of looping forever.
+- Trusted source acquisition with research TTL checks and conservative firmware provenance rules.
 - Explicit worker routing across frontier reasoning, local general execution, local editing, and deterministic policy checks.
 - VS Code integration is optional and should be operator-invoked, not opened automatically as part of the runtime path.
 - Simplified operator monitor UI that surfaces runtime state, approvals, evidence, and worker routing.
@@ -69,6 +71,8 @@ Important rules:
 - Destructive operations remain dry-run by default until approval is captured.
 - Connectivity and recovery evidence are gathered before destructive actions are considered.
 - Install planning is now gated through deterministic policy logic, not model judgment alone.
+- Repeated `ITERATE` landings escalate to `DEEP_SCAN` so the runtime refreshes live device facts instead of idling.
+- Waiting sessions in `QUESTION_GATE` resume when the same device reappears with new state.
 
 ## Runtime Artifacts
 
@@ -102,6 +106,10 @@ This checkpoint is runnable and auditable. It can now:
 - refresh live hardware evidence from `adb`
 - generate host-side recovery bundles and restore plans
 - classify blockers and execute remediation artifacts for machine-solvable runtime issues
+- persist retry heat so the same blocker cannot silently loop forever
+- re-enter stalled sessions when a waiting device changes transport or state
+- deep-scan live devices after repeated non-advancing iterate cycles
+- resolve firmware sources conservatively with TTL-aware research and trusted-host download checks
 - persist flash plans and destructive approval state
 - route work across explicit worker tiers
 - generate best-use-case recommendations and runtime session plans
@@ -114,6 +122,7 @@ What is still incomplete:
 - device-family flashing adapters across the Android ecosystem
 - unattended live wipe/flash/validate loops on real hardware
 - robust session renaming when an early coarse identity later becomes precise
+- complete remote source provenance verification beyond conservative host and size checks
 
 The learning layer records session outcomes, builds a support matrix, and generates review-only promotion candidates for the master framework.
 

@@ -37,6 +37,8 @@ from app.tools.vscode_opener import VSCodeOpenerTool
 from app.core.adapter_registry import AdapterRegistry
 from app.core.blocker_engine import BlockerEngine
 from app.workers.research_worker import ResearchWorker
+from app.integrations import adb, fastboot, fastbootd
+from app.core.models import Transport
 
 MANAGEABLE_TRANSPORTS = {"usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery"}
 DEFAULT_SELF_HEAL_ROUNDS = 3
@@ -79,9 +81,40 @@ class ForgeOrchestrator:
         self.preview_pipeline = PreviewPipeline(root)
         self.verification_pipeline = VerificationPipeline(root)
         self.runtime_planner = RuntimePlanner(root, self.sessions)
+        self._promotion_audit_ran = False
 
     def handle_device_event(self, event: dict[str, Any]) -> Path:
+        if not self._promotion_audit_ran:
+            for family_key in self.promotion.audit_promoted_adapters():
+                self.logger.warning(
+                    "Promoted adapter %s was originally promoted from probe_no_device evidence and has not been confirmed by a real-device session.",
+                    family_key,
+                )
+            self._promotion_audit_ran = True
         probe_result = self.device_probe.execute({"event": event})
+        waiting_session = self.sessions.find_waiting_session(str(probe_result["device"].get("serial") or ""))
+        if waiting_session is not None:
+            profile = self.sessions.load_device_profile(waiting_session)
+            for key in [
+                "manufacturer",
+                "model",
+                "serial",
+                "android_version",
+                "bootloader_locked",
+                "verified_boot_state",
+                "slot_info",
+                "battery",
+            ]:
+                value = probe_result["device"].get(key)
+                if value is not None and value != "" and value != {}:
+                    setattr(profile, key, value)
+            if probe_result["device"].get("transport"):
+                profile.transport = probe_result["device"]["transport"]
+            profile.raw_probe_data |= probe_result["device"]
+            self.sessions.write_device_profile(waiting_session, profile)
+            self._safe_transition(waiting_session, "BLOCKER_CLASSIFY", "Device state changed while waiting at QUESTION_GATE — re-entering blocker classification")
+            self.recompute_session_runtime(waiting_session)
+            return waiting_session
         session_dir = self.sessions.create_or_resume(probe_result["device"])
         self._safe_transition(session_dir, "DEVICE_ATTACHED", "Device attachment event received")
         self._safe_transition(session_dir, "DISCOVER", "Runtime discovery started")
@@ -458,6 +491,11 @@ class ForgeOrchestrator:
     ) -> dict[str, Any]:
         current_profile = self.sessions.load_device_profile(session_dir)
         current_state = self.sessions.load_session_state(session_dir)
+        if current_state.state == current_state.state.__class__.DEEP_SCAN:
+            refreshed_device = self._perform_deep_scan(session_dir, current_profile)
+            if refreshed_device:
+                current_profile = self.sessions.load_device_profile(session_dir)
+                device_payload = refreshed_device
         knowledge_match = self.knowledge_lookup.lookup(current_profile.manufacturer, current_profile.model)
         connection_plan = self.connection_engine.build_plan(current_profile, current_state, assessment, engagement)
 
@@ -826,6 +864,51 @@ class ForgeOrchestrator:
                 build_artifacts=build_artifacts,
             )
             blocker = self._enrich_blocker_with_research(session_dir, blocker)
+            old_strategy = current_state.selected_strategy
+            previous_support = current_state.support_status.value
+            new_support = assessment.get("support_status", previous_support)
+            if new_support != previous_support:
+                updated_strategy = self.strategy_selector.execute(
+                    {
+                        "assessment": assessment,
+                        "device": {
+                            "transport": current_profile.transport,
+                            "manufacturer": current_profile.manufacturer,
+                            "model": current_profile.model,
+                            "serial": current_profile.serial,
+                            "android_version": current_profile.android_version,
+                            "bootloader_locked": current_profile.bootloader_locked,
+                            "verified_boot_state": current_profile.verified_boot_state,
+                            "slot_info": current_profile.slot_info or {},
+                            "battery": current_profile.battery or {},
+                            "device_codename": current_profile.device_codename,
+                            "raw_event": current_profile.raw_probe_data.get("raw_event", current_profile.raw_probe_data),
+                        },
+                        "user_profile": {
+                            "persona": user_profile.persona.value,
+                            "technical_comfort": user_profile.technical_comfort.value,
+                            "primary_priority": user_profile.primary_priority.value,
+                            "google_services_preference": user_profile.google_services_preference.value,
+                            "autonomy_limit": user_profile.autonomy_limit.value,
+                            "risk_tolerance": user_profile.risk_tolerance.value,
+                            "restore_expectation": user_profile.restore_expectation.value,
+                            "target_use_case": user_profile.target_use_case.value,
+                        },
+                        "os_goals": {
+                            "top_goal": os_goals.top_goal.value,
+                            "secondary_goal": os_goals.secondary_goal.value,
+                            "requires_reliable_updates": os_goals.requires_reliable_updates,
+                            "prefers_long_battery_life": os_goals.prefers_long_battery_life,
+                            "prefers_lockdown_defaults": os_goals.prefers_lockdown_defaults,
+                        },
+                    }
+                )
+                current_state.selected_strategy = updated_strategy["strategy_id"]
+                self.logger.info(
+                    "Strategy updated after remediation: %s -> %s",
+                    old_strategy,
+                    updated_strategy["strategy_id"],
+                )
             current_state.current_blocker_type = blocker["blocker_type"]
             current_state.blocker_confidence = blocker["confidence"]
             self.sessions.write_session_state(session_dir, current_state)
@@ -854,7 +937,10 @@ class ForgeOrchestrator:
             blocker,
             generated_runtime or None,
             worker_self_heal=worker_self_heal,
+            session_dir=session_dir,
         )
+        if blocker["blocker_type"] == "none":
+            self.retry_planner.mark_advanced(session_dir)
         if flash_plan.requires_wipe and execute_workers:
             worker_routes.append(
                 self.worker_router.route(
@@ -979,6 +1065,9 @@ class ForgeOrchestrator:
         if blocker["blocker_type"] == "none":
             # No blocker: try to advance toward build or validation
             if install_candidate:
+                current_state = self.sessions.load_session_state(session_dir)
+                current_state.iterate_count = 0
+                self.sessions.write_session_state(session_dir, current_state)
                 self._safe_transition(session_dir, "BUILD_GENERIC", "No blockers detected — advancing toward build stage")
             else:
                 # Clean state but not yet ready to build (e.g., artifacts not staged).
@@ -986,6 +1075,17 @@ class ForgeOrchestrator:
                 # emitted a SOURCE blocker message via QUESTION_GATE in the elif block above
                 # if this was reached without a machine-solvable path.
                 self._safe_transition(session_dir, "ITERATE", "Runtime cycle complete — no active blocker, waiting for next condition change")
+                current_state = self.sessions.load_session_state(session_dir)
+                current_state.iterate_count += 1
+                if current_state.iterate_count >= 2:
+                    current_state.iterate_count = 0
+                    self.sessions.write_session_state(session_dir, current_state)
+                    self._safe_transition(session_dir, "DEEP_SCAN", "Consecutive ITERATE cycles detected — forcing device re-probe")
+                    refreshed_device = self._perform_deep_scan(session_dir, self.sessions.load_device_profile(session_dir))
+                    if refreshed_device:
+                        device_payload = refreshed_device
+                else:
+                    self.sessions.write_session_state(session_dir, current_state)
         elif not blocker.get("machine_solvable"):
             # A real external-action boundary that was not already handled above
             self._safe_transition(session_dir, "QUESTION_GATE", "Runtime hit a true external-action or approval boundary")
@@ -1017,6 +1117,43 @@ class ForgeOrchestrator:
             "runtime_files": runtime_files,
             "worker_self_heal": worker_self_heal,
         }
+
+    def _perform_deep_scan(self, session_dir: Path, profile: Any) -> dict[str, Any] | None:
+        serial = str(profile.serial or "")
+        refreshed: dict[str, Any] | None = None
+        if serial and any(device.get("serial") == serial for device in adb.list_devices()):
+            refreshed = adb.describe_device(serial)
+            refreshed["hardware_snapshot"] = adb.hardware_snapshot(serial)
+            refreshed["transport"] = Transport.USB_ADB
+        elif serial and any(device.get("serial") == serial for device in fastboot.list_devices()):
+            refreshed = {"serial": serial, "transport": Transport.USB_FASTBOOT} | fastboot.describe_device_fastboot(serial)
+        elif serial and any(device.get("serial") == serial for device in fastbootd.list_devices()):
+            refreshed = {"serial": serial, "transport": Transport.USB_FASTBOOTD}
+        if not refreshed:
+            return None
+        probe_result = self.device_probe.execute({"event": refreshed})
+        updated_profile = self.sessions.load_device_profile(session_dir)
+        for key in [
+            "manufacturer",
+            "model",
+            "serial",
+            "android_version",
+            "bootloader_locked",
+            "verified_boot_state",
+            "slot_info",
+            "battery",
+        ]:
+            value = probe_result["device"].get(key)
+            if value is not None and value != "" and value != {}:
+                setattr(updated_profile, key, value)
+        if probe_result["device"].get("transport"):
+            updated_profile.transport = probe_result["device"]["transport"]
+        device_codename = probe_result["device"].get("device_codename")
+        if device_codename:
+            updated_profile.device_codename = device_codename
+        updated_profile.raw_probe_data |= probe_result["device"]
+        self.sessions.write_device_profile(session_dir, updated_profile)
+        return probe_result["device"]
 
     def _run_local_worker_fix_loop(
         self,

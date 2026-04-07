@@ -14,4 +14,8 @@ class HardwareBringupTesterTool(BaseTool):
         super().__init__(root)
 
     def run(self, payload: dict[str, object]) -> dict[str, object]:
-        return {"status": "stub"}
+        return {
+            "status": "not_implemented",
+            "blocks": True,
+            "reason": "hardware_bringup_tester is not implemented yet.",
+        }

@@ -29,6 +29,29 @@ from app.core.naming import build_fingerprint, canonical_session_name, generate_
 from app.core.state_machine import is_transition_allowed
 
 
+def _parse_battery_dump(dump: str) -> dict[str, Any]:
+    """Extract key fields from `adb shell dumpsys battery` output."""
+    result: dict[str, Any] = {}
+    for line in dump.splitlines():
+        line = line.strip()
+        for key, field in [
+            ("level:", "level"),
+            ("status:", "status"),
+            ("health:", "health"),
+            ("temperature:", "temperature"),
+            ("voltage:", "voltage"),
+            ("AC powered:", "ac_powered"),
+            ("USB powered:", "usb_powered"),
+        ]:
+            if line.startswith(key):
+                raw = line[len(key):].strip()
+                try:
+                    result[field] = int(raw)
+                except ValueError:
+                    result[field] = raw.lower() in {"true", "yes", "1"}
+    return result
+
+
 class SessionManager:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -68,6 +91,10 @@ class SessionManager:
             if device_codename:
                 profile.device_codename = device_codename
             profile.raw_probe_data |= probe_data
+            # Promote hardware_snapshot fields into top-level profile slots so
+            # the assessor and blocker engine can use them without digging into
+            # raw_probe_data.
+            self._promote_hardware_snapshot(profile, probe_data)
             self.write_device_profile(session_dir, profile)
             return session_dir
 
@@ -102,6 +129,7 @@ class SessionManager:
                 ),
             ],
         )
+        self._promote_hardware_snapshot(profile, probe_data)
         self.write_device_profile(session_dir, profile)
         self.write_session_state(session_dir, state)
         self.write_user_profile(session_dir, UserProfile(session_id=session_name))
@@ -111,6 +139,60 @@ class SessionManager:
             DestructiveApproval(session_id=session_name),
         )
         return session_dir
+
+    @staticmethod
+    def _promote_hardware_snapshot(profile: DeviceProfile, probe_data: dict[str, Any]) -> None:
+        """Copy fields from hardware_snapshot into top-level DeviceProfile slots.
+
+        The ADB watcher populates `hardware_snapshot` inside raw_probe_data but
+        the profile's `bootloader_locked`, `verified_boot_state`, `battery`, and
+        `slot_info` fields are left null because those keys are not present at the
+        top level of the probe event.  This method fills those gaps so downstream
+        tools see a fully populated profile without having to navigate raw_probe_data.
+        """
+        snapshot: dict[str, Any] = probe_data.get("hardware_snapshot") or {}
+        if not snapshot:
+            return
+
+        # Bootloader lock state: prefer verified_boot_state (green=locked, orange=unlocked),
+        # then fall back to warranty_bit (0=never unlocked=locked, 1=was unlocked),
+        # then flash.locked (1=locked, 0=unlocked). Samsung often leaves vbs empty.
+        if profile.bootloader_locked is None:
+            vbs = str(snapshot.get("verified_boot_state") or "").strip().lower()
+            if vbs == "green":
+                profile.bootloader_locked = True
+            elif vbs in {"orange", "yellow", "red"}:
+                profile.bootloader_locked = False
+            else:
+                # vbs empty — try warranty_bit
+                warranty = str(snapshot.get("warranty_bit") or "").strip()
+                flash_locked = str(snapshot.get("flash_locked") or "").strip()
+                if warranty == "0":
+                    profile.bootloader_locked = True   # never unlocked
+                elif warranty == "1":
+                    profile.bootloader_locked = False  # was unlocked at some point
+                elif flash_locked == "1":
+                    profile.bootloader_locked = True
+                elif flash_locked == "0":
+                    profile.bootloader_locked = False
+
+        # verified_boot_state string
+        if not profile.verified_boot_state:
+            vbs = str(snapshot.get("verified_boot_state") or "").strip()
+            if vbs:
+                profile.verified_boot_state = vbs
+
+        # Slot info (A/B devices expose ro.boot.slot_suffix)
+        if not profile.slot_info:
+            slot_suffix = str(snapshot.get("boot_slot") or "").strip()
+            if slot_suffix:
+                profile.slot_info = {"active_slot": slot_suffix, "a_b_device": True}
+
+        # Battery: parse the dumpsys battery dump into a concise dict
+        if not profile.battery:
+            battery_dump = str(snapshot.get("battery_dump") or "")
+            if battery_dump:
+                profile.battery = _parse_battery_dump(battery_dump)
 
     def _find_upgrade_candidate(self, probe_data: dict[str, Any]) -> Path | None:
         manufacturer = str(probe_data.get("manufacturer") or "").strip().lower()
@@ -141,7 +223,9 @@ class SessionManager:
     def write_session_state(self, session_dir: Path, state: SessionState) -> Path:
         state.updated_at = utc_now()
         path = session_dir / "session-state.json"
-        path.write_text(to_json(state))
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(to_json(state))
+        tmp_path.replace(path)
         return path
 
     def load_session_state(self, session_dir: Path) -> SessionState:
@@ -212,6 +296,21 @@ class SessionManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2))
         return path
+
+    def find_waiting_session(self, serial: str) -> Path | None:
+        if not serial:
+            return None
+        for state_path in sorted(self.devices_dir.glob("*/session-state.json")):
+            try:
+                state_data = json.loads(state_path.read_text())
+                if state_data.get("state") != SessionStateName.QUESTION_GATE.value:
+                    continue
+                profile_data = json.loads((state_path.parent / "device-profile.json").read_text())
+            except Exception:
+                continue
+            if str(profile_data.get("serial") or "") == serial:
+                return state_path.parent
+        return None
 
     def transition(self, session_dir: Path, target: SessionStateName, reason: str) -> SessionState:
         state = self.load_session_state(session_dir)

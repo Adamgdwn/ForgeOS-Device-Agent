@@ -14,4 +14,8 @@ class HardeningEngineTool(BaseTool):
         super().__init__(root)
 
     def run(self, payload: dict[str, object]) -> dict[str, object]:
-        return {"status": "stub"}
+        return {
+            "status": "not_implemented",
+            "blocks": True,
+            "reason": "hardening_engine is not implemented yet.",
+        }

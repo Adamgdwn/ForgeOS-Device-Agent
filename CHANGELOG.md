@@ -2,6 +2,22 @@
 
 All notable changes to ForgeOS Device Agent will be documented in this file.
 
+## Unreleased
+
+### Added
+
+- Retry heat tracking with per-session stall memory and escalation thresholds.
+- Trusted source cache helpers and a TTL-aware source resolver for firmware candidate downloads.
+- Focused tests for tool-blocking behavior, retry heat, source resolution, waiting-session resume, and promotion auditing.
+
+### Changed
+
+- Replaced silent tool stubs with explicit blocking or deferred results for critical runtime tools.
+- Implemented real partition mapping, boot validator probing, and policy-gated bootloader unlock dispatch.
+- Made waiting `QUESTION_GATE` sessions resume when the same device reconnects with new state.
+- Added `ITERATE -> DEEP_SCAN` escalation so non-advancing runtime cycles force a fresh device probe.
+- Added promotion deprecation and audit hooks so weakly evidenced promoted adapters can be flagged or retired.
+
 ## v0.2.0 - 2026-04-05
 
 ### Added

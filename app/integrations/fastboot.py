@@ -4,6 +4,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from typing import Any
+
 from app.core.models import Transport
 
 
@@ -32,13 +34,70 @@ def list_devices() -> list[dict[str, str]]:
         parts = line.split()
         if not parts:
             continue
-        devices.append(
-            {
-                "serial": parts[0],
-                "transport": Transport.USB_FASTBOOT.value,
-            }
-        )
+        serial = parts[0]
+        device: dict[str, str] = {
+            "serial": serial,
+            "transport": Transport.USB_FASTBOOT.value,
+        }
+        # Enrich with getvar all so sessions for fastboot-mode devices start with
+        # real manufacturer/model/codename rather than unknown-unknown.
+        vars_result = describe_device_fastboot(serial)
+        device.update(vars_result)
+        devices.append(device)
     return devices
+
+
+def describe_device_fastboot(serial: str) -> dict[str, str]:
+    """Query key fastboot variables for the given device serial.
+
+    Returns a dict with manufacturer, model, device_codename, android_version,
+    and bootloader_locked so the session profile starts populated.
+    """
+    result = getvar_all(serial)
+    out = str(result.get("stdout", ""))
+    props: dict[str, str] = {}
+    for line in out.splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        props[key.strip().lower()] = value.strip()
+
+    manufacturer = (
+        props.get("product.manufacturer")
+        or props.get("manufacturer")
+        or props.get("brand")
+        or "Unknown"
+    )
+    model = (
+        props.get("product.model")
+        or props.get("product")
+        or props.get("model")
+        or "Unknown"
+    )
+    codename = (
+        props.get("product.device")
+        or props.get("product.name")
+        or props.get("device")
+        or ""
+    )
+    android_version = props.get("version.release") or ""
+    bootloader_unlocked_raw = props.get("unlocked") or props.get("bootloader-unlocked") or ""
+    bootloader_locked: bool | None = None
+    if bootloader_unlocked_raw.lower() in {"yes", "true", "1"}:
+        bootloader_locked = False
+    elif bootloader_unlocked_raw.lower() in {"no", "false", "0"}:
+        bootloader_locked = True
+
+    result: dict[str, Any] = {
+        "manufacturer": manufacturer,
+        "model": model,
+        "device_codename": codename,
+        "android_version": android_version,
+        "reachability": "fastboot-visible",
+    }
+    if bootloader_locked is not None:
+        result["bootloader_locked"] = bootloader_locked
+    return result
 
 
 def run(args: list[str]) -> dict[str, object]:
