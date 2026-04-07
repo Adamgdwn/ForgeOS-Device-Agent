@@ -150,6 +150,11 @@ If you are resuming after a break, the best starting point is to test one full r
 - feature keep/reject choices persist
 - the preview and review panels feel trustworthy before any install gate appears
 
+Latest end-of-day testing note:
+
+- ForgeOS is now clearly performing autonomous worker and firmware-research activity on live sessions, but one remaining gap is that some full recompute runs still do not land their final remediation outputs back into `reports/autonomous-experiments.json` and `plans/source-acquisition-plan.json`.
+- The next best debugging target is to trace why a long-running full runtime recompute can spend time in workers and research yet fail to complete the final session-artifact writeback for the active session.
+
 ## Release Notes
 
 - Runtime-first architecture overview: [docs/runtime-architecture.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/docs/runtime-architecture.md)
