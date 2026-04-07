@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from app.core.models import (
@@ -185,9 +186,55 @@ def test_runtime_planner_writes_runtime_artifacts(tmp_path: Path) -> None:
     assert Path(files["proposal_manifest_path"]).exists()
     assert Path(files["worker_routing_path"]).exists()
     assert Path(files["audit_log_path"]).exists()
+    assert files["experiment_log_path"].endswith("reports/autonomous-experiments.json")
     manifest = Path(files["proposal_manifest_path"]).read_text()
     assert "included_features" in manifest
     assert "proposed_os_name" in manifest
+
+
+def test_runtime_planner_proposal_manifest_keeps_recommended_summary_when_selection_differs(tmp_path: Path) -> None:
+    from app.core.models import PreviewExecution
+    from app.core.runtime_planner import RuntimePlanner
+    from app.core.session_manager import SessionManager
+
+    sessions = SessionManager(tmp_path)
+    session_dir = sessions.create_or_resume(
+        {
+            "manufacturer": "Samsung",
+            "model": "SM-A520W",
+            "serial": "ABC123",
+        }
+    )
+    (session_dir / "runtime").mkdir(parents=True, exist_ok=True)
+    (session_dir / "runtime" / "operator-review.json").write_text(
+        json.dumps(
+            {
+                "selected_option_id": "home_control_panel",
+                "accepted_feature_ids": [],
+                "rejected_feature_ids": [],
+            },
+            indent=2,
+        )
+    )
+    planner = RuntimePlanner(tmp_path, sessions)
+
+    manifest = planner._proposal_manifest(
+        session_dir=session_dir,
+        build_plan={"os_path": "hardened_stock_path"},
+        recommendation={
+            "recommended_use_case": "accessibility_focused_phone",
+            "options": [
+                {"option_id": "accessibility_focused_phone", "label": "Accessibility-focused phone", "fit_score": 0.82},
+                {"option_id": "home_control_panel", "label": "Home control panel", "fit_score": 0.58},
+            ],
+        },
+        preview_execution=PreviewExecution(status="deferred", summary="Deferred", mode="deferred"),
+    )
+
+    assert manifest["recommended_use_case"] == "accessibility_focused_phone"
+    assert manifest["selected_option_id"] == "home_control_panel"
+    assert manifest["proposed_os_name"] == "Hardened stock Android for Accessibility Focused Phone"
+    assert "accessibility focused phone" in manifest["proposal_summary"]
 
 
 def test_orchestrator_runs_bounded_worker_self_heal_loop(tmp_path: Path) -> None:

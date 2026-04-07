@@ -68,3 +68,26 @@ def test_codegen_runtime_source_acquisition_stages_local_firmware(monkeypatch, t
     assert inspected["status"] == "solved"
     assert staged_path.exists()
     assert inspected["evidence"]["source_acquisition"]["staged_files"] == [str(staged_path)]
+
+
+def test_codegen_runtime_source_acquisition_reports_partial_when_nothing_is_staged(tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "sample"
+    runtime = CodegenRuntime(Path(__file__).resolve().parents[1])
+
+    generated = runtime.generate(
+        session_dir,
+        blocker={
+            "blocker_type": "source_blocker",
+            "planned_next_action": "source_acquisition_and_staging",
+            "summary": "Samsung SM-A520W (a5y17ltecan) is connected and ready, but no OS source artifacts are staged.",
+        },
+        connection_plan={"recommended_adapter": {"adapter_id": "adb"}},
+        build_plan={"os_path": "maintainable_hardened_path"},
+    )
+
+    executed = runtime.execute_generated(session_dir, generated)
+    inspected = runtime.inspect_result(executed)
+
+    assert executed["status"] == "executed"
+    assert inspected["status"] == "partial"
+    assert inspected["evidence"]["source_acquisition"]["staged_files"] == []

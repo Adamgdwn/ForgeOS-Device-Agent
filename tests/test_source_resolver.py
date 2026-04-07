@@ -83,3 +83,4 @@ def test_source_resolver_downloads_trusted_direct_url(monkeypatch, tmp_path: Pat
     assert result["status"] == "ok"
     assert result["blocks"] is False
     assert Path(result["local_path"]).exists()
+    assert Path(result["staged_path"]).parent == session_dir / "artifacts" / "os-source"

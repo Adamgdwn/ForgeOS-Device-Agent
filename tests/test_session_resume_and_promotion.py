@@ -3,7 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.core.models import SessionStateName, SupportStatus, Transport
+from app.core.models import (
+    ApprovalGate,
+    FlashPlan,
+    PreviewExecution,
+    SessionStateName,
+    SupportStatus,
+    Transport,
+    VerificationExecution,
+)
 from app.core.orchestrator import ForgeOrchestrator
 from app.core.promotion import PromotionEngine
 from app.core.session_manager import SessionManager
@@ -29,6 +37,25 @@ def test_session_manager_finds_waiting_session(tmp_path: Path) -> None:
     manager.write_session_state(session_dir, state)
 
     assert manager.find_waiting_session("ABC123") == session_dir
+
+
+def test_session_manager_persists_iterate_count(tmp_path: Path) -> None:
+    manager = SessionManager(tmp_path)
+    session_dir = manager.create_or_resume(
+        {
+            "manufacturer": "Samsung",
+            "model": "SM-A520W",
+            "serial": "ABC123",
+            "transport": Transport.USB_ADB,
+        }
+    )
+    state = manager.load_session_state(session_dir)
+    state.iterate_count = 2
+    manager.write_session_state(session_dir, state)
+
+    reloaded = manager.load_session_state(session_dir)
+
+    assert reloaded.iterate_count == 2
 
 
 def test_orchestrator_resumes_waiting_session(monkeypatch, tmp_path: Path) -> None:
@@ -84,6 +111,117 @@ def test_orchestrator_resumes_waiting_session(monkeypatch, tmp_path: Path) -> No
 
     assert returned == session_dir
     assert calls == [session_dir]
+
+
+def test_runtime_materializes_resumed_question_gate_as_iterate(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "master" / "policies").mkdir(parents=True)
+    (tmp_path / "master" / "policies" / "default_policy.json").write_text(
+        json.dumps(
+            {
+                "policy_version": "1.0",
+                "default_dry_run": True,
+                "require_restore_path": True,
+                "allow_live_destructive_actions": False,
+                "require_explicit_wipe_phrase": True,
+                "allow_bootloader_relock": False,
+                "open_vscode_on_launch": False,
+                "open_vscode_on_session_create": False,
+                "enable_codex_handoff": False,
+                "priority_order": ["restore_path"],
+                "host_requirements": {"platforms": ["linux"], "preferred_desktop": "Pop!_OS", "tools": ["adb", "fastboot"]},
+            }
+        )
+    )
+    orchestrator = ForgeOrchestrator(tmp_path)
+    session_dir = orchestrator.sessions.create_or_resume(
+        {
+            "manufacturer": "Samsung",
+            "model": "SM-A520W",
+            "serial": "ABC123",
+            "transport": Transport.USB_ADB,
+        }
+    )
+    state = orchestrator.sessions.load_session_state(session_dir)
+    state.state = SessionStateName.QUESTION_GATE
+    state.support_status = SupportStatus.ACTIONABLE
+    state.selected_strategy = "hardened_stock"
+    orchestrator.sessions.write_session_state(session_dir, state)
+
+    monkeypatch.setattr(orchestrator.knowledge_lookup, "lookup", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(orchestrator.connection_engine, "build_plan", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(orchestrator.adapter_registry, "has_master_adapter", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(orchestrator.backup_restore, "execute", lambda *_args, **_kwargs: {"plan": {"restore_path_feasible": False}})
+    monkeypatch.setattr(orchestrator.restore_controller, "execute", lambda *_args, **_kwargs: {"status": "ready"})
+    monkeypatch.setattr(
+        orchestrator.use_case_recommender,
+        "execute",
+        lambda *_args, **_kwargs: {"recommended_use_case": "research_hold", "options": []},
+    )
+    monkeypatch.setattr(
+        orchestrator.build_resolver,
+        "execute",
+        lambda *_args, **_kwargs: {"os_path": "research_only_path", "reason": "Waiting on more evidence."},
+    )
+    monkeypatch.setattr(
+        orchestrator.image_builder,
+        "execute",
+        lambda *_args, **_kwargs: {"status": "missing", "details": {"install_mode": "unavailable", "missing_requirements": []}, "artifacts": []},
+    )
+    monkeypatch.setattr(
+        orchestrator.flash_executor,
+        "build_plan",
+        lambda **_kwargs: FlashPlan(session_id=session_dir.name, build_path="research_only_path", requires_wipe=False, status="deferred", summary="Waiting"),
+    )
+    monkeypatch.setattr(
+        orchestrator.blockers,
+        "classify",
+        lambda *_args, **_kwargs: {"blocker_type": "none", "machine_solvable": False, "confidence": 1.0},
+    )
+    monkeypatch.setattr(orchestrator.retry_planner, "build_plan", lambda *_args, **_kwargs: {"action": "continue"})
+    monkeypatch.setattr(orchestrator.retry_planner, "mark_advanced", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        orchestrator.policy_guard,
+        "evaluate_install_gate",
+        lambda **_kwargs: ApprovalGate(action="hold", allowed=False, requires_explicit_approval=True, reason="not ready"),
+    )
+    monkeypatch.setattr(
+        orchestrator.policy_guard,
+        "evaluate_research_gate",
+        lambda *_args, **_kwargs: ApprovalGate(action="continue", allowed=True, requires_explicit_approval=False, reason="clear"),
+    )
+    monkeypatch.setattr(
+        orchestrator.preview_pipeline,
+        "defer",
+        lambda **_kwargs: PreviewExecution(status="deferred", summary="Preview deferred.", mode="lightweight"),
+    )
+    monkeypatch.setattr(
+        orchestrator.verification_pipeline,
+        "defer",
+        lambda **_kwargs: VerificationExecution(status="deferred", summary="Verification deferred."),
+    )
+    monkeypatch.setattr(orchestrator.worker_router, "route", lambda *_args, **_kwargs: {"worker": "noop"})
+
+    materialized_states: list[str] = []
+
+    def _materialize(**kwargs):
+        materialized_states.append(kwargs["state"].state.value)
+        return {}
+
+    monkeypatch.setattr(orchestrator.runtime_planner, "materialize", _materialize)
+
+    result = orchestrator._run_runtime_cycle(
+        session_dir=session_dir,
+        device_payload={"serial": "ABC123", "transport": Transport.USB_ADB},
+        assessment={"support_status": "actionable", "summary": "Actionable"},
+        engagement={"engagement_status": "ready", "summary": "Ready"},
+        user_profile=orchestrator.sessions.load_user_profile(session_dir),
+        os_goals=orchestrator.sessions.load_os_goals(session_dir),
+        execute_workers=False,
+        execute_runtime_pipelines=False,
+    )
+
+    assert materialized_states == [SessionStateName.ITERATE.value]
+    assert result["state"].state == SessionStateName.ITERATE
 
 
 def test_promotion_engine_deprecates_adapter_and_audits_probe_no_device(tmp_path: Path) -> None:

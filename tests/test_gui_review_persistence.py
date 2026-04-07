@@ -134,3 +134,88 @@ def test_review_selection_survives_refresh_until_saved(tmp_path: Path) -> None:
     assert "extra_privacy" in saved_review["accepted_feature_ids"]
     assert saved_review["notes"] == "Keep the stricter privacy defaults."
     assert gui.review_form_dirty is False
+
+
+def test_saved_review_selection_survives_proposal_refresh(tmp_path: Path) -> None:
+    gui, session_dir = _build_gui_harness(tmp_path)
+    (session_dir / "runtime" / "proposal" / "proposal-manifest.json").write_text(
+        json.dumps(
+            {
+                "recommended_use_case": "family_safe_android",
+                "recommended_path": "research_only_path",
+                "proposal_summary": "Saved operator choice should stay visible.",
+                "selected_option_id": "lightweight_custom_android",
+                "selected_option": {
+                    "option_id": "lightweight_custom_android",
+                    "label": "Lightweight custom Android",
+                    "rationale": "Saved operator choice",
+                    "included_features": [],
+                    "optional_features": [],
+                    "excluded_features": [],
+                },
+                "options": [
+                    {
+                        "option_id": "family_safe_android",
+                        "label": "Family-safe Android",
+                        "fit_score": 0.94,
+                        "rationale": "Current recommendation",
+                        "included_features": [],
+                        "optional_features": [],
+                        "excluded_features": [],
+                    },
+                    {
+                        "option_id": "lightweight_custom_android",
+                        "label": "Lightweight custom Android",
+                        "fit_score": 0.89,
+                        "rationale": "Saved operator choice",
+                        "included_features": [],
+                        "optional_features": [],
+                        "excluded_features": [],
+                    },
+                ],
+            },
+            indent=2,
+        )
+    )
+    (session_dir / "runtime" / "operator-review.json").write_text(
+        json.dumps(
+            {
+                "selected_option_id": "lightweight_custom_android",
+                "fit_confirmed": True,
+                "restore_confirmed": True,
+                "limitations_accepted": True,
+                "accepted_feature_ids": [],
+                "rejected_feature_ids": [],
+                "notes": "Stick with the lighter build.",
+            },
+            indent=2,
+        )
+    )
+    gui.proposal_status = QLabel()
+    gui.proposal_os_label = QLabel()
+    gui.proposal_notes = QTextEdit()
+    gui.preview_folder_button = QPushButton()
+    gui.preview_report_button = QPushButton()
+
+    gui.proposal_choice_combo.clear()
+    gui.proposal_choice_combo.addItem("Family-safe Android", "family_safe_android")
+    gui.proposal_choice_combo.setCurrentIndex(0)
+
+    runtime_plan = {
+        "phase": "recommendation",
+        "recommended_use_case": "family_safe_android",
+        "recommended_path": "research_only_path",
+        "preview_execution": {
+            "status": "deferred",
+            "mode": "mock",
+            "summary": "Preview not ready yet.",
+        },
+        "recommendation_options": [
+            {"option_id": "family_safe_android", "label": "Family-safe Android", "fit_score": 0.94, "rationale": "Current recommendation"},
+            {"option_id": "lightweight_custom_android", "label": "Lightweight custom Android", "fit_score": 0.89, "rationale": "Saved operator choice"},
+        ],
+    }
+
+    gui._refresh_proposal_panel(session_dir, runtime_plan)
+
+    assert gui.proposal_choice_combo.currentData() == "lightweight_custom_android"

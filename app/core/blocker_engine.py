@@ -106,7 +106,7 @@ class BlockerEngine:
                 or "devices/<session>/artifacts/os-source/"
             )
             blocker_type = BlockerType.SOURCE
-            machine_solvable = session_state.remediation_iteration < 3
+            machine_solvable = True
             summary = (
                 f"{manufacturer} {model} ({codename}) is connected and ready, "
                 f"but no OS source artifacts are staged for the `{os_path}` build path. "
@@ -117,7 +117,7 @@ class BlockerEngine:
             escalation_condition = (
                 "Pause only after bounded autonomous source acquisition attempts fail to stage a compatible artifact."
             )
-            retry_budget = max(0, 3 - session_state.remediation_iteration)
+            retry_budget = max(1, 6 - min(session_state.remediation_iteration, 5))
             planned_next_action = "source_acquisition_and_staging"
             next_steps = [
                 f"Allow ForgeOS to search local downloads, existing session artifacts, and research caches for {manufacturer} {model} ({codename}) firmware inputs.",

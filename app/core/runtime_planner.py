@@ -132,6 +132,7 @@ class RuntimePlanner:
                     },
                 )
             ),
+            "experiment_log_path": str(session_dir / "reports" / "autonomous-experiments.json"),
         }
         return files
 
@@ -196,13 +197,16 @@ class RuntimePlanner:
         selected = next((option for option in options if option["option_id"] == selected_option_id), None)
         if not selected and options:
             selected = options[0]
+        recommended = next((option for option in options if option["option_id"] == recommended_use_case), None)
+        if not recommended:
+            recommended = selected
         return {
             "recommended_use_case": recommended_use_case,
             "recommended_path": recommended_path,
-            "proposed_os_name": self._proposal_os_name(selected["option_id"], recommended_path) if selected else self._proposal_os_name(selected_option_id, recommended_path),
+            "proposed_os_name": self._proposal_os_name(recommended["option_id"], recommended_path) if recommended else self._proposal_os_name(recommended_use_case, recommended_path),
             "preview_status": preview_execution.status,
             "preview_mode": preview_execution.mode,
-            "proposal_summary": self._proposal_summary(recommended_path, selected["option_id"] if selected else selected_option_id),
+            "proposal_summary": self._proposal_summary(recommended_path, recommended["option_id"] if recommended else recommended_use_case),
             "options": options,
             "selected_option_id": selected["option_id"] if selected else selected_option_id,
             "selected_option": selected or {},

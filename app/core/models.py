@@ -521,6 +521,7 @@ def session_state_from_dict(data: dict[str, Any]) -> SessionState:
         current_blocker_type=data.get("current_blocker_type"),
         blocker_confidence=float(data.get("blocker_confidence", 0.0)),
         remediation_iteration=int(data.get("remediation_iteration", 0)),
+        iterate_count=int(data.get("iterate_count", 0)),
         created_at=data.get("created_at", utc_now()),
         updated_at=data.get("updated_at", utc_now()),
         notes=data.get("notes", []),

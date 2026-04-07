@@ -785,6 +785,8 @@ class ForgeOrchestrator:
         patch_result: dict[str, Any] = {}
         execution_result: dict[str, Any] = {}
         inspection: dict[str, Any] = {}
+        experiment_entry: dict[str, Any] = {}
+        blocker_before_remediation = dict(blocker)
         if execute_workers and blocker.get("blocker_type") == "source_blocker":
             firmware_research_path = session_dir / "research" / "firmware_sources.json"
             if not firmware_research_path.exists():
@@ -912,6 +914,13 @@ class ForgeOrchestrator:
             current_state.current_blocker_type = blocker["blocker_type"]
             current_state.blocker_confidence = blocker["confidence"]
             self.sessions.write_session_state(session_dir, current_state)
+            experiment_entry = self.retry_planner.record_experiment(
+                session_dir,
+                blocker_before=blocker_before_remediation,
+                blocker_after=blocker,
+                inspection=inspection,
+                generated=generated_runtime,
+            )
             if blocker["blocker_type"] != "none":
                 self._safe_transition(session_dir, "BLOCKER_CLASSIFY", "Reclassifying blocker after remediation artifact execution")
         elif blocker["blocker_type"] != "none":
@@ -939,8 +948,21 @@ class ForgeOrchestrator:
             worker_self_heal=worker_self_heal,
             session_dir=session_dir,
         )
+        if experiment_entry:
+            retry_plan["latest_experiment"] = experiment_entry
         if blocker["blocker_type"] == "none":
             self.retry_planner.mark_advanced(session_dir)
+        elif experiment_entry.get("advanced") is True:
+            self.retry_planner.mark_advanced(session_dir)
+        if execute_workers and retry_plan.get("action") == "escalate_strategy" and blocker.get("blocker_type") == "source_blocker":
+            self.research_worker.research_firmware(
+                session_dir=session_dir,
+                manufacturer=current_profile.manufacturer or "Unknown",
+                model=current_profile.model or "Unknown",
+                codename=current_profile.device_codename or "",
+                android_version=current_profile.android_version or "",
+                transport=device_context.get("transport", "unknown"),
+            )
         if flash_plan.requires_wipe and execute_workers:
             worker_routes.append(
                 self.worker_router.route(
@@ -1045,26 +1067,17 @@ class ForgeOrchestrator:
         )
         if install_ready:
             self._safe_transition(session_dir, "INSTALL_APPROVAL", "The session is ready for operator install review")
-        runtime_files = self.runtime_planner.materialize(
-            session_dir=session_dir,
-            state=self.sessions.load_session_state(session_dir),
-            assessment=assessment,
-            connection_plan=connection_plan,
-            build_plan=build_plan,
-            backup_plan=backup_plan["plan"],
-            restore_plan=restore_plan,
-            blocker=blocker,
-            worker_routes=worker_routes,
-            worker_executions=worker_executions,
-            install_gate=install_gate,
-            runtime_gate=runtime_gate,
-            recommendation=recommendation,
-            preview_execution=preview_execution,
-            verification_execution=verification_execution,
-        )
         if blocker["blocker_type"] == "none":
             # No blocker: try to advance toward build or validation
-            if install_candidate:
+            if install_ready:
+                current_state = self.sessions.load_session_state(session_dir)
+                current_state.iterate_count = 0
+                self.sessions.write_session_state(session_dir, current_state)
+            elif preview_ready and execute_runtime_pipelines:
+                current_state = self.sessions.load_session_state(session_dir)
+                current_state.iterate_count = 0
+                self.sessions.write_session_state(session_dir, current_state)
+            elif install_candidate:
                 current_state = self.sessions.load_session_state(session_dir)
                 current_state.iterate_count = 0
                 self.sessions.write_session_state(session_dir, current_state)
@@ -1089,6 +1102,23 @@ class ForgeOrchestrator:
         elif not blocker.get("machine_solvable"):
             # A real external-action boundary that was not already handled above
             self._safe_transition(session_dir, "QUESTION_GATE", "Runtime hit a true external-action or approval boundary")
+        runtime_files = self.runtime_planner.materialize(
+            session_dir=session_dir,
+            state=self.sessions.load_session_state(session_dir),
+            assessment=assessment,
+            connection_plan=connection_plan,
+            build_plan=build_plan,
+            backup_plan=backup_plan["plan"],
+            restore_plan=restore_plan,
+            blocker=blocker,
+            worker_routes=worker_routes,
+            worker_executions=worker_executions,
+            install_gate=install_gate,
+            runtime_gate=runtime_gate,
+            recommendation=recommendation,
+            preview_execution=preview_execution,
+            verification_execution=verification_execution,
+        )
         return {
             "profile": current_profile,
             "state": self.sessions.load_session_state(session_dir),
@@ -1116,6 +1146,7 @@ class ForgeOrchestrator:
             "verification_execution": verification_execution,
             "runtime_files": runtime_files,
             "worker_self_heal": worker_self_heal,
+            "experiment_entry": experiment_entry,
         }
 
     def _perform_deep_scan(self, session_dir: Path, profile: Any) -> dict[str, Any] | None:

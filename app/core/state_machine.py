@@ -68,6 +68,9 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
     SessionStateName.BACKUP_READY: {
         SessionStateName.PREVIEW_BUILD,
         SessionStateName.FLASH_PREP,
+        SessionStateName.BUILD_GENERIC,
+        SessionStateName.BUILD_DEVICE,
+        SessionStateName.ITERATE,
         SessionStateName.BLOCKED,
     },
     SessionStateName.UNLOCK_PREP: {SessionStateName.UNLOCK, SessionStateName.BLOCKED},
@@ -160,6 +163,7 @@ ALLOWED_TRANSITIONS: dict[SessionStateName, set[SessionStateName]] = {
         SessionStateName.EXECUTE_STEP,
         SessionStateName.FLASH_PREP,
         SessionStateName.BLOCKER_CLASSIFY,
+        SessionStateName.BACKUP_READY,
         SessionStateName.BLOCKED,
     },
     SessionStateName.BUILD_GENERIC: {SessionStateName.SIGN_IMAGES, SessionStateName.BLOCKED},

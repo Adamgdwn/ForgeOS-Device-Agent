@@ -14,6 +14,12 @@ def test_state_machine_allows_question_gate_to_flash_prep() -> None:
     assert is_transition_allowed(SessionStateName.QUESTION_GATE, SessionStateName.FLASH_PREP)
 
 
+def test_state_machine_allows_question_gate_resume_into_runtime() -> None:
+    assert is_transition_allowed(SessionStateName.QUESTION_GATE, SessionStateName.BACKUP_READY)
+    assert is_transition_allowed(SessionStateName.BACKUP_READY, SessionStateName.ITERATE)
+    assert is_transition_allowed(SessionStateName.BACKUP_READY, SessionStateName.BUILD_GENERIC)
+
+
 def test_state_machine_allows_remediation_loop() -> None:
     assert is_transition_allowed(SessionStateName.BLOCKER_CLASSIFY, SessionStateName.REMEDIATION_DECIDE)
     assert is_transition_allowed(SessionStateName.REMEDIATION_DECIDE, SessionStateName.TASK_CREATE)

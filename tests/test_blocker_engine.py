@@ -93,3 +93,36 @@ def test_blocker_engine_source_blocker_when_firmware_not_staged(tmp_path: Path) 
     assert result["machine_solvable"] is True
     assert "SM-A520W" in result["summary"]
     assert result["planned_next_action"] == "source_acquisition_and_staging"
+
+
+def test_blocker_engine_keeps_source_blocker_machine_solvable_after_multiple_attempts(tmp_path: Path) -> None:
+    engine = BlockerEngine(tmp_path)
+    profile = DeviceProfile(
+        session_id="sample",
+        canonical_name="sample",
+        device_codename="a5y17ltecan",
+        fingerprint="abc",
+        manufacturer="Samsung",
+        model="SM-A520W",
+        serial="52102d68fc3c240f",
+        transport=Transport.USB_ADB,
+    )
+    state = SessionState(
+        session_id="sample",
+        state=SessionStateName.DEEP_SCAN,
+        support_status=SupportStatus.ACTIONABLE,
+        remediation_iteration=7,
+    )
+
+    result = engine.classify(
+        profile,
+        state,
+        {"support_status": "actionable", "summary": "ADB transport is working."},
+        {"engagement_status": "adb_connected", "next_steps": []},
+        {"recommended_adapter": {"adapter_id": "adb"}, "requires_codex_generation": False},
+        build_artifacts={"status": "missing_source", "source_dir": "/tmp/os-source/"},
+    )
+
+    assert result["blocker_type"] == "source_blocker"
+    assert result["machine_solvable"] is True
+    assert result["retry_budget"] >= 1

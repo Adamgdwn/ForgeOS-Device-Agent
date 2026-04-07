@@ -562,6 +562,7 @@ if str(ROOT) not in sys.path:
 
 from app.integrations import adb, fastboot, fastbootd  # noqa: E402
 from app.integrations.udev import list_usb_mobile_devices  # noqa: E402
+from app.tools.source_resolver import SourceResolverTool  # noqa: E402
 
 
 def _safe_run(command: list[str]) -> dict[str, object]:
@@ -864,6 +865,28 @@ def _stage_source_candidates() -> dict[str, object]:
     }}
 
 
+def _resolve_trusted_remote_source() -> dict[str, object]:
+    resolver = SourceResolverTool(ROOT)
+    research_dir = SESSION_DIR / "research"
+    for candidate in [research_dir / "firmware_sources.json", research_dir / "device_community.json"]:
+        if not candidate.exists():
+            continue
+        result = resolver.run({{"session_dir": str(SESSION_DIR), "research_path": str(candidate)}})
+        if result.get("status") == "ok":
+            staged_path = str(result.get("staged_path") or result.get("local_path") or "")
+            return {{
+                "status": "ok",
+                "research_path": str(candidate),
+                "staged_files": [staged_path] if staged_path else [],
+                "source_url": result.get("source_url", ""),
+                "result": result,
+            }}
+    return {{
+        "status": "not_found",
+        "staged_files": [],
+    }}
+
+
 def main() -> None:
     adb_devices = adb.list_devices()
     raw_adb = adb.raw_devices()
@@ -896,12 +919,17 @@ def main() -> None:
 
     if REMEDIATION_FAMILY == "source_acquisition_and_staging":
         acquisition = _stage_source_candidates()
+        remote = {{"status": "skipped", "staged_files": []}}
+        if not acquisition.get("staged_files"):
+            remote = _resolve_trusted_remote_source()
+            if remote.get("staged_files"):
+                acquisition["staged_files"] = list(acquisition.get("staged_files", [])) + list(remote.get("staged_files", []))
         result = {{
-            "status": "solved",
+            "status": "solved" if acquisition.get("staged_files") else "partial",
             "summary": (
-                "ForgeOS searched local firmware sources and staged any compatible artifacts it could find."
+                "ForgeOS staged compatible source artifacts and can continue the build pipeline."
                 if acquisition.get("staged_files")
-                else "ForgeOS searched local firmware sources, refreshed its acquisition plan, and is ready for another source classification pass."
+                else "ForgeOS searched local sources, attempted trusted remote acquisition, refreshed its acquisition plan, and is ready for another source classification pass."
             ),
             "evidence": {{
                 **evidence,
@@ -909,6 +937,7 @@ def main() -> None:
                 "partition_probe_path": partition_probe_path,
                 "build_candidates_path": build_candidates_path,
                 "source_acquisition": acquisition,
+                "remote_source_resolution": remote,
             }},
             "next_action": "reclassify",
         }}

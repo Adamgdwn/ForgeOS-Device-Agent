@@ -151,14 +151,14 @@ class ForgeControlApp:
     def _stylesheet(self) -> str:
         return """
         QWidget {
-            background: #0c1524;
-            color: #e8effb;
-            font-family: "DejaVu Sans";
+            background: #f3ede4;
+            color: #233443;
+            font-family: "Noto Sans";
             font-size: 13px;
         }
         QGroupBox {
-            background: #13233a;
-            border: 1px solid #203957;
+            background: #fffaf3;
+            border: 1px solid #d8c7b0;
             border-radius: 14px;
             margin-top: 10px;
             font-weight: bold;
@@ -168,78 +168,78 @@ class ForgeControlApp:
             subcontrol-origin: margin;
             left: 14px;
             padding: 0 6px 0 6px;
-            color: #f3f7ff;
+            color: #264057;
         }
         QLabel[role="title"] {
-            color: #eef4ff;
+            color: #1f3447;
             font-size: 26px;
             font-weight: 700;
         }
         QLabel[role="subtitle"] {
-            color: #a9bdd8;
+            color: #5b7287;
             font-size: 13px;
         }
         QLabel[role="body"] {
-            color: #d4e0f0;
+            color: #2f4457;
         }
         QLabel[role="hint"] {
-            color: #b8cae4;
+            color: #6f8293;
         }
         QLabel[role="legend"] {
-            color: #b8cae4;
+            color: #6f8293;
             font-size: 12px;
         }
         QTextEdit {
-            background: #102137;
-            border: 1px solid #29456a;
+            background: #f9f4ec;
+            border: 1px solid #d9c7ad;
             border-radius: 10px;
             padding: 8px;
-            color: #e4edf8;
+            color: #2a3d4d;
             font-family: "DejaVu Sans Mono";
             font-size: 12px;
         }
         QPushButton {
             background: #f7941d;
-            color: #102137;
+            color: #1f3447;
             border: none;
             border-radius: 10px;
             padding: 10px 14px;
             font-weight: 700;
         }
         QPushButton[state="neutral"] {
-            background: #3f5673;
-            color: #eef4ff;
+            background: #60758b;
+            color: #fffaf3;
         }
         QPushButton[state="view"] {
-            background: #466a91;
-            color: #eef4ff;
+            background: #4d7a91;
+            color: #fffaf3;
         }
         QPushButton[state="pending"] {
-            background: #4b5a70;
-            color: #eef4ff;
+            background: #9ca7b2;
+            color: #fffaf3;
         }
         QPushButton[state="ready"] {
             background: #f7941d;
-            color: #102137;
+            color: #1f3447;
         }
         QPushButton[state="done"] {
             background: #2f8f63;
             color: #f4fff9;
         }
         QPushButton[state="blocked"] {
-            background: #5a6473;
-            color: #d0d7e3;
+            background: #9ea3aa;
+            color: #f3f0eb;
         }
         QPushButton:hover {
             background: #ffb14d;
         }
         QPushButton:disabled {
-            background: #5a6473;
-            color: #d0d7e3;
+            background: #b3b7bd;
+            color: #f5f3ef;
         }
         QFrame[role="stepblock"] {
-            background: #172d49;
-            border: 1px solid #284769;
+            background: #f6efe5;
+            border: 1px solid #d6c4a8;
             border-radius: 10px;
         }
         """
@@ -324,7 +324,7 @@ class ForgeControlApp:
         self.header_box.setMinimumHeight(self.header_box.sizeHint().height())
 
     def _build_now_what_card(self) -> QGroupBox:
-        group = QGroupBox("Runtime Mission")
+        group = QGroupBox("What ForgeOS Is Doing Now")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.primary_label = QLabel()
@@ -380,7 +380,7 @@ class ForgeControlApp:
         return group
 
     def _build_autonomous_card(self) -> QGroupBox:
-        group = QGroupBox("Runtime Worker Queue")
+        group = QGroupBox("Autonomous Activity")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.autonomous_title = QLabel()
@@ -514,7 +514,7 @@ class ForgeControlApp:
         layout.addWidget(self.battery_check)
         layout.addWidget(self.lockdown_check)
 
-        self.save_profile_button = QPushButton("Save Profile And Recompute Strategy")
+        self.save_profile_button = QPushButton("Save Profile And Refresh Plan")
         self.save_profile_button.clicked.connect(self.save_profile_and_recompute)
         layout.addWidget(self.save_profile_button)
         self._set_button_state(self.save_profile_button, "pending")
@@ -672,7 +672,7 @@ class ForgeControlApp:
         return group
 
     def _build_steps_card(self) -> QGroupBox:
-        group = QGroupBox("Agent Execution")
+        group = QGroupBox("Current Checklist")
         layout = QVBoxLayout(group)
         self.steps_title = QLabel("ForgeOS will show the live execution checklist here.")
         self.steps_title.setWordWrap(True)
@@ -1561,13 +1561,20 @@ class ForgeControlApp:
         ]
 
     def _selected_or_recommended_option_id(self, runtime_plan: dict[str, Any]) -> str:
-        selected = self.proposal_choice_combo.currentData()
-        if selected:
-            return str(selected)
         if self.current_session_dir:
+            if self.review_form_dirty and self.review_form_session == self.current_session_dir:
+                selected = self.proposal_choice_combo.currentData()
+                if selected:
+                    return str(selected)
+            review = self._read_operator_review(self.current_session_dir)
+            if review.get("selected_option_id"):
+                return str(review.get("selected_option_id"))
             manifest = self._read_proposal_manifest(self.current_session_dir)
             if manifest.get("selected_option_id"):
                 return str(manifest.get("selected_option_id"))
+        selected = self.proposal_choice_combo.currentData()
+        if selected:
+            return str(selected)
         return str(runtime_plan.get("recommended_use_case", ""))
 
     def _proposal_os_name(self, option_id: str, runtime_plan: dict[str, Any]) -> str:
@@ -1706,7 +1713,15 @@ class ForgeControlApp:
         next_steps_path = self._preview_generated_path(session_dir, "next-steps.md")
         preview_bundle_path = self._preview_generated_path(session_dir, "proposed-os-preview.tar.gz")
         build_plan = self._read_json(session_dir / "reports" / "build_plan.json")
-        selected_before = self.proposal_choice_combo.currentData()
+        if self.review_form_dirty and self.review_form_session == session_dir:
+            preferred_option_id = self.proposal_choice_combo.currentData()
+        else:
+            review = self._read_operator_review(session_dir)
+            preferred_option_id = (
+                review.get("selected_option_id")
+                or proposal_manifest.get("selected_option_id")
+                or self.proposal_choice_combo.currentData()
+            )
         self.proposal_choice_combo.blockSignals(True)
         self.proposal_choice_combo.clear()
         if recommendation_options:
@@ -1715,8 +1730,10 @@ class ForgeControlApp:
                 self.proposal_choice_combo.addItem(label, option.get("option_id", ""))
         else:
             self.proposal_choice_combo.addItem("No proposed options yet", "")
+        if self.proposal_choice_combo.count():
+            self.proposal_choice_combo.setCurrentIndex(0)
         for index in range(self.proposal_choice_combo.count()):
-            if self.proposal_choice_combo.itemData(index) == selected_before:
+            if self.proposal_choice_combo.itemData(index) == preferred_option_id:
                 self.proposal_choice_combo.setCurrentIndex(index)
                 break
         self.proposal_choice_combo.blockSignals(False)
@@ -1735,11 +1752,18 @@ class ForgeControlApp:
             (option for option in recommendation_options if option.get("option_id") == selected_option_id),
             proposal_manifest.get("selected_option", {}),
         )
+        stage_copy = {
+            "recommendation": "ForgeOS is shaping the proposed direction from the latest evidence.",
+            "build_preview": "ForgeOS is keeping the proposal reviewable while preview evidence matures.",
+            "interactive_verification": "ForgeOS is waiting for review confirmations before any destructive action becomes possible.",
+            "wipe_install": "The proposal has moved into install planning, but approval is still explicit and reversible where possible.",
+        }
         lines = [
             f"Current runtime phase: {phase}",
             f"Proposed OS profile: {proposed_os}",
             f"Recommended use case: {self._labelize(recommended_use_case)}",
             f"Recommended path: {self._labelize(recommended_path)}",
+            stage_copy.get(phase, "ForgeOS is keeping this proposal in sync with the current runtime state."),
             f"Build-plan summary: {build_plan.get('summary', 'No build-plan summary available.')}",
             selected_option.get("rationale", proposal_manifest.get("proposal_summary", "No proposal rationale available.")),
             "",
@@ -1926,7 +1950,7 @@ class ForgeControlApp:
                 lines.append(f"- {item.get('label', 'unknown')}: {item.get('reason', '')}")
         self._set_text_preserve_scroll(self.review_text, "\n".join(lines))
         self.review_status.setText(
-            "This is the non-destructive review stage. Confirm what you like, reject what you do not want, and save notes before the install gate ever becomes active."
+            "Review the proposed profile here before touching artifacts or approvals. Your saved choices should stay attached to this session."
         )
         review_complete = (
             bool(review.get("fit_confirmed"))
@@ -2058,7 +2082,7 @@ class ForgeControlApp:
         )
         self.orchestrator.recompute_session_runtime(self.current_session_dir, lightweight=True)
         self.profile_status.setText(
-            f"Saved profile. ForgeOS is refreshing the recommendation and safety plan for `{strategy['strategy_id']}` without starting heavy worker execution."
+            f"Saved profile. ForgeOS refreshed the recommendation and safety plan for `{strategy['strategy_id']}` without starting heavy worker execution."
         )
         self.refresh_ui("Profile updated")
 
@@ -2238,6 +2262,7 @@ class ForgeControlApp:
                 not self._interaction_in_progress()
                 and not self.runtime_recompute_in_flight
                 and (now - self.last_autonomous_runtime_at) >= 45
+                and self._should_reschedule_autonomous_runtime(self.current_session_dir)
             ):
                 self._schedule_autonomous_runtime(self.current_session_dir, "live session background improvement cycle")
         if should_sync_live_session and live_session:
@@ -2808,6 +2833,52 @@ class ForgeControlApp:
     def _auto_refresh(self) -> None:
         self.refresh_ui("Auto refresh")
 
+    # States where the agent is waiting for an external condition to change before it
+    # can make forward progress.  Re-running the full runtime cycle in these states is
+    # expensive and produces no new results unless something external has changed.
+    _STABLE_HALTING_STATES: frozenset[str] = frozenset({
+        "QUESTION_GATE",
+        "BLOCKED",
+        "INSTALL_APPROVAL",
+        "COMPLETE",
+        "PROMOTE",
+    })
+
+    def _should_reschedule_autonomous_runtime(self, session_dir: Path) -> bool:
+        """Return True only if there is work the autonomous runtime can do right now.
+
+        Prevents the 45-second timer from re-running an expensive full cycle when the
+        session is already in a stable halting state and nothing has changed.  The only
+        exception is when new OS source artifacts have appeared in the staging directory
+        since the last cycle — in that case the agent should wake up and process them.
+        """
+        try:
+            state_data = json.loads((session_dir / "session-state.json").read_text())
+        except Exception:  # noqa: BLE001
+            return True  # can't determine state, allow a run
+
+        current_state = state_data.get("state", "")
+        if current_state not in self._STABLE_HALTING_STATES:
+            return True  # not in a stable state — normal scheduling applies
+
+        # In a stable state: only re-run if new artifacts have appeared in the
+        # os-source staging directory since the last autonomous cycle completed.
+        source_dir = session_dir / "artifacts" / "os-source"
+        if not source_dir.exists():
+            return False
+
+        # Check whether any non-README file has appeared
+        staged_files = [
+            p for p in source_dir.iterdir()
+            if p.is_file() and p.suffix in {".zip", ".img", ".gz", ".tar", ".bin"}
+        ]
+        if not staged_files:
+            return False
+
+        # Compare newest staged file mtime against last autonomous run time
+        newest_mtime = max(p.stat().st_mtime for p in staged_files)
+        return newest_mtime > self.last_autonomous_runtime_at
+
     def _schedule_autonomous_runtime(self, session_dir: Path, reason: str) -> None:
         if self.runtime_recompute_in_flight:
             return
@@ -2838,9 +2909,9 @@ class ForgeControlApp:
             self.content_grid.addWidget(self.steps_card, 1, 0)
             self.content_grid.addWidget(self.profile_card, 2, 0)
             self.content_grid.addWidget(self.proposal_card, 3, 0)
-            self.content_grid.addWidget(self.backup_card, 4, 0)
-            self.content_grid.addWidget(self.artifact_card, 5, 0)
-            self.content_grid.addWidget(self.review_card, 6, 0)
+            self.content_grid.addWidget(self.review_card, 4, 0)
+            self.content_grid.addWidget(self.backup_card, 5, 0)
+            self.content_grid.addWidget(self.artifact_card, 6, 0)
             self.content_grid.addWidget(self.self_heal_card, 7, 0)
             self.content_grid.addWidget(self.connection_help_card, 8, 0)
             self.content_grid.addWidget(self.host_card, 9, 0)
@@ -2858,6 +2929,8 @@ class ForgeControlApp:
             for widget in [
                 self.now_card,
                 self.profile_card,
+                self.proposal_card,
+                self.review_card,
                 self.backup_card,
                 self.artifact_card,
                 self.self_heal_card,
@@ -2873,8 +2946,6 @@ class ForgeControlApp:
             right_layout.setSpacing(14)
             for widget in [
                 self.steps_card,
-                self.proposal_card,
-                self.review_card,
                 self.host_card,
                 self.help_card,
             ]:

@@ -14,6 +14,9 @@ class RetryPlanner:
     def _heat_file(self, session_dir: Path) -> Path:
         return session_dir / "reports" / "retry-heat.json"
 
+    def _experiment_file(self, session_dir: Path) -> Path:
+        return session_dir / "reports" / "autonomous-experiments.json"
+
     def _load_heat(self, session_dir: Path) -> dict[str, Any]:
         path = self._heat_file(session_dir)
         if not path.exists():
@@ -28,6 +31,111 @@ class RetryPlanner:
         path = self._heat_file(session_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2))
+
+    def _load_experiments(self, session_dir: Path) -> dict[str, Any]:
+        path = self._experiment_file(session_dir)
+        if not path.exists():
+            return {"experiments": []}
+        try:
+            payload = json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            return {"experiments": []}
+        return payload if isinstance(payload, dict) else {"experiments": []}
+
+    def _write_experiments(self, session_dir: Path, payload: dict[str, Any]) -> None:
+        path = self._experiment_file(session_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2))
+
+    @staticmethod
+    def _blocker_rank(blocker_type: str | None) -> int:
+        order = {
+            "none": 0,
+            "source_blocker": 1,
+            "transport_blocker": 2,
+            "subsystem_blocker": 3,
+            "trust_blocker": 4,
+            "physical_action_blocker": 5,
+            "policy_blocker": 6,
+        }
+        return order.get(str(blocker_type or "unknown"), 7)
+
+    def evaluate_experiment(
+        self,
+        *,
+        blocker_before: dict[str, Any],
+        blocker_after: dict[str, Any],
+        inspection: dict[str, Any],
+    ) -> dict[str, Any]:
+        before_type = str(blocker_before.get("blocker_type", "none"))
+        after_type = str(blocker_after.get("blocker_type", "none"))
+        before_rank = self._blocker_rank(before_type)
+        after_rank = self._blocker_rank(after_type)
+        staged_files = (
+            inspection.get("evidence", {})
+            .get("source_acquisition", {})
+            .get("staged_files", [])
+        )
+        remote_resolution = (
+            inspection.get("evidence", {})
+            .get("remote_source_resolution", {})
+            .get("status", "")
+        )
+        status = str(inspection.get("status", "artifact_failed"))
+        advanced = (
+            after_rank < before_rank
+            or after_type == "none"
+            or bool(staged_files)
+            or (
+                before_type == after_type == "source_blocker"
+                and remote_resolution == "ok"
+            )
+        )
+        if advanced:
+            decision = "advance"
+            rationale = "The remediation changed the session enough to keep this direction."
+        else:
+            decision = "discard"
+            rationale = "The remediation did not improve the blocker enough to keep this direction as an advance."
+        return {
+            "decision": decision,
+            "advanced": advanced,
+            "status": status,
+            "blocker_before": before_type,
+            "blocker_after": after_type,
+            "staged_files": staged_files,
+            "remote_resolution": remote_resolution,
+            "rationale": rationale,
+        }
+
+    def record_experiment(
+        self,
+        session_dir: Path,
+        *,
+        blocker_before: dict[str, Any],
+        blocker_after: dict[str, Any],
+        inspection: dict[str, Any],
+        generated: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        decision = self.evaluate_experiment(
+            blocker_before=blocker_before,
+            blocker_after=blocker_after,
+            inspection=inspection,
+        )
+        payload = self._load_experiments(session_dir)
+        experiments = list(payload.get("experiments") or [])
+        experiments.append(
+            {
+                "timestamp": utc_now(),
+                "task_id": (generated or {}).get("task", {}).get("task_id", ""),
+                "remediation_family": (generated or {}).get("task", {}).get("remediation_family", ""),
+                "planned_next_action": blocker_before.get("planned_next_action", ""),
+                "summary": blocker_before.get("summary", ""),
+                **decision,
+            }
+        )
+        self._write_experiments(session_dir, {"experiments": experiments})
+        return experiments[-1]
 
     def build_plan(
         self,

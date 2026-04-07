@@ -80,7 +80,15 @@ class SourceResolverTool(BaseTool):
     def run(self, payload: dict[str, object]) -> dict[str, object]:
         session_dir = Path(str(payload.get("session_dir") or ""))
         research_path_raw = str(payload.get("research_path") or "")
-        research_path = Path(research_path_raw) if research_path_raw else session_dir / "research" / "device_community.json"
+        if research_path_raw:
+            research_path = Path(research_path_raw)
+        else:
+            research_dir = session_dir / "research"
+            candidates = [
+                research_dir / "firmware_sources.json",
+                research_dir / "device_community.json",
+            ]
+            research_path = next((path for path in candidates if path.exists()), candidates[0])
         if not research_path.exists():
             return {"sources": [], "status": "missing_research", "blocks": True, "reason": "Research file is missing."}
         if is_stale(research_path):
@@ -101,8 +109,8 @@ class SourceResolverTool(BaseTool):
         if "." not in filename:
             return {"sources": [], "status": "download_failed", "blocks": True, "url": url}
 
-        downloads_dir = session_dir / "downloads"
-        destination = downloads_dir / filename
+        stage_dir = session_dir / "artifacts" / "os-source"
+        destination = stage_dir / filename
         ok, error = self._download(url, destination)
         if not ok:
             return {"sources": [], "status": "download_failed", "blocks": True, "url": url, "reason": error}
@@ -116,5 +124,6 @@ class SourceResolverTool(BaseTool):
             "status": "ok",
             "blocks": False,
             "local_path": str(destination),
+            "staged_path": str(destination),
             "source_url": url,
         }

@@ -18,6 +18,7 @@ The current build includes a runtime-first session model, a GUI control surface,
 - Blocker-driven remediation so machine-solvable blockers create runtime tasks instead of stopping at guidance.
 - Session-local codegen, execution, and patch registration for remediation artifacts.
 - Retry heat tracking so repeated non-advancing remediation cycles escalate instead of looping forever.
+- Autonomous experiment logging so self-heal attempts can be advanced or discarded instead of silently retried.
 - Trusted source acquisition with research TTL checks and conservative firmware provenance rules.
 - Explicit worker routing across frontier reasoning, local general execution, local editing, and deterministic policy checks.
 - VS Code integration is optional and should be operator-invoked, not opened automatically as part of the runtime path.
@@ -128,10 +129,12 @@ The learning layer records session outcomes, builds a support matrix, and genera
 
 ## Next Steps
 
-The next highest-value work is to make the proposal and preview flow feel like a real device-rehabilitation planning surface rather than a smart status dashboard.
+The next highest-value work is to keep turning ForgeOS into an explicit autonomous research-and-repair loop instead of a smart blocker dashboard.
 
 Near-term priorities:
 
+- Build on the new experiment ledger so every remediation path has a measurable `advance` or `discard` outcome, similar in spirit to Karpathy's `autoresearch` keep-or-revert loop.
+- Teach source acquisition to rank and compare multiple firmware candidates instead of taking the first locally or remotely trusted match.
 - Make preview generation consume accepted and rejected features so the preview output changes when the operator changes the plan.
 - Replace more simulated preview content with concrete generated UI walkthroughs, capability summaries, and build-specific artifacts.
 - Expand backup visibility so the operator can inspect bundle contents, restore steps, and rollback confidence more directly from the GUI.
@@ -141,9 +144,10 @@ Near-term priorities:
 
 If you are resuming after a break, the best starting point is to test one full recommendation-to-review cycle and confirm that:
 
-- the proposed OS name matches the selected option
+- the runtime writes `reports/autonomous-experiments.json` when it self-heals
+- source blockers stay autonomous long enough to attempt real staging and research
+- the proposed OS summary stays aligned with the current recommendation
 - feature keep/reject choices persist
-- the backup panel stays understandable
 - the preview and review panels feel trustworthy before any install gate appears
 
 ## Release Notes
