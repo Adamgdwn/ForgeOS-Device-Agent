@@ -34,7 +34,9 @@ from app.tools.restore_controller import RestoreControllerTool
 from app.tools.strategy_selector import BuildStrategySelectorTool
 from app.tools.use_case_recommender import UseCaseRecommenderTool
 from app.tools.vscode_opener import VSCodeOpenerTool
+from app.core.adapter_registry import AdapterRegistry
 from app.core.blocker_engine import BlockerEngine
+from app.workers.research_worker import ResearchWorker
 
 MANAGEABLE_TRANSPORTS = {"usb-adb", "usb-fastboot", "usb-fastbootd", "usb-recovery"}
 DEFAULT_SELF_HEAL_ROUNDS = 3
@@ -69,6 +71,8 @@ class ForgeOrchestrator:
         self.image_builder = ImageBuilderTool(root)
         self.restore_controller = RestoreControllerTool(root)
         self.vscode_opener = VSCodeOpenerTool(root)
+        self.adapter_registry = AdapterRegistry(root)
+        self.research_worker = ResearchWorker(root)
         self.worker_registry = WorkerRegistry(root).discover()
         self.worker_router = WorkerRouter(self.worker_registry)
         self.worker_runtime = WorkerRuntime(root, self.worker_registry)
@@ -195,6 +199,20 @@ class ForgeOrchestrator:
         )
         support_matrix = self.knowledge.rebuild_support_matrix()
         promotion_candidates = self.promotion.evaluate(support_matrix)
+
+        # Auto-promote adapter candidates that meet threshold and have auto_apply_allowed=True.
+        # Also promote any pending adapter review where the adapter test passed and there is no
+        # existing master adapter — this is the self-improvement loop.
+        for candidate in promotion_candidates.get("candidates", []):
+            if candidate.get("auto_apply_allowed"):
+                self.promotion.apply_to_master(
+                    self.adapter_registry,
+                    candidate["family_key"],
+                )
+        # Additionally check the review queue for adapter-only promotions (session-generated
+        # adapters that passed self-test but haven't hit the knowledge-engine threshold yet).
+        # These are promoted when: (a) meta exists, (b) test passed, (c) no master adapter yet.
+        self._auto_promote_tested_adapters()
 
         self.reports.write_session_report(
             session_dir,
@@ -442,6 +460,63 @@ class ForgeOrchestrator:
         current_state = self.sessions.load_session_state(session_dir)
         knowledge_match = self.knowledge_lookup.lookup(current_profile.manufacturer, current_profile.model)
         connection_plan = self.connection_engine.build_plan(current_profile, current_state, assessment, engagement)
+
+        # --- First-time device work: adapter generation + web research.
+        # Both fire once per device (guarded by has_master_adapter / research file existence).
+        hw_snapshot = current_profile.raw_probe_data.get("hardware_snapshot", {})
+        device_context = {
+            "manufacturer": current_profile.manufacturer,
+            "model": current_profile.model,
+            "device_codename": current_profile.device_codename,
+            "transport": (
+                current_profile.transport.value
+                if hasattr(current_profile.transport, "value")
+                else str(current_profile.transport)
+            ),
+            "android_version": current_profile.android_version,
+            "bootloader_locked": current_profile.bootloader_locked,
+            "serial": current_profile.serial,
+            "hardware_snapshot": hw_snapshot,
+            "slot_info": current_profile.slot_info or {},
+        }
+        no_master_adapter = not self.adapter_registry.has_master_adapter(
+            current_profile.manufacturer, current_profile.model
+        )
+        if execute_workers and no_master_adapter:
+            adapter_gen = self.codegen_runtime.generate_device_adapter(session_dir, device_context)
+            adapter_test = self.codegen_runtime.execute_adapter_self_test(
+                session_dir, adapter_gen["adapter_path"]
+            )
+            if adapter_test["status"] == "pass":
+                self.patch_executor.register_adapter_candidate(
+                    session_dir=session_dir,
+                    adapter_registry=self.adapter_registry,
+                    adapter_path=adapter_gen["adapter_path"],
+                    playbook=adapter_gen["playbook"],
+                    test_result=adapter_test["result"],
+                    device_context=device_context,
+                )
+            self.logger.info(
+                "Adapter generation for %s %s: gen=%s test=%s",
+                current_profile.manufacturer,
+                current_profile.model,
+                adapter_gen.get("summary", ""),
+                adapter_test.get("summary", ""),
+            )
+
+        # Web research: look up device community knowledge the first time we see it.
+        # Results land in devices/<session>/research/device_community.json and are used
+        # to enrich source hints and adapter playbooks in subsequent cycles.
+        if execute_workers and no_master_adapter and not (session_dir / "research" / "device_community.json").exists():
+            self.research_worker.research_device(
+                session_dir=session_dir,
+                manufacturer=current_profile.manufacturer or "Unknown",
+                model=current_profile.model or "Unknown",
+                codename=current_profile.device_codename or "",
+                board=str(hw_snapshot.get("board") or hw_snapshot.get("hardware") or ""),
+                abi=str(hw_snapshot.get("cpu_abi") or ""),
+            )
+
         backup_plan = self.backup_restore.execute(
             {
                 "device": device_payload,
@@ -551,7 +626,9 @@ class ForgeOrchestrator:
             assessment,
             engagement,
             connection_plan,
+            build_artifacts=build_artifacts,
         )
+        blocker = self._enrich_blocker_with_research(session_dir, blocker)
         current_state = self.sessions.load_session_state(session_dir)
         current_state.current_blocker_type = blocker["blocker_type"]
         current_state.blocker_confidence = blocker["confidence"]
@@ -670,6 +747,17 @@ class ForgeOrchestrator:
         patch_result: dict[str, Any] = {}
         execution_result: dict[str, Any] = {}
         inspection: dict[str, Any] = {}
+        if execute_workers and blocker.get("blocker_type") == "source_blocker":
+            firmware_research_path = session_dir / "research" / "firmware_sources.json"
+            if not firmware_research_path.exists():
+                self.research_worker.research_firmware(
+                    session_dir=session_dir,
+                    manufacturer=current_profile.manufacturer or "Unknown",
+                    model=current_profile.model or "Unknown",
+                    codename=current_profile.device_codename or "",
+                    android_version=current_profile.android_version or "",
+                    transport=device_context.get("transport", "unknown"),
+                )
         if blocker.get("machine_solvable") and execute_workers:
             worker_routes.append(
                 self.worker_router.route(
@@ -735,14 +823,32 @@ class ForgeOrchestrator:
                 engagement,
                 connection_plan,
                 remediation_result=inspection,
+                build_artifacts=build_artifacts,
             )
+            blocker = self._enrich_blocker_with_research(session_dir, blocker)
             current_state.current_blocker_type = blocker["blocker_type"]
             current_state.blocker_confidence = blocker["confidence"]
             self.sessions.write_session_state(session_dir, current_state)
             if blocker["blocker_type"] != "none":
                 self._safe_transition(session_dir, "BLOCKER_CLASSIFY", "Reclassifying blocker after remediation artifact execution")
-        else:
-            self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires minimal external action or approval")
+        elif blocker["blocker_type"] != "none":
+            # Real external-action or approval boundary — pause for operator.
+            # Before pausing, fire web research to enrich the guidance we show.
+            if execute_workers:
+                blocker_type = blocker["blocker_type"]
+                if blocker_type not in {"none", "policy_blocker", "source_blocker"}:
+                    # Persistent non-trivial blocker — search for solutions.
+                    blocker_research_path = session_dir / "research" / f"blocker_{blocker_type}.json"
+                    if not blocker_research_path.exists():
+                        self.research_worker.research_blocker(
+                            session_dir=session_dir,
+                            manufacturer=current_profile.manufacturer or "Unknown",
+                            model=current_profile.model or "Unknown",
+                            blocker_type=blocker_type,
+                            blocker_summary=str(blocker.get("summary", blocker_type)),
+                            transport=device_context.get("transport", "unknown"),
+                        )
+            self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires external action or approval")
 
         retry_plan = self.retry_planner.build_plan(
             blocker,
@@ -871,8 +977,17 @@ class ForgeOrchestrator:
             verification_execution=verification_execution,
         )
         if blocker["blocker_type"] == "none":
-            self._safe_transition(session_dir, "CONNECTIVITY_VALIDATE", "Runtime resolved immediate blocker and can continue validation")
+            # No blocker: try to advance toward build or validation
+            if install_candidate:
+                self._safe_transition(session_dir, "BUILD_GENERIC", "No blockers detected — advancing toward build stage")
+            else:
+                # Clean state but not yet ready to build (e.g., artifacts not staged).
+                # ITERATE is a safe holding state; the blocker engine will have already
+                # emitted a SOURCE blocker message via QUESTION_GATE in the elif block above
+                # if this was reached without a machine-solvable path.
+                self._safe_transition(session_dir, "ITERATE", "Runtime cycle complete — no active blocker, waiting for next condition change")
         elif not blocker.get("machine_solvable"):
+            # A real external-action boundary that was not already handled above
             self._safe_transition(session_dir, "QUESTION_GATE", "Runtime hit a true external-action or approval boundary")
         return {
             "profile": current_profile,
@@ -1234,6 +1349,123 @@ class ForgeOrchestrator:
         target = state.state.__class__[target_name]
         if is_transition_allowed(state.state, target):
             self.sessions.transition(session_dir, target, reason)
+
+    def _enrich_blocker_with_research(self, session_dir: Path, blocker: dict[str, Any]) -> dict[str, Any]:
+        """If research results exist for this session, fold them into the blocker message.
+
+        For source_blocker: adds firmware_sources and specific download hints to user_steps.
+        For other blockers: adds solutions from blocker research if available.
+        This means the second cycle (after research has run and cached its results) gives
+        the operator specific, actionable guidance rather than just "drop a file here."
+        """
+        blocker_type = blocker.get("blocker_type", "none")
+        research_dir = session_dir / "research"
+
+        if blocker_type == "source_blocker":
+            firmware_path = research_dir / "firmware_sources.json"
+            if firmware_path.exists():
+                try:
+                    fw = json.loads(firmware_path.read_text())
+                    sources = fw.get("firmware_sources", [])
+                    hints = fw.get("flash_procedure_hints", [])
+                    notes = fw.get("community_notes", "")
+                    los = fw.get("lineageos_supported")
+                    twrp = fw.get("twrp_supported")
+                    unlock = fw.get("unlock_procedure", "")
+                    anti_rb = fw.get("anti_rollback_risk")
+
+                    extra_steps: list[str] = []
+                    if sources:
+                        extra_steps.append("Firmware sources found by local research:")
+                        for s in sources[:4]:
+                            name = s.get("name", "")
+                            url = s.get("url_hint", "")
+                            note = s.get("notes", "")
+                            extra_steps.append(f"  • {name}: {url}" + (f" — {note}" if note else ""))
+                    if los is True:
+                        extra_steps.append("LineageOS: officially supported for this device.")
+                    elif los is False:
+                        extra_steps.append("LineageOS: not officially supported — check unofficial builds on XDA.")
+                    if twrp is True:
+                        extra_steps.append("TWRP: recovery available for this device.")
+                    if unlock:
+                        extra_steps.append(f"Bootloader unlock: {unlock}")
+                    if anti_rb is True:
+                        extra_steps.append("WARNING: Anti-rollback protection detected — downgrading may brick the device.")
+                    if notes:
+                        extra_steps.append(f"Community notes: {notes[:300]}")
+                    if hints:
+                        extra_steps.append("Flash procedure (from research):")
+                        extra_steps.extend(f"  {i+1}. {h}" for i, h in enumerate(hints[:6]))
+
+                    if extra_steps:
+                        existing = list(blocker.get("user_steps") or [])
+                        blocker = {**blocker, "user_steps": existing + extra_steps, "research_available": True}
+                except Exception:  # noqa: BLE001
+                    pass
+
+        elif blocker_type not in {"none", "policy_blocker"}:
+            research_path = research_dir / f"blocker_{blocker_type}.json"
+            if research_path.exists():
+                try:
+                    res = json.loads(research_path.read_text())
+                    solutions = res.get("solutions", [])
+                    steps = res.get("next_steps", [])
+                    refs = res.get("references", [])
+                    extra: list[str] = []
+                    if solutions:
+                        extra.append("Research-suggested solutions:")
+                        extra.extend(f"  • {s}" for s in solutions[:4])
+                    if steps:
+                        extra.extend(steps[:3])
+                    if refs:
+                        extra.append("References: " + ", ".join(str(r) for r in refs[:3]))
+                    if extra:
+                        existing = list(blocker.get("user_steps") or [])
+                        blocker = {**blocker, "user_steps": existing + extra, "research_available": True}
+                except Exception:  # noqa: BLE001
+                    pass
+
+        return blocker
+
+    def _auto_promote_tested_adapters(self) -> None:
+        """Scan promotion/adapters/ and promote any adapter whose self-test passed
+        and for which there is no master adapter yet.
+
+        This is the 'self-learns on every new device' loop: the first time a device is seen,
+        an adapter is generated and tested; if the test passes it lands in promotion/adapters/;
+        on the next (or same) orchestration cycle this method copies it into master/.
+        """
+        review_base = self.adapter_registry.review_dir
+        if not review_base.exists():
+            return
+        for candidate_dir in review_base.iterdir():
+            if not candidate_dir.is_dir():
+                continue
+            meta_path = candidate_dir / "meta.json"
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text())
+            except Exception:  # noqa: BLE001
+                continue
+            if meta.get("status") == "promoted":
+                continue
+            key = meta.get("key", candidate_dir.name)
+            # Skip if master adapter already exists for this key
+            if self.adapter_registry.get_master_adapter_path_by_key(key).exists():
+                continue
+            # Only auto-promote adapters whose self-test passed
+            test_result = meta.get("test_result", {})
+            test_status = test_result.get("status", "")
+            if test_status not in {"probe_pass", "probe_no_device"}:
+                continue
+            result = self.promotion.apply_to_master(self.adapter_registry, key)
+            self.logger.info(
+                "Auto-promoted adapter %s to master: %s",
+                key,
+                result.get("summary", result.get("status")),
+            )
 
     def _load_report_details(self, session_dir: Path, report_name: str) -> dict[str, Any]:
         path = session_dir / "reports" / f"{report_name}.json"

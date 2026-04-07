@@ -19,11 +19,13 @@ class BlockerEngine:
         engagement: dict[str, Any],
         connection_plan: dict[str, Any],
         remediation_result: dict[str, Any] | None = None,
+        build_artifacts: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         transport = profile.transport.value
         engagement_status = engagement.get("engagement_status", "unknown")
         next_steps = engagement.get("next_steps") or []
         remediation_result = remediation_result or {}
+        build_artifacts = build_artifacts or {}
         remediation_status = remediation_result.get("status", "")
         machine_solvable = False
         blocker_type = BlockerType.NONE
@@ -83,6 +85,45 @@ class BlockerEngine:
             escalation_condition = "Stop autonomous retries if repeated generated artifacts fail without improving evidence."
             retry_budget = max(0, 2 - session_state.remediation_iteration)
             planned_next_action = "generate_followup_diagnostic"
+
+        elif (
+            blocker_type == BlockerType.NONE
+            and transport in {"usb-adb", "usb-fastboot", "usb-fastbootd"}
+            and assessment.get("support_status") not in {"blocked", "research_only"}
+            and build_artifacts.get("status") in {"missing_source", None, ""}
+        ):
+            # Device is reachable and assessment is positive, but no OS source artifacts
+            # have been staged yet. Classify this as a SOURCE blocker so the operator
+            # receives specific guidance instead of a meaningless "none" loop.
+            manufacturer = profile.manufacturer or "Unknown"
+            model = profile.model or "Unknown"
+            codename = profile.device_codename or "unknown-codename"
+            details = build_artifacts.get("details", {})
+            os_path = details.get("build_path") or build_artifacts.get("build_path", "unknown")
+            source_dir = (
+                details.get("source_dir")
+                or build_artifacts.get("source_dir")
+                or "devices/<session>/artifacts/os-source/"
+            )
+            blocker_type = BlockerType.SOURCE
+            machine_solvable = session_state.remediation_iteration < 3
+            summary = (
+                f"{manufacturer} {model} ({codename}) is connected and ready, "
+                f"but no OS source artifacts are staged for the `{os_path}` build path. "
+                f"ForgeOS should first search known local source directories and research compatible firmware. "
+                f"If it still cannot find anything, stage a compatible firmware package under `{source_dir}` to continue. "
+                "Supported: update.zip / ota.zip for adb sideload, or boot.img / system.img / vendor.img for fastboot."
+            )
+            escalation_condition = (
+                "Pause only after bounded autonomous source acquisition attempts fail to stage a compatible artifact."
+            )
+            retry_budget = max(0, 3 - session_state.remediation_iteration)
+            planned_next_action = "source_acquisition_and_staging"
+            next_steps = [
+                f"Allow ForgeOS to search local downloads, existing session artifacts, and research caches for {manufacturer} {model} ({codename}) firmware inputs.",
+                f"Place a compatible firmware archive or fastboot images for {manufacturer} {model} ({codename}) into `{source_dir}`.",
+                "ForgeOS will detect the artifact on the next refresh cycle and automatically advance the build pipeline.",
+            ]
 
         return {
             "generated_at": utc_now(),

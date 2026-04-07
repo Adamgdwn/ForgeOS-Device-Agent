@@ -37,3 +37,34 @@ def test_codegen_runtime_generates_and_executes_remediation_artifact(monkeypatch
     assert executed["status"] == "executed"
     assert inspected["status"] == "solved"
     assert inspected["profile_updates"]["transport"] == "usb-adb"
+
+
+def test_codegen_runtime_source_acquisition_stages_local_firmware(monkeypatch, tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "sample"
+    downloads_dir = tmp_path / "Downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    (downloads_dir / "SM-A520W_update.zip").write_bytes(b"zip")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runtime = CodegenRuntime(Path(__file__).resolve().parents[1])
+
+    generated = runtime.generate(
+        session_dir,
+        blocker={
+            "blocker_type": "source_blocker",
+            "planned_next_action": "source_acquisition_and_staging",
+            "summary": "Samsung SM-A520W (a5y17ltecan) is connected and ready, but no OS source artifacts are staged.",
+        },
+        connection_plan={"recommended_adapter": {"adapter_id": "adb"}},
+        build_plan={"os_path": "maintainable_hardened_path"},
+    )
+
+    executed = runtime.execute_generated(session_dir, generated)
+    inspected = runtime.inspect_result(executed)
+    staged_path = session_dir / "artifacts" / "os-source" / "SM-A520W_update.zip"
+
+    assert generated["task"]["task_id"] == "source-acquisition-and-staging"
+    assert generated["task"]["remediation_family"] == "source_acquisition_and_staging"
+    assert executed["status"] == "executed"
+    assert inspected["status"] == "solved"
+    assert staged_path.exists()
+    assert inspected["evidence"]["source_acquisition"]["staged_files"] == [str(staged_path)]
