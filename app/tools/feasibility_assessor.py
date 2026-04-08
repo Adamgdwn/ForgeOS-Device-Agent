@@ -17,8 +17,22 @@ class FeasibilityAssessorTool(BaseTool):
         device = dict(payload["device"])
         transport_value = device.get("transport", "unknown")
         transport = getattr(transport_value, "value", str(transport_value))
-        bootloader_locked = device.get("bootloader_locked")
         serial = device.get("serial")
+
+        # Resolve bootloader lock state: prefer the top-level field, fall back to
+        # hardware_snapshot.verified_boot_state if present.
+        bootloader_locked = device.get("bootloader_locked")
+        if bootloader_locked is None:
+            raw = dict(device.get("raw_event") or {})
+            snapshot: dict[str, object] = dict(raw.get("hardware_snapshot") or {})
+            if not snapshot:
+                # Also check one level up (probe event may carry snapshot directly)
+                snapshot = dict(device.get("hardware_snapshot") or {})
+            vbs = str(snapshot.get("verified_boot_state") or "").strip().lower()
+            if vbs == "green":
+                bootloader_locked = True
+            elif vbs in {"orange", "yellow", "red"}:
+                bootloader_locked = False
 
         blocked_reasons: list[str] = []
         if transport == "usb-mtp":
@@ -44,7 +58,7 @@ class FeasibilityAssessorTool(BaseTool):
         if bootloader_locked is True:
             return {
                 "support_status": "research_only",
-                "summary": "Device detected, but bootloader remains locked until restore path and unlock policy are proven.",
+                "summary": "Device detected with a locked bootloader. Non-destructive planning continues; unlock and flash paths are gated until restore viability is confirmed.",
                 "restore_path_feasible": False,
                 "recommended_path": "research_only",
             }

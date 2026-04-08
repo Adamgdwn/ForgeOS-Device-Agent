@@ -9,9 +9,16 @@ output/
 devices/
 !.gitkeep
 .aider*
+.vscode/
 /device-profile.json
 /session-state.json
 /destructive-approval.json
 /plans/connection-plan.json
 /reports/assessment.json
 /reports/engagement.json
+knowledge/session_outcomes.json
+knowledge/support_matrix.json
+promotion/candidates.json
+promotion/adapters/
+scripts/artifact-checker.sh
+scripts/generate_artifacts.sh

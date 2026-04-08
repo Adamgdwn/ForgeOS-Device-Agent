@@ -1,0 +1,69 @@
+{
+  "playbook_id": "samsung_sm_a520w",
+  "manufacturer": "Samsung",
+  "model": "SM-A520W",
+  "codename": "samsun-82d2",
+  "transport": "usb-adb",
+  "source_hints": [
+    "Samsung stock firmware: SamFirm / SamLoader / Frija \u2014 search for SM-A520W",
+    "LineageOS unofficial or official builds may exist for this model",
+    "Check XDA Developers for {model} / {codename} threads"
+  ],
+  "states": {
+    "usb_only": {
+      "title": "Enable USB debugging on Samsung SM-A520W",
+      "summary": "ForgeOS can see the Samsung SM-A520W over USB but cannot yet manage it. USB debugging must be enabled to continue.",
+      "steps": [
+        "Unlock the phone screen.",
+        "Open Settings and navigate to About phone (or About device).",
+        "Tap Build number 7 times to unlock Developer Options.",
+        "Return to Settings and open Developer Options.",
+        "Enable USB debugging.",
+        "Reconnect the USB cable if needed and select File transfer / MTP mode.",
+        "Approve the Allow USB debugging prompt when it appears on the phone."
+      ],
+      "expected_next_state": "adb_unauthorized, then adb_connected after trust approval",
+      "troubleshooting": [
+        "Use a data-capable USB cable, not a charge-only cable.",
+        "Samsung devices sometimes stay in MTP until the screen is unlocked during reconnect.",
+        "If the trust prompt never appears, toggle USB debugging off and back on."
+      ]
+    },
+    "adb_unauthorized": {
+      "title": "Approve USB debugging trust on Samsung SM-A520W",
+      "summary": "The Samsung SM-A520W is visible to adb but has not yet trusted this computer.",
+      "steps": [
+        "Unlock the phone and watch for the Allow USB debugging dialog.",
+        "Tap Allow (or Always allow from this computer).",
+        "Keep the phone awake until ForgeOS shows adb connected."
+      ],
+      "expected_next_state": "adb_connected",
+      "troubleshooting": [
+        "If the prompt is missing, reconnect the cable while the phone is unlocked.",
+        "Revoke USB debugging authorizations in Developer Options and reconnect if stuck."
+      ]
+    },
+    "adb_connected": {
+      "title": "adb transport ready",
+      "summary": "ForgeOS can now interrogate the Samsung SM-A520W non-destructively and prepare backup and restore artifacts.",
+      "steps": [
+        "Keep the phone connected and unlocked.",
+        "Let ForgeOS capture backup metadata before any destructive action.",
+        "Review the flash plan and restore readiness before approving a wipe."
+      ],
+      "expected_next_state": "assessment and backup capture",
+      "troubleshooting": []
+    },
+    "fastboot_connected": {
+      "title": "fastboot transport ready",
+      "summary": "ForgeOS can perform low-level assessment and flash planning for the Samsung SM-A520W from fastboot.",
+      "steps": [
+        "Keep the device on the fastboot screen.",
+        "Wait for ForgeOS to capture low-level device facts.",
+        "Do not wipe or unlock anything until the restore path is reviewed."
+      ],
+      "expected_next_state": "fastboot assessment",
+      "troubleshooting": []
+    }
+  }
+}

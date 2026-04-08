@@ -179,6 +179,8 @@ def hardware_snapshot(serial: str) -> dict[str, str]:
         "bootloader": "ro.bootloader",
         "verified_boot_state": "ro.boot.verifiedbootstate",
         "dynamic_partitions": "ro.boot.dynamic_partitions",
+        "warranty_bit": "ro.boot.warranty_bit",
+        "flash_locked": "ro.boot.flash.locked",
     }
     snapshot = {name: getprop(serial, prop) for name, prop in keys.items()}
     battery = shell(serial, ["dumpsys", "battery"])

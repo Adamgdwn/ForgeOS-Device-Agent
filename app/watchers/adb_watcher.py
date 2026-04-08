@@ -31,5 +31,12 @@ class ADBWatcher:
                     enriched["device_codename"] = device.get("device", "")
                 if device.get("product"):
                     enriched["product"] = device.get("product", "")
+                # Capture full hardware snapshot at detection time so the session
+                # profile starts with complete data for any device brand.
+                hardware = adb.hardware_snapshot(serial)
+                enriched["hardware_snapshot"] = hardware
+                # Promote top-level fields from snapshot for easy access
+                if not enriched.get("verified_boot_state"):
+                    enriched["verified_boot_state"] = hardware.get("verified_boot_state")
                 self.event_bus.publish("device_detected", enriched)
             time.sleep(self.poll_interval)
