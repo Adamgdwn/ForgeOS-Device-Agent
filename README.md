@@ -18,9 +18,12 @@ The current build includes a runtime-first session model, a GUI control surface,
 - Blocker-driven remediation so machine-solvable blockers create runtime tasks instead of stopping at guidance.
 - Session-local codegen, execution, and patch registration for remediation artifacts.
 - Retry heat tracking so repeated non-advancing remediation cycles escalate instead of looping forever.
-- Autonomous experiment logging so self-heal attempts can be advanced or discarded instead of silently retried.
+- Autonomous experiment logging so self-heal attempts can be advanced or discarded instead of silently retried, scored, and audited over time.
+- Session-local self-improvement loop with bounded proposal variants, evaluator scoring, and keep-or-discard selection before the runtime commits to the next remediation attempt.
+- Lightweight local strategy memory so similar blocker/device profiles can reuse historically successful remediation variants and source preferences.
 - Trusted source acquisition with research TTL checks and conservative firmware provenance rules.
 - Explicit worker routing across frontier reasoning, local general execution, local editing, and deterministic policy checks.
+- Runtime governance caps for experiment loops, token budget, self-modification scope, and promotion validation thresholds.
 - VS Code integration is optional and should be operator-invoked, not opened automatically as part of the runtime path.
 - Simplified operator monitor UI that surfaces runtime state, approvals, evidence, and worker routing.
 - Explicit destructive approval capture plus approved dry-run flash execution planning.
@@ -82,6 +85,8 @@ Each device session can now persist runtime-first artifacts under `devices/<sess
 - `session-plan.json`
 - `worker-routing.json`
 - `runtime-audit.json`
+- `proposal/proposal-manifest.json`
+- `self-improvement/loop-manifest.json`
 
 These files are intended to give both the GUI and future automation a durable, auditable view of the runtime’s current intent.
 
@@ -125,7 +130,9 @@ What is still incomplete:
 - robust session renaming when an early coarse identity later becomes precise
 - complete remote source provenance verification beyond conservative host and size checks
 
-The learning layer records session outcomes, builds a support matrix, and generates review-only promotion candidates for the master framework.
+The learning layer records session outcomes, builds a support matrix, and generates promotion candidates under `promotion/` for review. Generated adapters and playbooks should not land in `master/` unless promotion policy explicitly allows it.
+
+The runtime also maintains a local strategy-memory store under `knowledge/strategy_memory.sqlite3` plus a reviewable snapshot in `knowledge/strategy_memory_snapshot.json` so similar device/blocker profiles can reuse successful remediation variants without mutating model weights.
 
 ## Next Steps
 
@@ -133,7 +140,7 @@ The next highest-value work is to keep turning ForgeOS into an explicit autonomo
 
 Near-term priorities:
 
-- Build on the new experiment ledger so every remediation path has a measurable `advance` or `discard` outcome, similar in spirit to Karpathy's `autoresearch` keep-or-revert loop.
+- Build on the experiment ledger so every remediation path records a measurable `advance` or `discard` outcome, blocker identity, elapsed time, and a session fitness score, similar in spirit to Karpathy's `autoresearch` keep-or-revert loop.
 - Teach source acquisition to rank and compare multiple firmware candidates instead of taking the first locally or remotely trusted match.
 - Make preview generation consume accepted and rejected features so the preview output changes when the operator changes the plan.
 - Replace more simulated preview content with concrete generated UI walkthroughs, capability summaries, and build-specific artifacts.

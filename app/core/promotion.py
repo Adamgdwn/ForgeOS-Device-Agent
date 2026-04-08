@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+from app.core.io_utils import atomic_write_json
 from app.core.models import utc_now
 
 if TYPE_CHECKING:
@@ -16,6 +17,8 @@ DEFAULT_RULES = {
     "min_observations_for_candidate": 3,
     "min_confidence_for_candidate": 0.75,
     "require_restore_path_ratio": 0.5,
+    "min_avg_fitness_for_candidate": 0.6,
+    "require_validation_count": 3,
     "require_non_research_strategy": True,
     "auto_apply_master_changes": False,
 }
@@ -37,12 +40,16 @@ class PromotionEngine:
             observations = family.get("observations", 0)
             confidence = family.get("confidence", 0.0)
             restore_ratio = family.get("restore_path_confirmed", 0) / max(1, observations)
+            average_fitness = float(family.get("average_fitness_score", 0.0))
+            validation_count = int(family.get("validated_sessions", 0))
             recommended_strategy = family.get("recommended_strategy", "research_only")
 
             meets = (
                 observations >= rules["min_observations_for_candidate"]
                 and confidence >= rules["min_confidence_for_candidate"]
                 and restore_ratio >= rules["require_restore_path_ratio"]
+                and average_fitness >= rules.get("min_avg_fitness_for_candidate", 0.0)
+                and validation_count >= rules.get("require_validation_count", 0)
             )
             if rules["require_non_research_strategy"] and recommended_strategy == "research_only":
                 meets = False
@@ -58,6 +65,8 @@ class PromotionEngine:
                     "observations": observations,
                     "recommended_strategy": recommended_strategy,
                     "support_level": family.get("support_level"),
+                    "average_fitness_score": average_fitness,
+                    "validated_sessions": validation_count,
                     "promotion_status": "review_required",
                     "auto_apply_allowed": bool(rules.get("auto_apply_master_changes")),
                     "proposed_updates": [
@@ -200,5 +209,4 @@ class PromotionEngine:
         return json.loads(path.read_text())
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2))
+        atomic_write_json(path, payload)

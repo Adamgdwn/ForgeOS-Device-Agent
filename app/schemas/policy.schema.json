@@ -8,7 +8,13 @@
     "require_restore_path",
     "allow_live_destructive_actions",
     "require_explicit_wipe_phrase",
-    "priority_order"
+    "priority_order",
+    "max_api_tokens_per_session",
+    "max_experiment_loop_iterations",
+    "destructive_ops_require_approval",
+    "self_modification_scope",
+    "promotion_requires_n_validations",
+    "ethical_priority_override"
   ],
   "properties": {
     "policy_version": { "type": "string" },
@@ -16,6 +22,16 @@
     "require_restore_path": { "type": "boolean" },
     "allow_live_destructive_actions": { "type": "boolean" },
     "require_explicit_wipe_phrase": { "type": "boolean" },
+    "max_api_tokens_per_session": { "type": "integer", "minimum": 0 },
+    "max_experiment_loop_iterations": { "type": "integer", "minimum": 1 },
+    "destructive_ops_require_approval": { "type": "boolean" },
+    "self_modification_scope": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "firmware_source_provenance": { "type": "object" },
+    "promotion_requires_n_validations": { "type": "integer", "minimum": 1 },
+    "ethical_priority_override": { "type": "string" },
     "allow_bootloader_relock": { "type": "boolean" },
     "open_vscode_on_launch": { "type": "boolean" },
     "open_vscode_on_session_create": { "type": "boolean" },

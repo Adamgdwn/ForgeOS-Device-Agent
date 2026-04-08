@@ -9,6 +9,7 @@ from app.core.models import (
     PolicyModel,
     SessionState,
     SessionStateName,
+    SupportStatus,
     TaskRisk,
     Transport,
     WorkerExecution,
@@ -72,6 +73,22 @@ def test_policy_guard_blocks_install_without_restore_confirmation(tmp_path: Path
     )
     assert not gate.allowed
     assert "Operator has not confirmed the restore path." in gate.missing_requirements
+
+
+def test_policy_guard_blocks_self_improvement_when_budget_or_scope_is_exceeded(tmp_path: Path) -> None:
+    guard = PolicyGuard(tmp_path)
+    gate = guard.evaluate_self_improvement_gate(
+        policy=PolicyModel(max_api_tokens_per_session=10, max_experiment_loop_iterations=1),
+        session_dir=tmp_path / "devices" / "demo",
+        estimated_tokens_used=12,
+        iteration_count=1,
+        proposed_paths=[tmp_path / "master" / "unsafe.py"],
+    )
+
+    assert gate.allowed is False
+    assert any("outside policy scope" in item for item in gate.missing_requirements)
+    assert any("token budget" in item for item in gate.missing_requirements)
+    assert any("iteration budget" in item for item in gate.missing_requirements)
 
 
 def test_worker_runtime_executes_with_transcript(tmp_path: Path) -> None:
@@ -312,3 +329,193 @@ def test_orchestrator_runs_bounded_worker_self_heal_loop(tmp_path: Path) -> None
     assert len(extra_execs) == 2
     assert loop_report["status"] == "recovered"
     assert loop_report["recovered_tasks"] == 1
+
+
+def test_recompute_runtime_persists_experiment_and_source_plan(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "master" / "policies").mkdir(parents=True)
+    (tmp_path / "master" / "policies" / "default_policy.json").write_text(
+        json.dumps(
+            {
+                "policy_version": "1.0",
+                "default_dry_run": True,
+                "require_restore_path": True,
+                "allow_live_destructive_actions": False,
+                "require_explicit_wipe_phrase": True,
+                "allow_bootloader_relock": False,
+                "open_vscode_on_launch": False,
+                "open_vscode_on_session_create": False,
+                "enable_codex_handoff": False,
+                "priority_order": ["restore_path"],
+                "host_requirements": {"platforms": ["linux"], "preferred_desktop": "Pop!_OS", "tools": ["adb", "fastboot"]},
+            }
+        )
+    )
+    orchestrator = ForgeOrchestrator(tmp_path)
+    session_dir = orchestrator.sessions.create_or_resume(
+        {
+            "manufacturer": "Samsung",
+            "model": "SM-A520W",
+            "serial": "ABC123",
+            "transport": Transport.USB_ADB,
+        }
+    )
+    state = orchestrator.sessions.load_session_state(session_dir)
+    state.support_status = SupportStatus.ACTIONABLE
+    state.selected_strategy = "hardened_existing_os"
+    orchestrator.sessions.write_session_state(session_dir, state)
+
+    monkeypatch.setattr(orchestrator.knowledge_lookup, "lookup", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(orchestrator.connection_engine, "build_plan", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(orchestrator.adapter_registry, "has_master_adapter", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(orchestrator.research_worker, "research_firmware", lambda **_kwargs: None)
+    monkeypatch.setattr(orchestrator.research_worker, "research_blocker", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        orchestrator.backup_restore,
+        "execute",
+        lambda *_args, **_kwargs: {
+            "plan": {
+                "restore_path_feasible": True,
+                "summary": "Backup ready",
+                "backup_bundle_path": "/tmp/bundle.tar.gz",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        orchestrator.restore_controller,
+        "execute",
+        lambda *_args, **_kwargs: {
+            "status": "ready",
+            "summary": "Restore ready",
+            "details": {"steps": ["Restore"]},
+            "restore_plan_path": str(session_dir / "restore" / "restore-plan.json"),
+        },
+    )
+    monkeypatch.setattr(
+        orchestrator.use_case_recommender,
+        "execute",
+        lambda *_args, **_kwargs: {"recommended_use_case": "lightweight_custom_android", "options": []},
+    )
+    monkeypatch.setattr(
+        orchestrator.build_resolver,
+        "execute",
+        lambda *_args, **_kwargs: {"os_path": "research_only_path", "reason": "Need source artifacts."},
+    )
+    monkeypatch.setattr(
+        orchestrator.image_builder,
+        "execute",
+        lambda *_args, **_kwargs: {
+            "status": "missing",
+            "details": {"install_mode": "unavailable", "missing_requirements": []},
+            "artifacts": [],
+        },
+    )
+    monkeypatch.setattr(
+        orchestrator.flash_executor,
+        "build_plan",
+        lambda **_kwargs: FlashPlan(
+            session_id=session_dir.name,
+            build_path="research_only_path",
+            requires_wipe=False,
+            restore_path_available=True,
+            status="deferred",
+            summary="Waiting on source artifacts.",
+        ),
+    )
+    blocker_calls = {"count": 0}
+
+    def fake_classify(*_args, **_kwargs):
+        blocker_calls["count"] += 1
+        if blocker_calls["count"] == 1:
+            return {
+                "blocker_type": "source_blocker",
+                "machine_solvable": True,
+                "confidence": 0.9,
+                "planned_next_action": "source_acquisition_and_staging",
+                "summary": "Need firmware package.",
+                "retry_budget": 2,
+            }
+        return {
+            "blocker_type": "none",
+            "machine_solvable": False,
+            "confidence": 1.0,
+            "planned_next_action": "",
+            "summary": "Resolved",
+            "retry_budget": 0,
+        }
+
+    monkeypatch.setattr(orchestrator.blockers, "classify", fake_classify)
+    monkeypatch.setattr(orchestrator, "_run_local_worker_fix_loop", lambda **_kwargs: ([], [], {"status": "not_needed", "summary": "No-op"}))
+    monkeypatch.setattr(
+        orchestrator.worker_runtime,
+        "execute",
+        lambda route, task, session_dir_arg: WorkerExecution(
+            worker=route.selected_worker.value,
+            adapter_name=route.adapter_name,
+            task_type=task.task_type,
+            status="completed",
+            summary=f"{task.task_type} completed",
+            transcript_path=str(session_dir_arg / "runtime" / f"{task.task_type}.json"),
+            confidence=0.9,
+        ),
+    )
+
+    def fake_execute_generated(session_dir_arg: Path, _generated: dict[str, object], **_kwargs) -> dict[str, object]:
+        plan_path = session_dir_arg / "plans" / "source-acquisition-plan.json"
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "generated_at": "2026-01-01T00:00:00+00:00",
+                    "staged_files": [str(session_dir_arg / "artifacts" / "os-source" / "update.zip")],
+                }
+            )
+        )
+        return {"status": "executed", "summary": "Executed", "result": {}, "elapsed_seconds": 0.1}
+
+    monkeypatch.setattr(orchestrator.codegen_runtime, "execute_generated", fake_execute_generated)
+    monkeypatch.setattr(
+        orchestrator.codegen_runtime,
+        "inspect_result",
+        lambda *_args, **_kwargs: {
+            "status": "solved",
+            "summary": "Staged firmware.",
+            "profile_updates": {},
+            "engagement_updates": {},
+            "assessment_updates": {"support_status": "actionable"},
+            "evidence": {
+                "source_acquisition": {"staged_files": [str(session_dir / "artifacts" / "os-source" / "update.zip")]},
+                "remote_source_resolution": {"status": "ok"},
+            },
+            "next_action": "reclassify",
+        },
+    )
+    monkeypatch.setattr(
+        orchestrator.policy_guard,
+        "evaluate_install_gate",
+        lambda **_kwargs: ApprovalGate(action="hold", allowed=False, requires_explicit_approval=True, reason="not ready"),
+    )
+    monkeypatch.setattr(
+        orchestrator.policy_guard,
+        "evaluate_research_gate",
+        lambda *_args, **_kwargs: ApprovalGate(action="continue", allowed=True, requires_explicit_approval=False, reason="clear"),
+    )
+
+    result = orchestrator.recompute_session_runtime(session_dir)
+
+    experiments_path = session_dir / "reports" / "autonomous-experiments.json"
+    source_plan_path = session_dir / "plans" / "source-acquisition-plan.json"
+    runtime_audit_path = session_dir / "runtime" / "runtime-audit.json"
+
+    assert source_plan_path.exists()
+    assert experiments_path.exists()
+    assert runtime_audit_path.exists()
+
+    experiments = json.loads(experiments_path.read_text())
+    runtime_audit = json.loads(runtime_audit_path.read_text())
+    assert experiments["fitness"]["fitness_score"] == 1.0
+    assert experiments["experiments"][-1]["decision"] == "advance"
+    assert experiments["experiments"][-1]["blocker_id"].startswith("source_blocker:")
+    assert experiments["experiments"][-1]["elapsed_seconds"] >= 0.0
+    assert runtime_audit["governance_summary"]["estimated_tokens_used"] > 0
+    assert runtime_audit["self_improvement_summary"]["selected_proposal"]["proposal_id"]
+    assert result["runtime_files"]["audit_log_path"].endswith("runtime/runtime-audit.json")

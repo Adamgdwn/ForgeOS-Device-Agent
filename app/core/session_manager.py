@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from app.core.io_utils import atomic_write_json
 from app.core.models import (
     DestructiveApproval,
     DeviceProfile,
@@ -20,6 +21,7 @@ from app.core.models import (
     flash_plan_from_dict,
     os_goals_from_dict,
     session_state_from_dict,
+    to_dict,
     to_json,
     utc_now,
     UserProfile,
@@ -281,8 +283,7 @@ class SessionManager:
     def write_flash_plan(self, session_dir: Path, flash_plan: FlashPlan) -> Path:
         flash_plan.updated_at = utc_now()
         path = session_dir / "execution" / "flash-plan.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(to_json(flash_plan))
+        atomic_write_json(path, to_dict(flash_plan))
         return path
 
     def load_flash_plan(self, session_dir: Path) -> FlashPlan | None:
@@ -293,9 +294,7 @@ class SessionManager:
 
     def write_runtime_artifact(self, session_dir: Path, relative_path: str, payload: dict[str, Any]) -> Path:
         path = session_dir / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2))
-        return path
+        return atomic_write_json(path, payload)
 
     def find_waiting_session(self, serial: str) -> Path | None:
         if not serial:

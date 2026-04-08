@@ -260,6 +260,18 @@ class PolicyModel:
     require_restore_path: bool = True
     allow_live_destructive_actions: bool = False
     require_explicit_wipe_phrase: bool = True
+    max_api_tokens_per_session: int = 50000
+    max_experiment_loop_iterations: int = 20
+    destructive_ops_require_approval: bool = True
+    self_modification_scope: list[str] = field(default_factory=lambda: ["devices/*/runtime", "knowledge"])
+    firmware_source_provenance: dict[str, Any] = field(
+        default_factory=lambda: {
+            "require_trusted_host": True,
+            "ttl_days": 7,
+        }
+    )
+    promotion_requires_n_validations: int = 3
+    ethical_priority_override: str = "high"
     allow_bootloader_relock: bool = False
     open_vscode_on_launch: bool = False
     open_vscode_on_session_create: bool = False

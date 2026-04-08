@@ -64,6 +64,8 @@ class RuntimePlanner:
         recommendation: dict[str, Any],
         preview_execution: PreviewExecution,
         verification_execution: VerificationExecution,
+        governance_summary: dict[str, Any] | None = None,
+        self_improvement_summary: dict[str, Any] | None = None,
     ) -> dict[str, str]:
         plan = RuntimeSessionPlan(
             session_id=state.session_id,
@@ -129,6 +131,8 @@ class RuntimePlanner:
                         "recommended_path": plan.recommended_path,
                         "hard_stops": plan.hard_stops,
                         "next_actions": plan.next_actions,
+                        "governance_summary": governance_summary or {},
+                        "self_improvement_summary": self_improvement_summary or {},
                     },
                 )
             ),

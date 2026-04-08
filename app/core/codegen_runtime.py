@@ -4,6 +4,8 @@ import json
 import os
 import re
 import subprocess
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -103,21 +105,42 @@ class CodegenRuntime:
             "task_path": str(task_path),
         }
 
-    def execute_generated(self, session_dir: Path, generated: dict[str, Any]) -> dict[str, Any]:
+    def execute_generated(
+        self,
+        session_dir: Path,
+        generated: dict[str, Any],
+        *,
+        env_overrides: dict[str, str] | None = None,
+        timeout_seconds: int = 300,
+        transcript_name: str = "artifact-execution.json",
+    ) -> dict[str, Any]:
         script_path = Path(str(generated["script_path"]))
         transcripts_dir = session_dir / "execution"
         transcripts_dir.mkdir(parents=True, exist_ok=True)
-        transcript_path = transcripts_dir / "artifact-execution.json"
+        transcript_path = transcripts_dir / transcript_name
         interpreter = self.root / ".venv" / "bin" / "python"
         command = [str(interpreter if interpreter.exists() else "python3"), str(script_path)]
-        completed = subprocess.run(
-            command,
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=os.environ.copy(),
-        )
+        started = utc_now()
+        started_monotonic = time.monotonic()
+        exec_env = os.environ.copy()
+        exec_env.update(env_overrides or {})
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=exec_env,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            completed = subprocess.CompletedProcess(
+                command,
+                returncode=124,
+                stdout=exc.stdout or "",
+                stderr=(exc.stderr or "") + f"\nTimed out after {timeout_seconds}s.",
+            )
         output = completed.stdout.strip()
         parsed: dict[str, Any]
         try:
@@ -126,19 +149,26 @@ class CodegenRuntime:
             parsed = {"status": "artifact_failed", "summary": "Generated artifact emitted non-JSON output.", "raw_stdout": output}
         result = {
             "generated_at": utc_now(),
+            "started_at": started,
             "command": command,
+            "env_overrides": env_overrides or {},
             "returncode": completed.returncode,
             "stdout": output,
             "stderr": completed.stderr.strip(),
             "result": parsed,
+            "elapsed_seconds": round(time.monotonic() - started_monotonic, 3),
         }
-        transcript_path.write_text(json.dumps(result, indent=2))
+        with tempfile.NamedTemporaryFile("w", delete=False, dir=transcripts_dir, suffix=".tmp") as tmp_file:
+            json.dump(result, tmp_file, indent=2)
+            tmp_name = tmp_file.name
+        Path(tmp_name).replace(transcript_path)
         return {
             "status": "executed" if completed.returncode == 0 else "artifact_failed",
             "summary": parsed.get("summary", "Executed remediation artifact."),
             "transcript_path": str(transcript_path),
             "result": parsed,
             "returncode": completed.returncode,
+            "elapsed_seconds": float(result.get("elapsed_seconds", 0.0) or 0.0),
         }
 
     def generate_device_adapter(
@@ -214,14 +244,23 @@ class CodegenRuntime:
         transcript_path = transcripts_dir / "self-test-result.json"
         interpreter = self.root / ".venv" / "bin" / "python"
         command = [str(interpreter if interpreter.exists() else "python3"), adapter_path]
-        completed = subprocess.run(
-            command,
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=os.environ.copy(),
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=os.environ.copy(),
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            completed = subprocess.CompletedProcess(
+                command,
+                returncode=124,
+                stdout=exc.stdout or "",
+                stderr=(exc.stderr or "") + "\nTimed out after 300s.",
+            )
         output = completed.stdout.strip()
         parsed: dict[str, Any]
         try:
@@ -236,7 +275,10 @@ class CodegenRuntime:
             "stderr": completed.stderr.strip(),
             "result": parsed,
         }
-        transcript_path.write_text(json.dumps(result, indent=2))
+        with tempfile.NamedTemporaryFile("w", delete=False, dir=transcripts_dir, suffix=".tmp") as tmp_file:
+            json.dump(result, tmp_file, indent=2)
+            tmp_name = tmp_file.name
+        Path(tmp_name).replace(transcript_path)
         test_passed = completed.returncode == 0 and parsed.get("status") in {
             "probe_pass", "probe_no_device"
         }
@@ -564,6 +606,13 @@ from app.integrations import adb, fastboot, fastbootd  # noqa: E402
 from app.integrations.udev import list_usb_mobile_devices  # noqa: E402
 from app.tools.source_resolver import SourceResolverTool  # noqa: E402
 
+SOURCE_SELECTION_MODE = os.environ.get("FORGEOS_SOURCE_SELECTION_MODE", "zip_first").strip().lower()
+PRIORITY_KEYWORDS = [
+    item.strip().lower()
+    for item in os.environ.get("FORGEOS_PRIORITY_KEYWORDS", "").split(",")
+    if item.strip()
+]
+
 
 def _safe_run(command: list[str]) -> dict[str, object]:
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -577,7 +626,9 @@ def _safe_run(command: list[str]) -> dict[str, object]:
 
 def _write_json(path: Path, payload: dict[str, object]) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2))
+    tmp_path = path.with_name(f"{{path.name}}.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2))
+    tmp_path.replace(path)
     return str(path)
 
 
@@ -757,6 +808,12 @@ def _candidate_keywords() -> list[str]:
             continue
         seen.add(cleaned)
         keywords.append(cleaned)
+    for keyword in PRIORITY_KEYWORDS:
+        cleaned = re.sub(r"[^a-z0-9]+", "", keyword.lower())
+        if len(cleaned) < 3 or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        keywords.append(cleaned)
     return keywords
 
 
@@ -771,6 +828,12 @@ def _candidate_score(path: Path, keywords: list[str]) -> int:
     for keyword in keywords:
         if keyword and (keyword in name or keyword in normalized_name):
             score += 3
+    if SOURCE_SELECTION_MODE == "exact_match":
+        for keyword in keywords:
+            if keyword and keyword in normalized_name:
+                score += 5
+    if SOURCE_SELECTION_MODE == "images_first" and path.suffix == ".img":
+        score += 8
     return score
 
 
@@ -810,17 +873,6 @@ def _stage_source_candidates() -> dict[str, object]:
     candidates = _find_local_source_candidates(keywords)
     staged: list[str] = []
 
-    sideload_names = {"update.zip", "ota.zip", "payload.zip"}
-    staged_zip = False
-    for candidate in candidates:
-        candidate_path = Path(str(candidate["path"]))
-        if candidate_path.name in sideload_names or (
-            candidate_path.suffix.lower() == ".zip" and not staged_zip
-        ):
-            staged.append(_copy_if_missing(candidate_path, source_dir / candidate_path.name))
-            staged_zip = True
-            break
-
     fastboot_names = {{
         "boot.img",
         "init_boot.img",
@@ -835,7 +887,23 @@ def _stage_source_candidates() -> dict[str, object]:
         "super.img",
     }}
     selected_fastboot = [c for c in candidates if str(c["name"]) in fastboot_names]
-    if selected_fastboot:
+    if SOURCE_SELECTION_MODE == "images_first" and selected_fastboot:
+        for candidate in selected_fastboot:
+            candidate_path = Path(str(candidate["path"]))
+            staged.append(_copy_if_missing(candidate_path, source_dir / candidate_path.name))
+
+    sideload_names = {"update.zip", "ota.zip", "payload.zip"}
+    staged_zip = False
+    for candidate in candidates:
+        candidate_path = Path(str(candidate["path"]))
+        if candidate_path.name in sideload_names or (
+            candidate_path.suffix.lower() == ".zip" and not staged_zip
+        ):
+            staged.append(_copy_if_missing(candidate_path, source_dir / candidate_path.name))
+            staged_zip = True
+            break
+
+    if SOURCE_SELECTION_MODE != "images_first" and selected_fastboot:
         for candidate in selected_fastboot:
             candidate_path = Path(str(candidate["path"]))
             staged.append(_copy_if_missing(candidate_path, source_dir / candidate_path.name))
@@ -918,9 +986,14 @@ def main() -> None:
     build_candidates_path = _write_json(SESSION_DIR / "plans" / "build-resolver-candidates.json", candidates)
 
     if REMEDIATION_FAMILY == "source_acquisition_and_staging":
-        acquisition = _stage_source_candidates()
         remote = {{"status": "skipped", "staged_files": []}}
-        if not acquisition.get("staged_files"):
+        acquisition = {{"staged_files": []}}
+        if SOURCE_SELECTION_MODE == "remote_first":
+            remote = _resolve_trusted_remote_source()
+        acquisition = _stage_source_candidates()
+        if remote.get("staged_files"):
+            acquisition["staged_files"] = list(acquisition.get("staged_files", [])) + list(remote.get("staged_files", []))
+        if not acquisition.get("staged_files") and SOURCE_SELECTION_MODE != "remote_first":
             remote = _resolve_trusted_remote_source()
             if remote.get("staged_files"):
                 acquisition["staged_files"] = list(acquisition.get("staged_files", [])) + list(remote.get("staged_files", []))

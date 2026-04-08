@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from app.core.io_utils import atomic_write_json
 from app.core.models import utc_now
 
 
@@ -29,8 +30,7 @@ class RetryPlanner:
 
     def _write_heat(self, session_dir: Path, payload: dict[str, Any]) -> None:
         path = self._heat_file(session_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2))
+        atomic_write_json(path, payload)
 
     def _load_experiments(self, session_dir: Path) -> dict[str, Any]:
         path = self._experiment_file(session_dir)
@@ -44,8 +44,35 @@ class RetryPlanner:
 
     def _write_experiments(self, session_dir: Path, payload: dict[str, Any]) -> None:
         path = self._experiment_file(session_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2))
+        atomic_write_json(path, payload)
+
+    @staticmethod
+    def _blocker_id(blocker: dict[str, Any]) -> str:
+        blocker_type = str(blocker.get("blocker_type") or "unknown")
+        planned_next_action = str(blocker.get("planned_next_action") or "unspecified")
+        summary = str(blocker.get("summary") or "").strip().lower().replace(" ", "_")[:48]
+        return f"{blocker_type}:{planned_next_action}:{summary}".rstrip(":")
+
+    def _session_fitness(self, experiments: list[dict[str, Any]]) -> dict[str, float | int]:
+        if not experiments:
+            return {
+                "fitness_score": 0.0,
+                "advanced_count": 0,
+                "total_experiments": 0,
+                "human_intervention_count": 0,
+            }
+        advanced_count = sum(1 for experiment in experiments if experiment.get("advanced") is True)
+        human_intervention_count = sum(
+            1 for experiment in experiments if experiment.get("human_intervention_required") is True
+        )
+        advance_ratio = advanced_count / len(experiments)
+        autonomy_ratio = (len(experiments) - human_intervention_count) / len(experiments)
+        return {
+            "fitness_score": round(advance_ratio * autonomy_ratio, 3),
+            "advanced_count": advanced_count,
+            "total_experiments": len(experiments),
+            "human_intervention_count": human_intervention_count,
+        }
 
     @staticmethod
     def _blocker_rank(blocker_type: str | None) -> int:
@@ -116,6 +143,9 @@ class RetryPlanner:
         blocker_after: dict[str, Any],
         inspection: dict[str, Any],
         generated: dict[str, Any] | None = None,
+        elapsed_seconds: float | None = None,
+        strategy: str | None = None,
+        human_intervention_required: bool = False,
     ) -> dict[str, Any]:
         decision = self.evaluate_experiment(
             blocker_before=blocker_before,
@@ -124,17 +154,29 @@ class RetryPlanner:
         )
         payload = self._load_experiments(session_dir)
         experiments = list(payload.get("experiments") or [])
-        experiments.append(
+        entry = {
+            "timestamp": utc_now(),
+            "blocker_id": self._blocker_id(blocker_before),
+            "task_id": (generated or {}).get("task", {}).get("task_id", ""),
+            "remediation_family": (generated or {}).get("task", {}).get("remediation_family", ""),
+            "planned_next_action": blocker_before.get("planned_next_action", ""),
+            "summary": blocker_before.get("summary", ""),
+            "selected_strategy": strategy or "",
+            "elapsed_seconds": round(float(elapsed_seconds or 0.0), 3),
+            "human_intervention_required": human_intervention_required,
+            **decision,
+        }
+        experiments.append(entry)
+        fitness = self._session_fitness(experiments)
+        entry["session_fitness"] = fitness["fitness_score"]
+        self._write_experiments(
+            session_dir,
             {
-                "timestamp": utc_now(),
-                "task_id": (generated or {}).get("task", {}).get("task_id", ""),
-                "remediation_family": (generated or {}).get("task", {}).get("remediation_family", ""),
-                "planned_next_action": blocker_before.get("planned_next_action", ""),
-                "summary": blocker_before.get("summary", ""),
-                **decision,
-            }
+                "generated_at": utc_now(),
+                "fitness": fitness,
+                "experiments": experiments,
+            },
         )
-        self._write_experiments(session_dir, {"experiments": experiments})
         return experiments[-1]
 
     def build_plan(
@@ -202,5 +244,4 @@ class RetryPlanner:
 
     def write(self, session_dir: Path, payload: dict[str, Any]) -> Path:
         path = session_dir / "reports" / "retry-plan.json"
-        path.write_text(json.dumps(payload, indent=2))
-        return path
+        return atomic_write_json(path, payload)

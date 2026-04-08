@@ -4,6 +4,19 @@
   "require_restore_path": true,
   "allow_live_destructive_actions": false,
   "require_explicit_wipe_phrase": true,
+  "max_api_tokens_per_session": 50000,
+  "max_experiment_loop_iterations": 20,
+  "destructive_ops_require_approval": true,
+  "self_modification_scope": [
+    "devices/*/runtime",
+    "knowledge"
+  ],
+  "firmware_source_provenance": {
+    "require_trusted_host": true,
+    "ttl_days": 7
+  },
+  "promotion_requires_n_validations": 3,
+  "ethical_priority_override": "high",
   "allow_bootloader_relock": false,
   "open_vscode_on_launch": false,
   "open_vscode_on_session_create": false,

@@ -4,6 +4,7 @@ from dataclasses import replace
 import json
 import logging
 from pathlib import Path
+import time
 from typing import Any
 
 from app.core.codex_handoff import CodexHandoffEngine
@@ -15,8 +16,10 @@ from app.core.policy_guard import PolicyGuard
 from app.core.patch_executor import PatchExecutor
 from app.core.reporting import ReportWriter
 from app.core.policy import PolicyEngine
-from app.core.promotion import PromotionEngine
+from app.core.promotion import DEFAULT_RULES, PromotionEngine
 from app.core.retry_planner import RetryPlanner
+from app.core.self_improvement import SelfImprovementEngine
+from app.core.strategy_memory import StrategyMemoryEngine
 from app.core.runtime_pipelines import PreviewPipeline, VerificationPipeline
 from app.core.runtime_planner import RuntimePlanner
 from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerRuntime, WorkerTask
@@ -62,6 +65,8 @@ class ForgeOrchestrator:
         self.promotion = PromotionEngine(root)
         self.retry_planner = RetryPlanner(root)
         self.policy_guard = PolicyGuard(root)
+        self.strategy_memory = StrategyMemoryEngine(root)
+        self.self_improvement = SelfImprovementEngine(root, self.retry_planner, self.strategy_memory, self.policy_guard)
         self.device_probe = DeviceProbeTool(root)
         self.assessor = FeasibilityAssessorTool(root)
         self.build_resolver = BuildResolverTool(root)
@@ -229,6 +234,7 @@ class ForgeOrchestrator:
             current_profile,
             current_state,
             assessment,
+            session_dir=session_dir,
         )
         support_matrix = self.knowledge.rebuild_support_matrix()
         promotion_candidates = self.promotion.evaluate(support_matrix)
@@ -395,6 +401,8 @@ class ForgeOrchestrator:
                 "recommendation": recommendation,
                 "install_gate": to_dict(install_gate),
                 "runtime_gate": to_dict(runtime_gate),
+                "governance_summary": runtime_result["governance_summary"],
+                "self_improvement_summary": runtime_result["self_improvement_summary"],
                 "preview_execution": to_dict(preview_execution),
                 "verification_execution": to_dict(verification_execution),
                 "worker_inventory": self.worker_registry.inventory(),
@@ -470,6 +478,8 @@ class ForgeOrchestrator:
                 "recommendation": runtime_result["recommendation"],
                 "install_gate": to_dict(runtime_result["install_gate"]),
                 "runtime_gate": to_dict(runtime_result["runtime_gate"]),
+                "governance_summary": runtime_result["governance_summary"],
+                "self_improvement_summary": runtime_result["self_improvement_summary"],
                 "preview_execution": to_dict(runtime_result["preview_execution"]),
                 "verification_execution": to_dict(runtime_result["verification_execution"]),
                 "worker_inventory": self.worker_registry.inventory(),
@@ -786,6 +796,8 @@ class ForgeOrchestrator:
         execution_result: dict[str, Any] = {}
         inspection: dict[str, Any] = {}
         experiment_entry: dict[str, Any] = {}
+        governance_summary: dict[str, Any] = {}
+        self_improvement_summary: dict[str, Any] = {}
         blocker_before_remediation = dict(blocker)
         if execute_workers and blocker.get("blocker_type") == "source_blocker":
             firmware_research_path = session_dir / "research" / "firmware_sources.json"
@@ -841,14 +853,31 @@ class ForgeOrchestrator:
             current_state = self.sessions.load_session_state(session_dir)
             current_state.remediation_iteration += 1
             self.sessions.write_session_state(session_dir, current_state)
+            remediation_started = time.monotonic()
             self._safe_transition(session_dir, "CODEGEN_WRITE", "Writing executable remediation artifact into the active session")
             generated_runtime = self.codegen_runtime.generate(session_dir, blocker, connection_plan, build_plan)
             self._safe_transition(session_dir, "PATCH_APPLY", "Registering generated remediation artifacts")
             patch_result = self.patch_executor.apply(session_dir, generated_runtime)
             self._safe_transition(session_dir, "EXECUTE_ARTIFACT", "Executing generated remediation artifact")
-            execution_result = self.codegen_runtime.execute_generated(session_dir, generated_runtime)
+            self_improvement_summary = self.self_improvement.run_loop(
+                session_dir=session_dir,
+                generated_runtime=generated_runtime,
+                blocker_before=blocker_before_remediation,
+                profile=current_profile,
+                state=current_state,
+                policy=self.policy,
+                strategy_id=current_state.selected_strategy or "unselected",
+                codegen_runtime=self.codegen_runtime,
+            )
+            execution_result = self_improvement_summary["execution_result"]
             self._safe_transition(session_dir, "INSPECT_RESULT", "Inspecting remediation artifact result")
-            inspection = self.codegen_runtime.inspect_result(execution_result)
+            inspection = self_improvement_summary["inspection"]
+            governance_summary = {
+                "estimated_tokens_used": self_improvement_summary.get("estimated_tokens_used", 0),
+                "retrieved_strategy_count": len(self_improvement_summary.get("retrieved_strategies", [])),
+                "anomalies": self_improvement_summary.get("anomalies", []),
+                "selected_proposal": self_improvement_summary.get("selected_proposal", {}),
+            }
             self._apply_inspection_updates(session_dir, inspection, assessment, engagement)
             current_profile = self.sessions.load_device_profile(session_dir)
             current_state = self.sessions.load_session_state(session_dir)
@@ -920,6 +949,9 @@ class ForgeOrchestrator:
                 blocker_after=blocker,
                 inspection=inspection,
                 generated=generated_runtime,
+                elapsed_seconds=time.monotonic() - remediation_started,
+                strategy=current_state.selected_strategy,
+                human_intervention_required=False,
             )
             if blocker["blocker_type"] != "none":
                 self._safe_transition(session_dir, "BLOCKER_CLASSIFY", "Reclassifying blocker after remediation artifact execution")
@@ -1118,6 +1150,8 @@ class ForgeOrchestrator:
             recommendation=recommendation,
             preview_execution=preview_execution,
             verification_execution=verification_execution,
+            governance_summary=governance_summary,
+            self_improvement_summary=self_improvement_summary,
         )
         return {
             "profile": current_profile,
@@ -1147,6 +1181,8 @@ class ForgeOrchestrator:
             "runtime_files": runtime_files,
             "worker_self_heal": worker_self_heal,
             "experiment_entry": experiment_entry,
+            "governance_summary": governance_summary,
+            "self_improvement_summary": self_improvement_summary,
         }
 
     def _perform_deep_scan(self, session_dir: Path, profile: Any) -> dict[str, Any] | None:
@@ -1604,6 +1640,9 @@ class ForgeOrchestrator:
         an adapter is generated and tested; if the test passes it lands in promotion/adapters/;
         on the next (or same) orchestration cycle this method copies it into master/.
         """
+        rules = self.promotion._load_json(self.promotion.rules_path, DEFAULT_RULES)
+        if not bool(rules.get("auto_apply_master_changes")):
+            return
         review_base = self.adapter_registry.review_dir
         if not review_base.exists():
             return

@@ -40,19 +40,27 @@ class SourceResolverTool(BaseTool):
         super().__init__(root)
 
     @staticmethod
-    def _extract_candidate_url(payload: dict[str, Any]) -> str:
+    def _extract_candidate_urls(payload: dict[str, Any]) -> list[str]:
         url_pattern = re.compile(r"https?://[^\s)>\"]+")
+        urls: list[str] = []
         for item in payload.get("download_hints", []) or []:
             match = url_pattern.search(str(item))
             if match:
-                return match.group(0)
+                urls.append(match.group(0))
         for item in payload.get("firmware_sources", []) or []:
             if not isinstance(item, dict):
                 continue
             match = url_pattern.search(str(item.get("url_hint", "")))
             if match:
-                return match.group(0)
-        return ""
+                urls.append(match.group(0))
+        seen: set[str] = set()
+        unique: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            unique.append(url)
+        return unique
 
     def _is_trusted_url(self, url: str) -> bool:
         parsed = urlparse(url)
@@ -62,6 +70,21 @@ class SourceResolverTool(BaseTool):
     @staticmethod
     def _filename_for(url: str) -> str:
         return Path(urlparse(url).path).name
+
+    @staticmethod
+    def _url_score(url: str, *, priority_terms: list[str]) -> float:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        filename = Path(parsed.path).name.lower()
+        score = 0.0
+        if any(filename.endswith(suffix) for suffix in [".zip", ".img", ".bin", ".tar", ".gz"]):
+            score += 4.0
+        if "lineage" in host or "android" in host or "google" in host:
+            score += 2.5
+        for term in priority_terms:
+            if term and term in filename:
+                score += 1.75
+        return score
 
     def _download(self, url: str, destination: Path) -> tuple[bool, str]:
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -100,23 +123,38 @@ class SourceResolverTool(BaseTool):
             self.logger.warning("source_resolver could not parse %s: %s", research_path, exc)
             return {"sources": [], "status": "invalid_research", "blocks": True, "reason": str(exc)}
 
-        url = self._extract_candidate_url(research)
-        if not url:
+        priority_terms = [
+            re.sub(r"[^a-z0-9]+", "", str(payload.get("manufacturer") or "").lower()),
+            re.sub(r"[^a-z0-9]+", "", str(payload.get("model") or "").lower()),
+            re.sub(r"[^a-z0-9]+", "", str(payload.get("device_codename") or "").lower()),
+        ]
+        urls = self._extract_candidate_urls(research)
+        ranked_urls = [
+            {
+                "url": url,
+                "filename": self._filename_for(url),
+                "trusted": self._is_trusted_url(url),
+                "score": self._url_score(url, priority_terms=priority_terms),
+            }
+            for url in urls
+        ]
+        ranked_urls = [item for item in ranked_urls if item["trusted"]]
+        ranked_urls.sort(key=lambda item: (-float(item["score"]), str(item["filename"])))
+        if not ranked_urls:
             return {"sources": [], "status": "no_source_found", "blocks": True}
-        if not self._is_trusted_url(url):
-            return {"sources": [], "status": "untrusted_source", "blocks": True, "url": url}
+        url = str(ranked_urls[0]["url"])
         filename = self._filename_for(url)
         if "." not in filename:
-            return {"sources": [], "status": "download_failed", "blocks": True, "url": url}
+            return {"sources": [], "status": "download_failed", "blocks": True, "url": url, "ranked_candidates": ranked_urls}
 
         stage_dir = session_dir / "artifacts" / "os-source"
         destination = stage_dir / filename
         ok, error = self._download(url, destination)
         if not ok:
-            return {"sources": [], "status": "download_failed", "blocks": True, "url": url, "reason": error}
+            return {"sources": [], "status": "download_failed", "blocks": True, "url": url, "reason": error, "ranked_candidates": ranked_urls}
         if destination.stat().st_size <= 10 * 1024 * 1024:
             destination.unlink(missing_ok=True)
-            return {"sources": [], "status": "bad_download", "blocks": True, "url": url}
+            return {"sources": [], "status": "bad_download", "blocks": True, "url": url, "ranked_candidates": ranked_urls}
 
         touch_fetched_at(research_path)
         return {
@@ -126,4 +164,5 @@ class SourceResolverTool(BaseTool):
             "local_path": str(destination),
             "staged_path": str(destination),
             "source_url": url,
+            "ranked_candidates": ranked_urls,
         }

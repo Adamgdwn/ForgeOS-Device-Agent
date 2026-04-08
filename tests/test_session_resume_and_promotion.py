@@ -257,3 +257,46 @@ def test_promotion_engine_deprecates_adapter_and_audits_probe_no_device(tmp_path
     (tmp_path / "knowledge" / "session_outcomes.json").write_text(json.dumps({"outcomes": {}}))
 
     assert engine.audit_promoted_adapters() == ["google_pixel_6"]
+
+
+def test_orchestrator_does_not_auto_promote_review_adapter_when_policy_disables_it(tmp_path: Path) -> None:
+    (tmp_path / "master" / "policies").mkdir(parents=True)
+    (tmp_path / "master" / "policies" / "default_policy.json").write_text(
+        json.dumps(
+            {
+                "policy_version": "1.0",
+                "default_dry_run": True,
+                "require_restore_path": True,
+                "allow_live_destructive_actions": False,
+                "require_explicit_wipe_phrase": True,
+                "allow_bootloader_relock": False,
+                "open_vscode_on_launch": False,
+                "open_vscode_on_session_create": False,
+                "enable_codex_handoff": False,
+                "priority_order": ["restore_path"],
+                "host_requirements": {"platforms": ["linux"], "preferred_desktop": "Pop!_OS", "tools": ["adb", "fastboot"]},
+            }
+        )
+    )
+    orchestrator = ForgeOrchestrator(tmp_path)
+    review_dir = tmp_path / "promotion" / "adapters" / "google_pixel_6"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    (review_dir / "google_pixel_6.py").write_text("# adapter")
+    (review_dir / "google_pixel_6.json").write_text("{}")
+    (review_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "key": "google_pixel_6",
+                "manufacturer": "Google",
+                "model": "Pixel 6",
+                "adapter_path": str(review_dir / "google_pixel_6.py"),
+                "playbook_path": str(review_dir / "google_pixel_6.json"),
+                "test_result": {"status": "probe_pass"},
+                "status": "pending_review",
+            }
+        )
+    )
+
+    orchestrator._auto_promote_tested_adapters()
+
+    assert not (tmp_path / "master" / "integrations" / "oem_adapters" / "google_pixel_6.py").exists()

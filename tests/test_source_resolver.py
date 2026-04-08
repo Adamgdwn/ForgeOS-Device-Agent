@@ -84,3 +84,39 @@ def test_source_resolver_downloads_trusted_direct_url(monkeypatch, tmp_path: Pat
     assert result["blocks"] is False
     assert Path(result["local_path"]).exists()
     assert Path(result["staged_path"]).parent == session_dir / "artifacts" / "os-source"
+    assert result["ranked_candidates"][0]["url"].endswith("update.zip")
+
+
+def test_source_resolver_ranks_multiple_candidates(monkeypatch, tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "demo"
+    research_path = session_dir / "research" / "device_community.json"
+    research_path.parent.mkdir(parents=True, exist_ok=True)
+    research_path.write_text(
+        json.dumps(
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "download_hints": [
+                    "https://downloads.example.org/generic.zip",
+                    "https://download.lineageos.org/demo/pixel8_update.zip",
+                ],
+            }
+        )
+    )
+    tool = SourceResolverTool(tmp_path)
+    monkeypatch.setattr(
+        "app.tools.source_resolver.urlopen",
+        lambda url, timeout=60: _FakeResponse(b"x" * (11 * 1024 * 1024)),
+    )
+
+    result = tool.run(
+        {
+            "session_dir": str(session_dir),
+            "research_path": str(research_path),
+            "manufacturer": "Google",
+            "model": "Pixel 8",
+            "device_codename": "akita",
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["ranked_candidates"][0]["filename"] == "pixel8_update.zip"

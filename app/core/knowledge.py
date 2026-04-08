@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from app.core.io_utils import atomic_write_json
 from app.core.models import DeviceProfile, SessionState, SupportStatus, utc_now
 
 
@@ -26,9 +27,18 @@ class KnowledgeEngine:
         profile: DeviceProfile,
         state: SessionState,
         assessment: dict[str, Any],
+        session_dir: Path | None = None,
     ) -> dict[str, Any]:
         outcomes = self._load_json(self.session_outcomes_path, {"outcomes": {}})
         family_key = _family_key(profile)
+        fitness_score = 0.0
+        experiment_count = 0
+        if session_dir is not None:
+            experiment_path = session_dir / "reports" / "autonomous-experiments.json"
+            if experiment_path.exists():
+                experiments_payload = self._load_json(experiment_path, {"fitness": {}, "experiments": []})
+                fitness_score = float(experiments_payload.get("fitness", {}).get("fitness_score", 0.0))
+                experiment_count = len(experiments_payload.get("experiments", []))
         outcomes["outcomes"][profile.session_id] = {
             "session_id": profile.session_id,
             "recorded_at": utc_now(),
@@ -37,6 +47,7 @@ class KnowledgeEngine:
             "device_codename": profile.device_codename,
             "manufacturer": profile.manufacturer,
             "model": profile.model,
+            "serial": profile.serial,
             "transport": profile.transport.value,
             "android_version": profile.android_version,
             "bootloader_locked": profile.bootloader_locked,
@@ -46,6 +57,8 @@ class KnowledgeEngine:
             "current_state": state.state.value,
             "restore_path_feasible": bool(assessment.get("restore_path_feasible")),
             "assessment_summary": assessment.get("summary"),
+            "fitness_score": fitness_score,
+            "experiment_count": experiment_count,
             "notes": state.notes[-5:],
         }
         self._write_json(self.session_outcomes_path, outcomes)
@@ -75,6 +88,9 @@ class KnowledgeEngine:
                     "blocked": 0,
                     "experimental": 0,
                     "restore_path_confirmed": 0,
+                    "validated_sessions": 0,
+                    "fitness_total": 0.0,
+                    "fitness_observations": 0,
                     "strategies": {},
                     "latest_summary": outcome.get("assessment_summary"),
                 },
@@ -85,6 +101,12 @@ class KnowledgeEngine:
             family[status] = family.get(status, 0) + 1
             if outcome.get("restore_path_feasible"):
                 family["restore_path_confirmed"] += 1
+            serial = str(outcome.get("serial") or "")
+            if serial and not serial.startswith("usb-"):
+                family["validated_sessions"] += 1
+            if outcome.get("fitness_score") is not None:
+                family["fitness_total"] += float(outcome.get("fitness_score", 0.0))
+                family["fitness_observations"] += 1
             strategy = outcome.get("selected_strategy") or "unselected"
             family["strategies"][strategy] = family["strategies"].get(strategy, 0) + 1
 
@@ -99,6 +121,10 @@ class KnowledgeEngine:
             )
             confidence = round(max(0.05, confidence), 2)
             family["confidence"] = confidence
+            family["average_fitness_score"] = round(
+                family["fitness_total"] / max(1, family["fitness_observations"]),
+                3,
+            )
             family["recommended_strategy"] = max(
                 family["strategies"].items(),
                 key=lambda item: item[1],
@@ -136,5 +162,4 @@ class KnowledgeEngine:
         return json.loads(path.read_text())
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2))
+        atomic_write_json(path, payload)

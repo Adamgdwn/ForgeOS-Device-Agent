@@ -124,6 +124,8 @@ PROMOTION_SEEDS: dict[str, dict] = {
         "min_observations_for_candidate": 3,
         "min_confidence_for_candidate": 0.75,
         "require_restore_path_ratio": 0.5,
+        "min_avg_fitness_for_candidate": 0.6,
+        "require_validation_count": 3,
         "require_non_research_strategy": True,
         "auto_apply_master_changes": False,
     },
