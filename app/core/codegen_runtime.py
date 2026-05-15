@@ -935,11 +935,18 @@ def _stage_source_candidates() -> dict[str, object]:
 
 def _resolve_trusted_remote_source() -> dict[str, object]:
     resolver = SourceResolverTool(ROOT)
+    profile = _safe_read_json(SESSION_DIR / "device-profile.json")
+    resolver_payload = {{
+        "session_dir": str(SESSION_DIR),
+        "manufacturer": profile.get("manufacturer", ""),
+        "model": profile.get("model", ""),
+        "device_codename": profile.get("device_codename", ""),
+    }}
     research_dir = SESSION_DIR / "research"
     for candidate in [research_dir / "firmware_sources.json", research_dir / "device_community.json"]:
         if not candidate.exists():
             continue
-        result = resolver.run({{"session_dir": str(SESSION_DIR), "research_path": str(candidate)}})
+        result = resolver.run({{**resolver_payload, "research_path": str(candidate)}})
         if result.get("status") == "ok":
             staged_path = str(result.get("staged_path") or result.get("local_path") or "")
             return {{
@@ -949,6 +956,21 @@ def _resolve_trusted_remote_source() -> dict[str, object]:
                 "source_url": result.get("source_url", ""),
                 "result": result,
             }}
+        if result.get("status") == "build_required":
+            return {{
+                "status": "build_required",
+                "staged_files": [],
+                "build_request": result.get("build_request", {{}}),
+                "result": result,
+            }}
+    result = resolver.run(resolver_payload)
+    if result.get("status") == "build_required":
+        return {{
+            "status": "build_required",
+            "staged_files": [],
+            "build_request": result.get("build_request", {{}}),
+            "result": result,
+        }}
     return {{
         "status": "not_found",
         "staged_files": [],

@@ -68,19 +68,54 @@ class FlashExecutorTool(BaseTool):
                 "description": "Record restore and rollback metadata before touching partitions.",
             },
             {
-                "name": "wipe_userdata",
-                "kind": "wipe",
-                "destructive": True,
-                "description": "Wipe user data and prepare a clean installation target.",
-                "command": "fastboot erase userdata" if install_mode == "fastboot_images" else "adb shell recovery --wipe_data",
-            },
-            {
                 "name": "boot_validation",
                 "kind": "validation",
                 "destructive": False,
                 "description": "Boot the device and verify initial connectivity and integrity.",
             },
         ]
+        if install_mode == "fastboot_images":
+            steps.insert(
+                -1,
+                {
+                    "name": "enter_fastboot",
+                    "kind": "transport",
+                    "destructive": False,
+                    "description": "Reboot an adb-visible device into bootloader mode before flashing images.",
+                    "command": "adb reboot bootloader" if transport == Transport.USB_ADB.value else "",
+                },
+            )
+            steps.insert(
+                -1,
+                {
+                    "name": "wipe_userdata",
+                    "kind": "wipe",
+                    "destructive": True,
+                    "description": "Wipe user data and prepare a clean installation target.",
+                    "command": "fastboot erase userdata",
+                },
+            )
+        elif install_mode == "adb_sideload":
+            steps.insert(
+                -1,
+                {
+                    "name": "wipe_userdata",
+                    "kind": "wipe",
+                    "destructive": True,
+                    "description": "Ask recovery to wipe user data before applying the staged sideload package where supported.",
+                    "command": "adb shell recovery --wipe_data",
+                },
+            )
+            steps.insert(
+                -1,
+                {
+                    "name": "enter_sideload",
+                    "kind": "transport",
+                    "destructive": False,
+                    "description": "Reboot into recovery sideload mode before applying the staged package.",
+                    "command": "adb reboot sideload",
+                },
+            )
         artifact_flash_steps = list(build_plan.get("artifact_flash_steps", []))
         for artifact_step in artifact_flash_steps:
             steps.insert(
@@ -283,13 +318,23 @@ class FlashExecutorTool(BaseTool):
         serial = str(device.get("serial", "")).strip()
         name = str(step.get("name", ""))
         if flash_plan.install_mode == "fastboot_images":
-            return self._execute_fastboot_step(serial, manifest, name)
+            return self._execute_fastboot_step(serial, manifest, name, flash_plan.transport)
         if flash_plan.install_mode == "adb_sideload":
             return self._execute_adb_sideload_step(serial, manifest, name)
         return {"ok": False, "reason": f"Unsupported install mode {flash_plan.install_mode}"}
 
-    def _execute_fastboot_step(self, serial: str, manifest: dict[str, Any], step_name: str) -> dict[str, Any]:
+    def _execute_fastboot_step(
+        self,
+        serial: str,
+        manifest: dict[str, Any],
+        step_name: str,
+        transport: str,
+    ) -> dict[str, Any]:
         prefix = ["-s", serial] if serial else []
+        if step_name == "enter_fastboot":
+            if transport == Transport.USB_FASTBOOT.value:
+                return {"ok": True, "stdout": "already in fastboot", "stderr": "", "returncode": 0}
+            return adb.run(prefix + ["reboot", "bootloader"])
         if step_name == "wipe_userdata":
             return fastboot.run(prefix + ["erase", "userdata"])
         if step_name == "boot_validation":
@@ -310,6 +355,8 @@ class FlashExecutorTool(BaseTool):
         prefix = ["-s", serial] if serial else []
         if step_name == "wipe_userdata":
             return adb.run(prefix + ["shell", "recovery", "--wipe_data"])
+        if step_name == "enter_sideload":
+            return adb.run(prefix + ["reboot", "sideload"])
         if step_name == "boot_validation":
             return adb.run(prefix + ["reboot"])
         flash_step = next((step for step in manifest.get("flash_steps", []) if step.get("name") == step_name), None)

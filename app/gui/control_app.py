@@ -86,6 +86,7 @@ class ForgeControlApp:
         self.runtime_recompute_error = ""
         self.activity_spinner_angle = 0
         self.activity_active = False
+        self.last_intervention_alert_key: str | None = None
 
         self.qt_app = QApplication.instance() or QApplication(sys.argv)
         self.qt_app.setApplicationName("ForgeOS Device Agent")
@@ -493,6 +494,16 @@ class ForgeControlApp:
         self.battery_check.setChecked(True)
         self.lockdown_check = QCheckBox("Lockdown defaults are preferred")
         self.lockdown_check.setChecked(True)
+        self.lawful_use_check = QCheckBox("I own or am authorized to modify this device")
+
+        self.intended_user_input = QLineEdit()
+        self.intended_user_input.setPlaceholderText("Example: kitchen wall tablet for family use")
+        self.end_product_input = QTextEdit()
+        self.end_product_input.setMaximumHeight(90)
+        self.end_product_input.setPlaceholderText("Describe the finished device role, apps, restrictions, and expected daily workflow.")
+        self.success_criteria_input = QTextEdit()
+        self.success_criteria_input.setMaximumHeight(80)
+        self.success_criteria_input.setPlaceholderText("Describe what must be true before this is considered done.")
 
         for label_text, widget in [
             ("Primary user persona", self.persona_combo),
@@ -504,6 +515,9 @@ class ForgeControlApp:
             ("Restore expectation", self.restore_combo),
             ("Target use case category", self.use_case_combo),
             ("Secondary goal", self.secondary_goal_combo),
+            ("Intended user or placement", self.intended_user_input),
+            ("Desired end product", self.end_product_input),
+            ("Success criteria", self.success_criteria_input),
         ]:
             label = QLabel(label_text)
             label.setProperty("role", "hint")
@@ -513,6 +527,7 @@ class ForgeControlApp:
         layout.addWidget(self.updates_check)
         layout.addWidget(self.battery_check)
         layout.addWidget(self.lockdown_check)
+        layout.addWidget(self.lawful_use_check)
 
         self.save_profile_button = QPushButton("Save Profile And Refresh Plan")
         self.save_profile_button.clicked.connect(self.save_profile_and_recompute)
@@ -853,8 +868,12 @@ class ForgeControlApp:
             self.updates_check,
             self.battery_check,
             self.lockdown_check,
+            self.lawful_use_check,
         ]:
             checkbox.toggled.connect(self._mark_profile_form_dirty)
+        self.intended_user_input.textChanged.connect(self._mark_profile_form_dirty)
+        self.end_product_input.textChanged.connect(self._mark_profile_form_dirty)
+        self.success_criteria_input.textChanged.connect(self._mark_profile_form_dirty)
 
     def _mark_review_form_dirty(self, *_args: object) -> None:
         if self.review_form_syncing:
@@ -1865,6 +1884,8 @@ class ForgeControlApp:
 
     def _refresh_artifact_panel(self, session_dir: Path) -> None:
         manifest = self._read_artifact_manifest(session_dir)
+        build_request = self._read_json(session_dir / "runtime" / "build-from-source" / "source-build-request.json")
+        source_build_plan = self._read_json(session_dir / "runtime" / "build-from-source" / "source-build-plan.json")
         source_dir = session_dir / "artifacts" / "os-source"
         build_dir = session_dir / "runtime" / "build"
         status = manifest.get("status", "missing_source")
@@ -1888,7 +1909,33 @@ class ForgeControlApp:
         if missing:
             lines.extend(["", "What still needs to be staged:"])
             lines.extend(f"- {item}" for item in missing)
-        else:
+        if build_request:
+            lines.extend(
+                [
+                    "",
+                    "Build-from-source fallback:",
+                    f"- status: {build_request.get('status', 'unknown')}",
+                    f"- builder: {build_request.get('recommended_builder', 'unknown')}",
+                    f"- target: {build_request.get('device_codename') or build_request.get('model') or 'unknown'}",
+                    f"- reason: {build_request.get('reason', 'No reason recorded.')}",
+                ]
+            )
+            commands = build_request.get("commands", []) or []
+            if commands:
+                lines.extend(["", "Build steps:"])
+                lines.extend(f"- {item}" for item in commands[:6])
+        if source_build_plan:
+            strategy = source_build_plan.get("strategy", {}) or {}
+            lines.extend(
+                [
+                    "",
+                    "Local source builder:",
+                    f"- strategy: {strategy.get('id', 'unknown')}",
+                    f"- command: {source_build_plan.get('command', 'not planned')}",
+                    f"- output: {source_build_plan.get('output_dir', 'unknown')}",
+                ]
+            )
+        if not missing and not build_request:
             lines.extend(
                 [
                     "",
@@ -1983,9 +2030,13 @@ class ForgeControlApp:
             self._set_combo_by_value(self.restore_combo, profile.restore_expectation.value)
             self._set_combo_by_value(self.use_case_combo, profile.target_use_case.value)
             self._set_combo_by_value(self.secondary_goal_combo, goals.secondary_goal.value)
+            self.intended_user_input.setText(profile.intended_user)
+            self.end_product_input.setPlainText(profile.desired_end_product)
+            self.success_criteria_input.setPlainText(profile.success_criteria)
             self.updates_check.setChecked(goals.requires_reliable_updates)
             self.battery_check.setChecked(goals.prefers_long_battery_life)
             self.lockdown_check.setChecked(goals.prefers_lockdown_defaults)
+            self.lawful_use_check.setChecked(profile.lawful_use_attested)
         finally:
             self.profile_form_syncing = False
         self.profile_form_dirty = False
@@ -2008,6 +2059,10 @@ class ForgeControlApp:
         user_profile.risk_tolerance = RiskTolerance(self.risk_combo.currentData())
         user_profile.restore_expectation = RestoreExpectation(self.restore_combo.currentData())
         user_profile.target_use_case = UseCaseCategory(self.use_case_combo.currentData())
+        user_profile.intended_user = self.intended_user_input.text().strip()
+        user_profile.desired_end_product = self.end_product_input.toPlainText().strip()
+        user_profile.success_criteria = self.success_criteria_input.toPlainText().strip()
+        user_profile.lawful_use_attested = self.lawful_use_check.isChecked()
         self.sessions.write_user_profile(self.current_session_dir, user_profile)
 
         os_goals = self.sessions.load_os_goals(self.current_session_dir)
@@ -2039,6 +2094,10 @@ class ForgeControlApp:
                     "risk_tolerance": user_profile.risk_tolerance.value,
                     "restore_expectation": user_profile.restore_expectation.value,
                     "target_use_case": user_profile.target_use_case.value,
+                    "intended_user": user_profile.intended_user,
+                    "desired_end_product": user_profile.desired_end_product,
+                    "success_criteria": user_profile.success_criteria,
+                    "lawful_use_attested": user_profile.lawful_use_attested,
                 },
                 "os_goals": {
                     "top_goal": os_goals.top_goal.value,
@@ -2239,6 +2298,20 @@ class ForgeControlApp:
                     "- Approve the computer trust prompt.\n"
                     "- Reconnect the USB cable if needed.\n"
                 )
+                self._maybe_show_intervention_alert(
+                    alert_key=f"usb-only:{usb_only_device.get('description', 'unknown')}",
+                    title="Phone Needs Operator Setup",
+                    summary=(
+                        "ForgeOS can see the phone over USB, but it is not yet exposing adb, fastboot, "
+                        "or recovery control."
+                    ),
+                    steps=[
+                        "Unlock the phone.",
+                        "Enable USB debugging if Android is booted.",
+                        "Approve this computer if a trust prompt appears.",
+                        "Reconnect the USB cable if the phone stays in USB-only mode.",
+                    ],
+                )
             else:
                 self._set_text_preserve_scroll(
                     self.autonomous_text,
@@ -2382,6 +2455,74 @@ class ForgeControlApp:
         self.open_code_button.setEnabled(True)
         self._update_card_visibility(True, bool(usb_only_device), engagement_status)
         self._update_refresh_status(reason, has_live_device=bool(live_session), has_usb_only=bool(usb_only_device))
+        self._maybe_show_session_intervention_alert(
+            session_dir=self.current_session_dir,
+            state=state,
+            engagement_status=engagement_status,
+            blocker=blocker_report,
+            next_action=next_action if live_session else "",
+        )
+
+    def _maybe_show_session_intervention_alert(
+        self,
+        *,
+        session_dir: Path,
+        state: dict[str, Any],
+        engagement_status: str,
+        blocker: dict[str, Any],
+        next_action: str,
+    ) -> None:
+        blocker_type = str(blocker.get("blocker_type") or blocker.get("details", {}).get("blocker_type") or "")
+        blocker_summary = str(blocker.get("summary") or blocker.get("details", {}).get("summary") or "")
+        user_steps = list(blocker.get("user_steps") or blocker.get("details", {}).get("user_steps") or [])
+        state_name = str(state.get("state") or "")
+        needs_intervention = (
+            state_name == "QUESTION_GATE"
+            or engagement_status in {"awaiting_user_approval", "usb_only_detected"}
+            or (
+                blocker_type
+                and blocker_type != "none"
+                and not bool(blocker.get("machine_solvable", blocker.get("details", {}).get("machine_solvable", False)))
+            )
+        )
+        if not needs_intervention:
+            return
+
+        if engagement_status == "awaiting_user_approval":
+            summary = "The phone is waiting for you to approve the USB debugging trust prompt."
+            steps = ["Unlock the phone.", "Approve the USB debugging prompt.", "Keep the phone connected."]
+        elif user_steps:
+            summary = blocker_summary or next_action or "ForgeOS needs an external action before it can continue."
+            steps = [str(step) for step in user_steps[:5]]
+        else:
+            summary = blocker_summary or next_action or "ForgeOS needs an external action before it can continue."
+            steps = [next_action] if next_action else ["Review the current blocker panel for the required action."]
+
+        alert_key = f"{session_dir.name}:{state_name}:{engagement_status}:{blocker_type}:{summary[:120]}"
+        self._maybe_show_intervention_alert(
+            alert_key=alert_key,
+            title="Operator Intervention Required",
+            summary=summary,
+            steps=steps,
+        )
+
+    def _maybe_show_intervention_alert(
+        self,
+        *,
+        alert_key: str,
+        title: str,
+        summary: str,
+        steps: list[str],
+    ) -> None:
+        if getattr(self, "last_intervention_alert_key", None) == alert_key:
+            return
+        self.last_intervention_alert_key = alert_key
+        message_lines = [summary.strip()]
+        clean_steps = [step.strip() for step in steps if step and step.strip()]
+        if clean_steps:
+            message_lines.extend(["", "Next action:"])
+            message_lines.extend(f"- {step}" for step in clean_steps[:5])
+        QMessageBox.warning(getattr(self, "window", None), title, "\n".join(message_lines))
 
     def _refresh_connection_help(self, session_dir: Path) -> None:
         profile = json.loads((session_dir / "device-profile.json").read_text())

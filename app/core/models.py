@@ -270,6 +270,8 @@ class PolicyModel:
             "ttl_days": 7,
         }
     )
+    allow_long_source_builds: bool = True
+    max_source_build_seconds: int = 28800
     promotion_requires_n_validations: int = 3
     ethical_priority_override: str = "high"
     allow_bootloader_relock: bool = False
@@ -305,6 +307,10 @@ class UserProfile:
     risk_tolerance: RiskTolerance = RiskTolerance.LOW
     restore_expectation: RestoreExpectation = RestoreExpectation.MUST_BE_ONE_CLICK
     target_use_case: UseCaseCategory = UseCaseCategory.LIGHTWEIGHT_ANDROID
+    intended_user: str = ""
+    desired_end_product: str = ""
+    success_criteria: str = ""
+    lawful_use_attested: bool = False
     notes: str = ""
     updated_at: str = field(default_factory=utc_now)
 
@@ -456,6 +462,7 @@ class RuntimeSessionPlan:
     operator_summary: str
     recommended_use_case: str
     recommended_path: str
+    end_product_brief: dict[str, Any] = field(default_factory=dict)
     worker_routes: list[WorkerRouteDecision] = field(default_factory=list)
     worker_executions: list[WorkerExecution] = field(default_factory=list)
     recommendation_options: list[RecommendationOption] = field(default_factory=list)
@@ -591,6 +598,10 @@ def user_profile_from_dict(data: dict[str, Any]) -> UserProfile:
         target_use_case=UseCaseCategory(
             data.get("target_use_case", UseCaseCategory.LIGHTWEIGHT_ANDROID.value)
         ),
+        intended_user=data.get("intended_user", ""),
+        desired_end_product=data.get("desired_end_product", ""),
+        success_criteria=data.get("success_criteria", ""),
+        lawful_use_attested=bool(data.get("lawful_use_attested", False)),
         notes=data.get("notes", ""),
         updated_at=data.get("updated_at", utc_now()),
     )

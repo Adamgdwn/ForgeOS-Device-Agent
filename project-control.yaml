@@ -36,6 +36,7 @@ exceptions: []
 agent_controls:
   applicable: true
   autonomy_level: A1
-  model_registry: []
-  prompt_registry: []
-
+  model_registry:
+    - docs/model-registry.md
+  prompt_registry:
+    - docs/prompt-register.md

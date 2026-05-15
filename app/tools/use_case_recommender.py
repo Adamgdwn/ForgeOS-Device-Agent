@@ -31,12 +31,16 @@ class UseCaseRecommenderTool(BaseTool):
         priority = user_profile.get("primary_priority") or os_goals.get("top_goal", "security")
         transport_hint = device.get("transport", "unknown")
         adapter = connection_plan.get("recommended_adapter", {}).get("adapter_id", "unknown")
+        desired_end_product = str(user_profile.get("desired_end_product", "")).lower()
+        intended_user = str(user_profile.get("intended_user", "")).lower()
+        lawful_use_attested = bool(user_profile.get("lawful_use_attested", False))
 
         options = [
             {
                 "option_id": "accessibility_focused_phone",
                 "label": "Accessibility-focused phone",
-                "fit_score": 0.82 if priority in {"simplicity", "security"} else 0.55,
+                "fit_score": (0.82 if priority in {"simplicity", "security"} else 0.55)
+                + self._keyword_bonus(desired_end_product, intended_user, ["senior", "accessibility", "simple", "phone"]),
                 "rationale": "A constrained, dependable phone profile suits users who need clarity, safer defaults, and fewer moving parts.",
                 "constraints": ["Needs stable telephony and input support."],
                 "evidence": [f"priority={priority}", f"technical_comfort={technical_comfort}"],
@@ -44,7 +48,8 @@ class UseCaseRecommenderTool(BaseTool):
             {
                 "option_id": "media_device",
                 "label": "Offline media device",
-                "fit_score": 0.76 if support_status != "blocked" else 0.44,
+                "fit_score": (0.76 if support_status != "blocked" else 0.44)
+                + self._keyword_bonus(desired_end_product, intended_user, ["media", "music", "video", "offline", "player"]),
                 "rationale": "Media playback is often achievable even when deeper platform customization is still uncertain.",
                 "constraints": ["Storage health and battery longevity matter."],
                 "evidence": [f"support_status={support_status}", f"transport={transport_hint}"],
@@ -52,7 +57,8 @@ class UseCaseRecommenderTool(BaseTool):
             {
                 "option_id": "home_control_panel",
                 "label": "Home control panel",
-                "fit_score": 0.72 if technical_comfort != "low" else 0.58,
+                "fit_score": (0.72 if technical_comfort != "low" else 0.58)
+                + self._keyword_bonus(desired_end_product, intended_user, ["kiosk", "dashboard", "wall", "home", "control"]),
                 "rationale": "A docked, single-purpose control surface can extend the life of older devices with modest hardware requirements.",
                 "constraints": ["Requires reliable charging placement and kiosk-style shell."],
                 "evidence": [f"adapter={adapter}"],
@@ -60,12 +66,24 @@ class UseCaseRecommenderTool(BaseTool):
             {
                 "option_id": "lightweight_custom_android",
                 "label": "Lightweight custom Android",
-                "fit_score": 0.67 if support_status == "actionable" else 0.35,
+                "fit_score": (0.67 if support_status == "actionable" else 0.35)
+                + self._keyword_bonus(desired_end_product, intended_user, ["android", "custom", "tablet", "phone", "general"]),
                 "rationale": "A lightly customized Android path is the most maintainable route when transport, restore, and update paths are still developing.",
                 "constraints": ["Needs a trustworthy build and preview path before install."],
                 "evidence": [f"support_status={support_status}", f"adapter={adapter}"],
             },
         ]
+        if not lawful_use_attested:
+            options.append(
+                {
+                    "option_id": "research_hold",
+                    "label": "Research and preview only",
+                    "fit_score": 1.0,
+                    "rationale": "ForgeOS can assess and plan, but install or bypass-style actions require an explicit authorization attestation.",
+                    "constraints": ["No destructive execution or lock-bypass work without lawful authorization."],
+                    "evidence": ["lawful_use_attested=false"],
+                }
+            )
 
         ranked = sorted(options, key=lambda option: option["fit_score"], reverse=True)
         recommended = ranked[0]["option_id"] if ranked else "research_hold"
@@ -79,3 +97,8 @@ class UseCaseRecommenderTool(BaseTool):
             "options": ranked,
             "summary": f"ForgeOS recommends `{recommended}` as the best attainable use case with the current evidence.",
         }
+
+    def _keyword_bonus(self, desired_end_product: str, intended_user: str, keywords: list[str]) -> float:
+        haystack = f"{desired_end_product} {intended_user}"
+        matches = sum(1 for keyword in keywords if keyword in haystack)
+        return min(0.18, matches * 0.06)

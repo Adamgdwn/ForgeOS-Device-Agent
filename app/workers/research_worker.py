@@ -123,7 +123,7 @@ def _ollama_executable() -> str:
 
 
 def _ollama_model() -> str:
-    return os.environ.get("FORGEOS_OLLAMA_MODEL", "qwen3:8b")
+    return os.environ.get("FORGEOS_OLLAMA_MODEL", "gemma4:latest")
 
 
 def _goose_executable() -> str:
@@ -135,7 +135,7 @@ def _goose_provider() -> str:
 
 
 def _goose_model() -> str:
-    return os.environ.get("FORGEOS_GOOSE_MODEL", "qwen3:8b")
+    return os.environ.get("FORGEOS_GOOSE_MODEL", "gemma4:latest")
 
 
 def _ollama_available() -> bool:

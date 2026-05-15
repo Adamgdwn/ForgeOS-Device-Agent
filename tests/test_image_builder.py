@@ -1,5 +1,6 @@
 import json
 import tarfile
+import zipfile
 from pathlib import Path
 
 from app.tools.image_builder import ImageBuilderTool
@@ -52,3 +53,25 @@ def test_image_builder_records_missing_source_requirements(tmp_path: Path) -> No
     manifest_path = session_dir / "runtime" / "build" / "artifact-manifest.json"
     manifest = json.loads(manifest_path.read_text())
     assert manifest["missing_requirements"]
+
+
+def test_image_builder_extracts_fastboot_archive(tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "sample"
+    source_dir = session_dir / "artifacts" / "os-source"
+    source_dir.mkdir(parents=True)
+    with zipfile.ZipFile(source_dir / "factory-images.zip", "w") as archive:
+        archive.writestr("images/boot.img", b"boot")
+        archive.writestr("images/vendor.img", b"vendor")
+
+    result = ImageBuilderTool(tmp_path).execute(
+        {
+            "session_dir": str(session_dir),
+            "build_plan": {"os_path": "maintainable_hardened_path"},
+            "device": {"serial": "ABC123"},
+        }
+    )
+
+    manifest = json.loads((session_dir / "runtime" / "build" / "artifact-manifest.json").read_text())
+    assert result["status"] == "ready"
+    assert manifest["install_mode"] == "fastboot_images"
+    assert {Path(path).name for path in manifest["staged_files"]} == {"boot.img", "vendor.img"}

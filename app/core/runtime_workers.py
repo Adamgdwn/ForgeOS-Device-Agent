@@ -55,7 +55,7 @@ class OllamaAdapter:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.executable = os.environ.get("FORGEOS_OLLAMA_EXECUTABLE", "ollama")
-        self.model = os.environ.get("FORGEOS_OLLAMA_MODEL", "qwen3:8b")
+        self.model = os.environ.get("FORGEOS_OLLAMA_MODEL", "gemma4:latest")
         self.available = shutil.which(self.executable) is not None
 
     def build_command(self, task: WorkerTask) -> list[str]:
@@ -77,7 +77,7 @@ class GooseAdapter:
         self.root = root
         self.executable = os.environ.get("FORGEOS_GOOSE_EXECUTABLE", "goose")
         self.provider = os.environ.get("FORGEOS_GOOSE_PROVIDER", "ollama")
-        self.model = os.environ.get("FORGEOS_GOOSE_MODEL", "qwen3:8b")
+        self.model = os.environ.get("FORGEOS_GOOSE_MODEL", "gemma4:latest")
         self.available = shutil.which(self.executable) is not None
 
     def build_command(self, task: WorkerTask) -> list[str]:
@@ -103,7 +103,7 @@ class AiderAdapter:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.executable = os.environ.get("FORGEOS_AIDER_EXECUTABLE", "aider")
-        self.model = os.environ.get("FORGEOS_AIDER_MODEL", "ollama_chat/qwen3:8b")
+        self.model = os.environ.get("FORGEOS_AIDER_MODEL", "ollama_chat/gemma4:latest")
         self.available = shutil.which(self.executable) is not None
 
     def build_command(self, task: WorkerTask, session_dir: Path) -> list[str]:
@@ -362,7 +362,7 @@ class WorkerRuntime:
         if helper_first and self.ollama.available:
             helper = self._run_adapter(
                 worker=route.selected_worker,
-                adapter_name="ollama_qwen_local_helper",
+                adapter_name="ollama_gemma4_local_helper",
                 task=task,
                 session_dir=session_dir,
                 command=self.ollama.build_command(task),
@@ -386,7 +386,7 @@ class WorkerRuntime:
         if self.ollama.available:
             fallback = self._run_adapter(
                 worker=route.selected_worker,
-                adapter_name="ollama_qwen_local_helper",
+                adapter_name="ollama_gemma4_local_helper",
                 task=task,
                 session_dir=session_dir,
                 command=self.ollama.build_command(task),

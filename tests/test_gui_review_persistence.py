@@ -7,7 +7,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLabel, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 from app.gui.control_app import ForgeControlApp
 
@@ -219,3 +219,29 @@ def test_saved_review_selection_survives_proposal_refresh(tmp_path: Path) -> Non
     gui._refresh_proposal_panel(session_dir, runtime_plan)
 
     assert gui.proposal_choice_combo.currentData() == "lightweight_custom_android"
+
+
+def test_intervention_alert_shows_once_for_same_blocker(monkeypatch, tmp_path: Path) -> None:
+    gui, session_dir = _build_gui_harness(tmp_path)
+    calls = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: calls.append(args))
+
+    payload = {
+        "session_dir": session_dir,
+        "state": {"state": "QUESTION_GATE"},
+        "engagement_status": "awaiting_user_approval",
+        "blocker": {
+            "blocker_type": "trust_blocker",
+            "machine_solvable": False,
+            "summary": "USB debugging trust approval is required.",
+            "user_steps": ["Approve the trust prompt."],
+        },
+        "next_action": "Approve the USB debugging trust prompt.",
+    }
+
+    gui._maybe_show_session_intervention_alert(**payload)
+    gui._maybe_show_session_intervention_alert(**payload)
+
+    assert len(calls) == 1
+    assert calls[0][1] == "Operator Intervention Required"
+    assert "USB debugging" in calls[0][2]

@@ -67,6 +67,8 @@ class RuntimePlanner:
         governance_summary: dict[str, Any] | None = None,
         self_improvement_summary: dict[str, Any] | None = None,
     ) -> dict[str, str]:
+        user_profile = self.sessions.load_user_profile(session_dir)
+        end_product_brief = self._end_product_brief(user_profile)
         plan = RuntimeSessionPlan(
             session_id=state.session_id,
             phase=self._phase_for_state(
@@ -82,6 +84,7 @@ class RuntimePlanner:
             operator_summary=self._operator_summary(assessment, build_plan, blocker, install_gate),
             recommended_use_case=recommendation.get("recommended_use_case", "research_hold"),
             recommended_path=build_plan.get("os_path", "research_only_path"),
+            end_product_brief=end_product_brief,
             worker_routes=worker_routes,
             worker_executions=worker_executions,
             recommendation_options=self._options_from_recommendation(recommendation),
@@ -129,6 +132,7 @@ class RuntimePlanner:
                         "phase": plan.phase.value,
                         "recommended_use_case": plan.recommended_use_case,
                         "recommended_path": plan.recommended_path,
+                        "end_product_brief": end_product_brief,
                         "hard_stops": plan.hard_stops,
                         "next_actions": plan.next_actions,
                         "governance_summary": governance_summary or {},
@@ -166,6 +170,7 @@ class RuntimePlanner:
                 requires_updates=os_goals.requires_reliable_updates,
                 prefers_lockdown=os_goals.prefers_lockdown_defaults,
                 prefers_battery=os_goals.prefers_long_battery_life,
+                end_product_brief_present=bool(user_profile.desired_end_product.strip()),
             )
             included_features = list(feature_groups["included_features"])
             optional_features = list(feature_groups["optional_features"])
@@ -207,6 +212,7 @@ class RuntimePlanner:
         return {
             "recommended_use_case": recommended_use_case,
             "recommended_path": recommended_path,
+            "end_product_brief": self._end_product_brief(user_profile),
             "proposed_os_name": self._proposal_os_name(recommended["option_id"], recommended_path) if recommended else self._proposal_os_name(recommended_use_case, recommended_path),
             "preview_status": preview_execution.status,
             "preview_mode": preview_execution.mode,
@@ -214,6 +220,14 @@ class RuntimePlanner:
             "options": options,
             "selected_option_id": selected["option_id"] if selected else selected_option_id,
             "selected_option": selected or {},
+        }
+
+    def _end_product_brief(self, user_profile: Any) -> dict[str, Any]:
+        return {
+            "intended_user": user_profile.intended_user,
+            "desired_end_product": user_profile.desired_end_product,
+            "success_criteria": user_profile.success_criteria,
+            "lawful_use_attested": user_profile.lawful_use_attested,
         }
 
     def _proposal_summary(self, recommended_path: str, recommended_use_case: str) -> str:
@@ -251,6 +265,7 @@ class RuntimePlanner:
         requires_updates: bool,
         prefers_lockdown: bool,
         prefers_battery: bool,
+        end_product_brief_present: bool,
     ) -> dict[str, list[dict[str, Any]]]:
         included_map: dict[str, list[dict[str, str]]] = {
             "accessibility_focused_phone": [
@@ -278,6 +293,8 @@ class RuntimePlanner:
         included = list(included_map.get(option_id, []))
         excluded = [
             {"id": "wipe_autostart", "label": "Automatic wipe/install start", "reason": "Destructive execution must stay operator-gated."},
+            {"id": "lock_bypass", "label": "Account, carrier, or ownership lock bypass", "reason": "ForgeOS only plans lawful owner-authorized device work."},
+            {"id": "unlicensed_assets", "label": "Unlicensed firmware, apps, or paid content", "reason": "ForgeOS must use lawful source and install inputs."},
         ]
         if google_preference == "keep_google_services":
             included.append({"id": "google_services", "label": "Keep Google services compatibility", "reason": "Matches the selected service preference."})
@@ -294,6 +311,8 @@ class RuntimePlanner:
             included.append({"id": "lockdown_defaults", "label": "Hardened privacy and lockdown defaults", "reason": "Matches the safety-first profile."})
         if prefers_battery:
             included.append({"id": "battery_profile", "label": "Battery-preserving runtime tuning", "reason": "Matches the long-battery-life preference."})
+        if end_product_brief_present:
+            included.append({"id": "end_product_brief", "label": "Operator-defined end-product brief", "reason": "Keeps path selection tied to the requested finished device role."})
         if recommended_path == "research_only_path":
             excluded.append({"id": "emulator_validated_build", "label": "Emulator-validated install artifact", "reason": "Not available yet while the session remains in research mode."})
         return {

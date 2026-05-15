@@ -30,6 +30,8 @@
       "items": { "type": "string" }
     },
     "firmware_source_provenance": { "type": "object" },
+    "allow_long_source_builds": { "type": "boolean" },
+    "max_source_build_seconds": { "type": "integer", "minimum": 1 },
     "promotion_requires_n_validations": { "type": "integer", "minimum": 1 },
     "ethical_priority_override": { "type": "string" },
     "allow_bootloader_relock": { "type": "boolean" },

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tarfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -37,9 +38,11 @@ class ImageBuilderTool(BaseTool):
         source_dir = session_dir / "artifacts" / "os-source"
         build_dir = session_dir / "runtime" / "build"
         staged_dir = build_dir / "staged"
+        extracted_dir = build_dir / "extracted"
         source_dir.mkdir(parents=True, exist_ok=True)
         build_dir.mkdir(parents=True, exist_ok=True)
         staged_dir.mkdir(parents=True, exist_ok=True)
+        extracted_dir.mkdir(parents=True, exist_ok=True)
 
         manifest_path = build_dir / "artifact-manifest.json"
         bundle_path = build_dir / "flashable-artifacts.tar.gz"
@@ -52,8 +55,9 @@ class ImageBuilderTool(BaseTool):
                         "# Stage Install Source Artifacts Here",
                         "",
                         "Supported generic inputs:",
-                        "- `update.zip`, `ota.zip`, or `payload.zip` for adb sideload",
+                        "- Android OTA or recovery ZIP packages, including LineageOS-style named ZIPs",
                         "- fastboot images such as `boot.img`, `system.img`, `vendor.img`, `vbmeta.img`, `super.img`",
+                        "- ZIP or tar archives containing fastboot images",
                         "",
                         "ForgeOS will stage these into `runtime/build/` and only enable install execution when a real artifact set is present.",
                     ]
@@ -63,6 +67,12 @@ class ImageBuilderTool(BaseTool):
 
         sideload_zip = self._find_sideload_zip(source_dir)
         fastboot_images = self._find_fastboot_images(source_dir)
+        source_artifact = str(sideload_zip) if sideload_zip else ""
+        if not sideload_zip and not fastboot_images:
+            extracted = self._extract_fastboot_archive(source_dir, extracted_dir)
+            if extracted:
+                fastboot_images = extracted
+                source_artifact = str(extracted[0][1].parent)
 
         status = "missing_source"
         install_mode = "unavailable"
@@ -101,8 +111,9 @@ class ImageBuilderTool(BaseTool):
                 )
         else:
             missing = [
-                f"Stage an OTA-style package such as `update.zip` under {source_dir}",
+                f"Stage an Android OTA or recovery ZIP under {source_dir}",
                 f"or stage fastboot images such as `boot.img`, `system.img`, or `vendor.img` under {source_dir}.",
+                f"Fastboot image archives are also supported when they contain recognized `.img` partition files.",
             ]
 
         if status == "ready":
@@ -119,6 +130,7 @@ class ImageBuilderTool(BaseTool):
             "build_path": build_plan.get("os_path", "unknown"),
             "proposed_os_name": build_plan.get("proposed_os_name", "Unknown build profile"),
             "staged_files": [str(path) for path in staged_files],
+            "source_artifact": source_artifact,
             "bundle_path": str(bundle_path) if status == "ready" else "",
             "flash_steps": flash_steps,
             "missing_requirements": missing,
@@ -141,9 +153,25 @@ class ImageBuilderTool(BaseTool):
             return None
         for name in ["update.zip", "ota.zip", "payload.zip"]:
             candidate = source_dir / name
-            if candidate.exists():
+            if candidate.exists() and self._is_android_sideload_zip(candidate):
+                return candidate
+        for candidate in sorted(source_dir.glob("*.zip")):
+            if self._is_android_sideload_zip(candidate):
                 return candidate
         return None
+
+    def _is_android_sideload_zip(self, candidate: Path) -> bool:
+        try:
+            with zipfile.ZipFile(candidate) as archive:
+                names = set(archive.namelist())
+        except zipfile.BadZipFile:
+            return False
+        return bool(
+            "payload.bin" in names
+            or "META-INF/com/google/android/update-binary" in names
+            or "META-INF/com/android/metadata" in names
+            or "META-INF/com/google/android/metadata" in names
+        )
 
     def _find_fastboot_images(self, source_dir: Path) -> list[tuple[str, Path]]:
         if not source_dir.exists():
@@ -154,6 +182,45 @@ class ImageBuilderTool(BaseTool):
             if candidate.exists():
                 images.append((filename.removesuffix(".img"), candidate))
         return images
+
+    def _extract_fastboot_archive(self, source_dir: Path, extracted_dir: Path) -> list[tuple[str, Path]]:
+        archives = [
+            *sorted(source_dir.glob("*.zip")),
+            *sorted(source_dir.glob("*.tar")),
+            *sorted(source_dir.glob("*.tar.gz")),
+            *sorted(source_dir.glob("*.tgz")),
+        ]
+        for archive_path in archives:
+            target_dir = extracted_dir / archive_path.name.replace(".", "_")
+            target_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                if archive_path.suffix == ".zip":
+                    with zipfile.ZipFile(archive_path) as archive:
+                        for member in archive.namelist():
+                            filename = Path(member).name
+                            if filename in self._FASTBOOT_ORDER:
+                                archive.extract(member, target_dir)
+                                extracted = target_dir / member
+                                flat_target = target_dir / filename
+                                if extracted.resolve() != flat_target.resolve():
+                                    shutil.copy2(extracted, flat_target)
+                elif tarfile.is_tarfile(archive_path):
+                    with tarfile.open(archive_path) as archive:
+                        for member in archive.getmembers():
+                            filename = Path(member.name).name
+                            if member.isfile() and filename in self._FASTBOOT_ORDER:
+                                archive.extract(member, target_dir)
+                                extracted = target_dir / member.name
+                                flat_target = target_dir / filename
+                                if extracted.resolve() != flat_target.resolve():
+                                    shutil.copy2(extracted, flat_target)
+            except Exception as exc:  # noqa: BLE001
+                self.logger.warning("Could not extract fastboot archive %s: %s", archive_path, exc)
+                continue
+            images = self._find_fastboot_images(target_dir)
+            if images:
+                return images
+        return []
 
     def _readme_text(self, manifest: dict[str, Any]) -> str:
         lines = [

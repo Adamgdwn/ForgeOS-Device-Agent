@@ -29,6 +29,8 @@ The current build includes a runtime-first session model, a GUI control surface,
 - Explicit destructive approval capture plus approved dry-run flash execution planning.
 - Pre-wipe recovery bundle, live device metadata backup, and restore-plan generation per session.
 - Best-use-case recommendation so each device can be matched to a practical rehabilitation target instead of a one-size-fits-all build path.
+- Goal-directed rehabilitation intake so the operator can describe the desired end product, intended user, and success criteria before ForgeOS selects the lawful attainable path.
+- Lawful-use attestation gates install-oriented planning; without it ForgeOS remains in assessment, research, and preview mode.
 
 ## Repo Structure
 
@@ -116,15 +118,18 @@ This checkpoint is runnable and auditable. It can now:
 - re-enter stalled sessions when a waiting device changes transport or state
 - deep-scan live devices after repeated non-advancing iterate cycles
 - resolve firmware sources conservatively with TTL-aware research and trusted-host download checks
+- automatically retry artifact staging after trusted source resolution and fall back to a local source-build plan when no acceptable package is found
+- run a configured long local Android build command, or generate LineageOS/AOSP-style build scripts, when policy and lawful-use attestation allow it
 - persist flash plans and destructive approval state
 - route work across explicit worker tiers
 - generate best-use-case recommendations and runtime session plans
+- shape recommendations around an operator-defined end-product brief and intended user
 - run approved dry-run execution paths
 - surface the current runtime objective in a simplified operator monitor
 
 What is still incomplete:
 
-- full hardware-aware OS build automation for arbitrary devices
+- guaranteed hardware-aware OS build success for arbitrary devices without usable device/vendor source trees
 - device-family flashing adapters across the Android ecosystem
 - unattended live wipe/flash/validate loops on real hardware
 - robust session renaming when an early coarse identity later becomes precise
@@ -141,7 +146,7 @@ The next highest-value work is to keep turning ForgeOS into an explicit autonomo
 Near-term priorities:
 
 - Build on the experiment ledger so every remediation path records a measurable `advance` or `discard` outcome, blocker identity, elapsed time, and a session fitness score, similar in spirit to Karpathy's `autoresearch` keep-or-revert loop.
-- Teach source acquisition to rank and compare multiple firmware candidates instead of taking the first locally or remotely trusted match.
+- Extend source-builder strategy selection with device-family-specific manifests and known-good branch matrices.
 - Make preview generation consume accepted and rejected features so the preview output changes when the operator changes the plan.
 - Replace more simulated preview content with concrete generated UI walkthroughs, capability summaries, and build-specific artifacts.
 - Expand backup visibility so the operator can inspect bundle contents, restore steps, and rollback confidence more directly from the GUI.

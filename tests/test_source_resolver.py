@@ -120,3 +120,86 @@ def test_source_resolver_ranks_multiple_candidates(monkeypatch, tmp_path: Path) 
 
     assert result["status"] == "ok"
     assert result["ranked_candidates"][0]["filename"] == "pixel8_update.zip"
+
+
+def test_source_resolver_discovers_trusted_online_candidate(monkeypatch, tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "demo"
+    session_dir.mkdir(parents=True)
+    (session_dir / "device-profile.json").write_text(
+        json.dumps(
+            {
+                "manufacturer": "Google",
+                "model": "Pixel 8",
+                "device_codename": "akita",
+            }
+        )
+    )
+
+    def fake_urlopen(url: str, timeout: int = 60) -> _FakeResponse:
+        if url.endswith(".zip"):
+            return _FakeResponse(b"x" * (11 * 1024 * 1024))
+        return _FakeResponse(b'<a href="https://download.lineageos.org/akita/lineage-akita.zip">build</a>')
+
+    monkeypatch.setattr("app.tools.source_resolver.urlopen", fake_urlopen)
+
+    result = SourceResolverTool(tmp_path).run({"session_dir": str(session_dir)})
+
+    assert result["status"] == "ok"
+    assert result["source_url"].endswith("lineage-akita.zip")
+    assert Path(result["staged_path"]).exists()
+
+
+def test_source_resolver_emits_build_request_when_no_candidate(monkeypatch, tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "demo"
+    session_dir.mkdir(parents=True)
+    (session_dir / "device-profile.json").write_text(
+        json.dumps(
+            {
+                "manufacturer": "Example",
+                "model": "Old Tablet",
+                "device_codename": "oldtab",
+            }
+        )
+    )
+    monkeypatch.setattr("app.tools.source_resolver.urlopen", lambda url, timeout=60: _FakeResponse(b"<html></html>"))
+
+    result = SourceResolverTool(tmp_path).run({"session_dir": str(session_dir)})
+
+    assert result["status"] == "build_required"
+    build_request = result["build_request"]
+    assert Path(build_request["request_path"]).exists()
+    assert Path(build_request["script_path"]).exists()
+
+
+def test_source_resolver_can_run_configured_source_build(monkeypatch, tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "demo"
+    session_dir.mkdir(parents=True)
+    (session_dir / "device-profile.json").write_text(
+        json.dumps(
+            {
+                "manufacturer": "Example",
+                "model": "Old Tablet",
+                "device_codename": "oldtab",
+            }
+        )
+    )
+    build_script = tmp_path / "fake_build.sh"
+    build_script.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "python3 - <<'PY'\n"
+        "import os\n"
+        "from pathlib import Path\n"
+        "Path(os.environ['FORGEOS_SOURCE_OUTPUT_DIR'], 'built-update.zip').write_bytes(b'x' * (11 * 1024 * 1024))\n"
+        "PY\n"
+    )
+    build_script.chmod(0o755)
+    monkeypatch.setattr("app.tools.source_resolver.urlopen", lambda url, timeout=60: _FakeResponse(b"<html></html>"))
+    monkeypatch.setenv("FORGEOS_ALLOW_SOURCE_BUILDS", "1")
+    monkeypatch.setenv("FORGEOS_ANDROID_BUILD_COMMAND", str(build_script))
+
+    result = SourceResolverTool(tmp_path).run({"session_dir": str(session_dir)})
+
+    assert result["status"] == "ok"
+    assert result["source_url"] == ""
+    assert Path(result["staged_path"]).name == "built-update.zip"

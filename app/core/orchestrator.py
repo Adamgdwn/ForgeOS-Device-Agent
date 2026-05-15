@@ -34,6 +34,8 @@ from app.tools.feasibility_assessor import FeasibilityAssessorTool
 from app.tools.flash_executor import FlashExecutorTool
 from app.tools.image_builder import ImageBuilderTool
 from app.tools.restore_controller import RestoreControllerTool
+from app.tools.source_builder import SourceBuilderTool
+from app.tools.source_resolver import SourceResolverTool
 from app.tools.strategy_selector import BuildStrategySelectorTool
 from app.tools.use_case_recommender import UseCaseRecommenderTool
 from app.tools.vscode_opener import VSCodeOpenerTool
@@ -77,6 +79,8 @@ class ForgeOrchestrator:
         self.flash_executor = FlashExecutorTool(root)
         self.image_builder = ImageBuilderTool(root)
         self.restore_controller = RestoreControllerTool(root)
+        self.source_resolver = SourceResolverTool(root)
+        self.source_builder = SourceBuilderTool(root)
         self.vscode_opener = VSCodeOpenerTool(root)
         self.adapter_registry = AdapterRegistry(root)
         self.research_worker = ResearchWorker(root)
@@ -155,6 +159,10 @@ class ForgeOrchestrator:
                         "risk_tolerance": user_profile.risk_tolerance.value,
                         "restore_expectation": user_profile.restore_expectation.value,
                         "target_use_case": user_profile.target_use_case.value,
+                        "intended_user": user_profile.intended_user,
+                        "desired_end_product": user_profile.desired_end_product,
+                        "success_criteria": user_profile.success_criteria,
+                        "lawful_use_attested": user_profile.lawful_use_attested,
                     },
                     "os_goals": {
                         "top_goal": os_goals.top_goal.value,
@@ -272,6 +280,10 @@ class ForgeOrchestrator:
                     "risk_tolerance": user_profile.risk_tolerance.value,
                     "restore_expectation": user_profile.restore_expectation.value,
                     "target_use_case": user_profile.target_use_case.value,
+                    "intended_user": user_profile.intended_user,
+                    "desired_end_product": user_profile.desired_end_product,
+                    "success_criteria": user_profile.success_criteria,
+                    "lawful_use_attested": user_profile.lawful_use_attested,
                 },
                 "os_goals": {
                     "top_goal": os_goals.top_goal.value,
@@ -592,6 +604,10 @@ class ForgeOrchestrator:
                     "risk_tolerance": user_profile.risk_tolerance.value,
                     "restore_expectation": user_profile.restore_expectation.value,
                     "target_use_case": user_profile.target_use_case.value,
+                    "intended_user": user_profile.intended_user,
+                    "desired_end_product": user_profile.desired_end_product,
+                    "success_criteria": user_profile.success_criteria,
+                    "lawful_use_attested": user_profile.lawful_use_attested,
                 },
                 "os_goals": {
                     "top_goal": os_goals.top_goal.value,
@@ -617,6 +633,10 @@ class ForgeOrchestrator:
                     "risk_tolerance": user_profile.risk_tolerance.value,
                     "restore_expectation": user_profile.restore_expectation.value,
                     "target_use_case": user_profile.target_use_case.value,
+                    "intended_user": user_profile.intended_user,
+                    "desired_end_product": user_profile.desired_end_product,
+                    "success_criteria": user_profile.success_criteria,
+                    "lawful_use_attested": user_profile.lawful_use_attested,
                 },
                 "os_goals": {
                     "top_goal": os_goals.top_goal.value,
@@ -641,6 +661,16 @@ class ForgeOrchestrator:
                 },
             }
         )
+        source_acquisition: dict[str, Any] = {}
+        if build_artifacts.get("status") != "ready":
+            build_artifacts, source_acquisition = self._resolve_missing_source_artifacts(
+                session_dir=session_dir,
+                current_profile=current_profile,
+                build_plan=build_plan,
+                initial_artifacts=build_artifacts,
+                user_profile=user_profile,
+                execute_workers=execute_workers,
+            )
         build_plan |= {
             "artifacts_ready": build_artifacts.get("status") == "ready",
             "install_mode": build_artifacts.get("details", {}).get("install_mode", "unavailable"),
@@ -651,6 +681,7 @@ class ForgeOrchestrator:
             "artifact_flash_steps": build_artifacts.get("details", {}).get("flash_steps", []),
             "artifact_missing_requirements": build_artifacts.get("details", {}).get("missing_requirements", []),
             "generated_artifacts": build_artifacts.get("artifacts", []),
+            "source_acquisition": source_acquisition,
         }
         self._safe_transition(session_dir, "RECOMMEND", "ForgeOS is converting evidence into a recommended use case and build path")
         flash_plan = self.flash_executor.build_plan(
@@ -681,6 +712,13 @@ class ForgeOrchestrator:
         current_state.current_blocker_type = blocker["blocker_type"]
         current_state.blocker_confidence = blocker["confidence"]
         self.sessions.write_session_state(session_dir, current_state)
+        end_product_prompt = (
+            "End-product brief:\n"
+            f"- intended user: {user_profile.intended_user or 'not specified'}\n"
+            f"- desired outcome: {user_profile.desired_end_product or 'not specified'}\n"
+            f"- success criteria: {user_profile.success_criteria or 'not specified'}\n"
+            f"- lawful authorization attested: {user_profile.lawful_use_attested}"
+        )
 
         worker_routes = [
             self.worker_router.route(
@@ -689,6 +727,7 @@ class ForgeOrchestrator:
                     summary="Interrogate the current device state and collect transport evidence.",
                     prompt=(
                         "Summarize the current device transport evidence and the next safest runtime action.\n\n"
+                        f"{end_product_prompt}\n\n"
                         f"Assessment: {assessment.get('summary', '')}\n"
                         f"Connection plan: {json_safe(connection_plan)}"
                     ),
@@ -702,6 +741,7 @@ class ForgeOrchestrator:
                     summary="Infer the best attainable use case from the device evidence and user goals.",
                     prompt=(
                         "Given the device evidence and user goals, summarize the best attainable device rehabilitation outcome.\n\n"
+                        f"{end_product_prompt}\n\n"
                         f"Recommendation seed: {json_safe(recommendation)}"
                     ),
                     risk=TaskRisk.MEDIUM,
@@ -714,6 +754,7 @@ class ForgeOrchestrator:
                 summary="Interrogate the current device state and collect transport evidence.",
                 prompt=(
                     "Summarize the current device transport evidence and the next safest runtime action.\n\n"
+                    f"{end_product_prompt}\n\n"
                     f"Assessment: {assessment.get('summary', '')}\n"
                     f"Connection plan: {json_safe(connection_plan)}"
                 ),
@@ -727,6 +768,7 @@ class ForgeOrchestrator:
                 summary="Infer the best attainable use case from the device evidence and user goals.",
                 prompt=(
                     "Given the device evidence and user goals, summarize the best attainable device rehabilitation outcome.\n\n"
+                    f"{end_product_prompt}\n\n"
                     f"Recommendation seed: {json_safe(recommendation)}"
                 ),
                 risk=TaskRisk.MEDIUM,
@@ -924,6 +966,10 @@ class ForgeOrchestrator:
                             "risk_tolerance": user_profile.risk_tolerance.value,
                             "restore_expectation": user_profile.restore_expectation.value,
                             "target_use_case": user_profile.target_use_case.value,
+                            "intended_user": user_profile.intended_user,
+                            "desired_end_product": user_profile.desired_end_product,
+                            "success_criteria": user_profile.success_criteria,
+                            "lawful_use_attested": user_profile.lawful_use_attested,
                         },
                         "os_goals": {
                             "top_goal": os_goals.top_goal.value,
@@ -1184,6 +1230,117 @@ class ForgeOrchestrator:
             "governance_summary": governance_summary,
             "self_improvement_summary": self_improvement_summary,
         }
+
+    def _resolve_missing_source_artifacts(
+        self,
+        *,
+        session_dir: Path,
+        current_profile: Any,
+        build_plan: dict[str, Any],
+        initial_artifacts: dict[str, Any],
+        user_profile: Any,
+        execute_workers: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if not execute_workers:
+            return initial_artifacts, {
+                "status": "deferred",
+                "reason": "Runtime is in lightweight mode; source search and source builds were not launched.",
+            }
+        if build_plan.get("os_path") == "research_only_path":
+            return initial_artifacts, {
+                "status": "deferred",
+                "reason": "Selected build path is research-only.",
+            }
+        if not bool(getattr(user_profile, "lawful_use_attested", False)):
+            return initial_artifacts, {
+                "status": "blocked",
+                "reason": "Lawful authorization must be attested before ForgeOS searches, downloads, or builds replacement OS artifacts.",
+            }
+
+        device = {
+            "transport": (
+                current_profile.transport.value
+                if hasattr(current_profile.transport, "value")
+                else str(current_profile.transport)
+            ),
+            "manufacturer": current_profile.manufacturer,
+            "model": current_profile.model,
+            "serial": current_profile.serial,
+            "android_version": current_profile.android_version,
+            "device_codename": current_profile.device_codename,
+        }
+        acquisition: dict[str, Any] = {
+            "status": "started",
+            "initial_status": initial_artifacts.get("status"),
+        }
+
+        firmware_research_path = session_dir / "research" / "firmware_sources.json"
+        if not firmware_research_path.exists():
+            try:
+                self.research_worker.research_firmware(
+                    session_dir=session_dir,
+                    manufacturer=current_profile.manufacturer or "Unknown",
+                    model=current_profile.model or "Unknown",
+                    codename=current_profile.device_codename or "",
+                    android_version=current_profile.android_version or "",
+                    transport=device["transport"],
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.logger.warning("Firmware research failed before source resolution: %s", exc)
+                acquisition["research_error"] = str(exc)
+
+        resolver_payload = {
+            "session_dir": str(session_dir),
+            "manufacturer": current_profile.manufacturer or "",
+            "model": current_profile.model or "",
+            "device_codename": current_profile.device_codename or "",
+            "research_path": str(firmware_research_path) if firmware_research_path.exists() else "",
+            "target_os": str(build_plan.get("proposed_os_name") or build_plan.get("os_path") or ""),
+        }
+        resolver_result = self.source_resolver.execute(resolver_payload, dry_run=False)
+        acquisition["resolver"] = resolver_result
+        if resolver_result.get("status") == "ok":
+            resolved_artifacts = self.image_builder.execute(
+                {"session_dir": str(session_dir), "build_plan": build_plan, "device": device}
+            )
+            if resolved_artifacts.get("status") == "ready":
+                acquisition["status"] = "resolved_from_trusted_source"
+                return resolved_artifacts, acquisition
+
+        builder_result = self.source_builder.execute(
+            {
+                "session_dir": str(session_dir),
+                "device": device,
+                "build_plan": build_plan,
+                "policy": to_dict(self.policy),
+                "research": self._load_source_research(session_dir),
+                "resolver": resolver_result,
+            },
+            dry_run=False,
+        )
+        acquisition["builder"] = builder_result
+        built_artifacts = self.image_builder.execute(
+            {"session_dir": str(session_dir), "build_plan": build_plan, "device": device}
+        )
+        if built_artifacts.get("status") == "ready":
+            acquisition["status"] = "built_from_source"
+            return built_artifacts, acquisition
+        acquisition["status"] = "build_pending"
+        return built_artifacts, acquisition
+
+    def _load_source_research(self, session_dir: Path) -> dict[str, Any]:
+        research: dict[str, Any] = {}
+        for name in ["device_community.json", "firmware_sources.json"]:
+            path = session_dir / "research" / name
+            if not path.exists():
+                continue
+            try:
+                loaded = json.loads(path.read_text())
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(loaded, dict):
+                research |= loaded
+        return research
 
     def _perform_deep_scan(self, session_dir: Path, profile: Any) -> dict[str, Any] | None:
         serial = str(profile.serial or "")

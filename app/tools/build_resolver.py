@@ -30,7 +30,10 @@ class BuildResolverTool(BaseTool):
         recommendation = dict(payload.get("recommendation", {}))
         operator_review = dict(payload.get("operator_review", {}))
 
-        if assessment.get("support_status") == "blocked":
+        if not bool(user_profile.get("lawful_use_attested", False)):
+            os_path = "research_only_path"
+            reason = "ForgeOS can assess and preview, but install planning stays research-only until lawful authorization is attested."
+        elif assessment.get("support_status") == "blocked":
             os_path = "blocked_path"
             reason = "The device is blocked by support or safety constraints."
         elif selected_strategy in {"transport_recovery", "research_only", "blocked_research"}:
@@ -161,11 +164,15 @@ class BuildResolverTool(BaseTool):
             features.append({"id": "lockdown_defaults", "label": "Hardened privacy and lockdown defaults", "default": True})
         if bool(os_goals.get("prefers_long_battery_life", True)):
             features.append({"id": "battery_profile", "label": "Battery-preserving runtime tuning", "default": True})
+        if str(user_profile.get("desired_end_product", "")).strip():
+            features.append({"id": "end_product_brief", "label": "Operator-defined end-product brief", "default": True})
         return features
 
     def _default_excluded_features(self, selected_option_id: str) -> list[dict[str, str]]:
         excluded = [
             {"id": "wipe_autostart", "label": "Automatic wipe/install start"},
+            {"id": "lock_bypass", "label": "Account, carrier, or ownership lock bypass"},
+            {"id": "unlicensed_assets", "label": "Unlicensed firmware, apps, or paid content"},
         ]
         if selected_option_id == "lightweight_custom_android":
             excluded.append({"id": "full_google_bundle", "label": "Full Google bundle"})

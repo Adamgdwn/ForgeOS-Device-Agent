@@ -38,7 +38,7 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
     goose_exec = os.environ.get("FORGEOS_GOOSE_EXECUTABLE", "goose")
     aider_exec = os.environ.get("FORGEOS_AIDER_EXECUTABLE", "aider")
     codex_exec = os.environ.get("FORGEOS_FRONTIER_EXECUTABLE", "codex")
-    ollama_model = os.environ.get("FORGEOS_OLLAMA_MODEL", "qwen3:8b")
+    ollama_model = os.environ.get("FORGEOS_OLLAMA_MODEL", "gemma4:latest")
     aider_model = os.environ.get("FORGEOS_AIDER_MODEL", "")
     ollama_api_base = os.environ.get("OLLAMA_API_BASE", "http://127.0.0.1:11434")
     emulator_exec = shutil.which("emulator")

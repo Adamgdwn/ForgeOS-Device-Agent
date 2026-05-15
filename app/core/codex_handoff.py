@@ -47,6 +47,10 @@ class CodexHandoffEngine:
                 "technical_comfort": user_profile.technical_comfort.value,
                 "primary_priority": user_profile.primary_priority.value,
                 "google_services_preference": user_profile.google_services_preference.value,
+                "intended_user": user_profile.intended_user,
+                "desired_end_product": user_profile.desired_end_product,
+                "success_criteria": user_profile.success_criteria,
+                "lawful_use_attested": user_profile.lawful_use_attested,
                 "notes": user_profile.notes,
             },
             "os_goals": {
@@ -151,6 +155,10 @@ Use this device session to build whatever connection, probe, and custom-OS prepa
 - Technical comfort: {user_profile.technical_comfort.value}
 - Primary priority: {user_profile.primary_priority.value}
 - Google services preference: {user_profile.google_services_preference.value}
+- Intended user: {user_profile.intended_user or "not specified"}
+- Desired end product: {user_profile.desired_end_product or "not specified"}
+- Success criteria: {user_profile.success_criteria or "not specified"}
+- Lawful authorization attested: {user_profile.lawful_use_attested}
 - Notes: {user_profile.notes or "none"}
 
 ## OS Goals
