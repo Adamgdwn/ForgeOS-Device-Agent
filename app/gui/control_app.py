@@ -102,22 +102,10 @@ class ForgeControlApp:
         root = QWidget()
         self.window.setCentralWidget(root)
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(18, 18, 18, 18)
-        root_layout.setSpacing(14)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(4)
 
         root_layout.addWidget(self._build_header())
-
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        root_layout.addWidget(self.scroll, 1)
-
-        central = QWidget()
-        self.scroll.setWidget(central)
-        outer = QVBoxLayout(central)
-        outer.setContentsMargins(18, 18, 18, 18)
-        outer.setSpacing(14)
 
         self.content_grid = QGridLayout()
 
@@ -136,12 +124,27 @@ class ForgeControlApp:
         self.device_card = self._build_device_card()
         self.help_card = self._build_help_card()
 
-        outer.addWidget(self.now_card)
-        outer.addWidget(self.connection_help_card)
+        # now_card and wizard nav are pinned above the scroll area so the
+        # mouse wheel always scrolls step content, never the fixed chrome.
+        root_layout.addWidget(self.now_card)
         self.connection_help_card.setVisible(False)
+        root_layout.addWidget(self.connection_help_card)
 
         wizard_nav_widget = self._build_wizard_nav()
-        outer.addWidget(wizard_nav_widget)
+        root_layout.addWidget(wizard_nav_widget)
+
+        # Only the step content scrolls.
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        root_layout.addWidget(self.scroll, 1)
+
+        step_container = QWidget()
+        outer = QVBoxLayout(step_container)
+        outer.setContentsMargins(0, 8, 0, 8)
+        outer.setSpacing(10)
+        self.scroll.setWidget(step_container)
 
         self.step_stack = QStackedWidget()
         self.step_stack.addWidget(self.profile_card)
@@ -152,6 +155,7 @@ class ForgeControlApp:
         self.step_stack.addWidget(self.approval_card)
         self.step_stack.addWidget(self._build_status_page())
         outer.addWidget(self.step_stack, 1)
+        outer.addStretch()
 
         self.wizard_current_step = 6
         self._had_session = False
@@ -177,17 +181,17 @@ class ForgeControlApp:
         }
         QGroupBox {
             background: #fffdf8;
-            border: 1.5px solid #e0d0bc;
-            border-radius: 18px;
-            margin-top: 12px;
+            border: 1px solid #e0d0bc;
+            border-radius: 10px;
+            margin-top: 8px;
             font-weight: 700;
-            font-size: 14px;
-            padding-top: 16px;
+            font-size: 13px;
+            padding-top: 10px;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
-            left: 16px;
-            padding: 0 8px 0 8px;
+            left: 12px;
+            padding: 0 6px 0 6px;
             color: #3a5a72;
         }
         QLabel[role="title"] {
@@ -282,11 +286,11 @@ class ForgeControlApp:
             color: #e8edf2;
         }
         QPushButton[role="wizard_step"] {
-            background: #e8dfd4;
-            color: #3a5060;
-            border: 1.5px solid #d4c8b8;
-            border-radius: 14px;
-            padding: 8px 6px;
+            background: #e0d8ce;
+            color: #5a6a78;
+            border: 1px solid #ccc4b8;
+            border-radius: 8px;
+            padding: 2px 6px;
             font-weight: 600;
             font-size: 12px;
             text-align: center;
@@ -294,10 +298,10 @@ class ForgeControlApp:
         QPushButton[role="wizard_step"][wizard_active="true"] {
             background: #e07b2a;
             color: #fff8f0;
-            border: 2px solid #c86018;
+            border: 1.5px solid #c86018;
         }
         QPushButton[role="wizard_step"]:hover {
-            background: #d8cfc4;
+            background: #cfc8be;
             color: #1e2d3d;
         }
         QPushButton[role="wizard_step"][wizard_active="true"]:hover {
@@ -305,8 +309,8 @@ class ForgeControlApp:
             color: #fff8f0;
         }
         QPushButton[role="wizard_step"]:disabled {
-            background: #ece8e2;
-            color: #b0b8c0;
+            background: #eceae6;
+            color: #b8bfc8;
             border-color: #ddd8d0;
         }
         QPushButton[role="handy"] {
@@ -322,9 +326,9 @@ class ForgeControlApp:
         }
         QFrame[role="wizard_nav"] {
             background: #ede5da;
-            border: 1.5px solid #d8ccc0;
-            border-radius: 16px;
-            padding: 6px;
+            border: 1px solid #d8ccc0;
+            border-radius: 10px;
+            padding: 2px;
         }
         QFrame[role="stepblock"] {
             background: #f5efe6;
@@ -458,7 +462,7 @@ class ForgeControlApp:
         self.secondary_label.setProperty("role", "body")
         self.objective_text = QTextEdit()
         self.objective_text.setReadOnly(True)
-        self.objective_text.setMaximumHeight(180)
+        self.objective_text.setMaximumHeight(100)
         layout.addWidget(self.primary_label)
         layout.addWidget(self.secondary_label)
         layout.addWidget(self.objective_text)
@@ -3277,26 +3281,25 @@ class ForgeControlApp:
         widget = QFrame()
         widget.setProperty("role", "wizard_nav")
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(3)
         self.wizard_step_buttons: list[QPushButton] = []
         steps = [
-            "Tell me about\nthis device",
-            "Here's\nmy plan",
-            "Protect\nyour data",
-            "Get files\nready",
-            "Review\ntogether",
-            "Ready\nto install",
-            "Logs &\ndetails",
+            ("1", "Device"),
+            ("2", "Plan"),
+            ("3", "Backup"),
+            ("4", "Files"),
+            ("5", "Review"),
+            ("6", "Install"),
+            ("★", "Logs"),
         ]
-        for idx, label in enumerate(steps):
-            num = str(idx + 1) if idx < 6 else "★"
-            btn = QPushButton(f"{num}\n{label}")
+        for idx, (num, label) in enumerate(steps):
+            btn = QPushButton(f"{num}  {label}")
             btn.setProperty("role", "wizard_step")
             btn.setProperty("wizard_active", False)
             btn.setCheckable(False)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.setMinimumHeight(58)
+            btn.setFixedHeight(32)
             btn.clicked.connect(lambda _=False, i=idx: self._set_wizard_step(i))
             layout.addWidget(btn)
             self.wizard_step_buttons.append(btn)
