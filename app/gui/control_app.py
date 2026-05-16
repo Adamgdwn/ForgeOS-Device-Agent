@@ -156,7 +156,7 @@ class ForgeControlApp:
 
         step_container = QWidget()
         outer = QVBoxLayout(step_container)
-        outer.setContentsMargins(0, 8, 0, 8)
+        outer.setContentsMargins(40, 8, 40, 16)
         outer.setSpacing(10)
         self.scroll.setWidget(step_container)
 
@@ -632,8 +632,10 @@ class ForgeControlApp:
 
         # 2-column grid: label | combo  label | combo
         grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(4)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(6)
+        grid.setColumnMinimumWidth(1, 180)
+        grid.setColumnMinimumWidth(3, 180)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
         pairs = [
@@ -664,6 +666,7 @@ class ForgeControlApp:
         ]:
             combo.installEventFilter(_guard)
             combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            combo.setMaximumWidth(300)
 
         # ── Text inputs ────────────────────────────────────────────────
         self.intended_user_input = QLineEdit()
@@ -694,9 +697,13 @@ class ForgeControlApp:
         check_row.addStretch()
         outer.addLayout(check_row)
 
+        btn_row = QHBoxLayout()
         self.save_profile_button = QPushButton("Save and update my plan")
         self.save_profile_button.clicked.connect(self.save_profile_and_recompute)
-        outer.addWidget(self.save_profile_button)
+        self.save_profile_button.setMaximumWidth(240)
+        btn_row.addWidget(self.save_profile_button)
+        btn_row.addStretch()
+        outer.addLayout(btn_row)
         self._set_button_state(self.save_profile_button, "pending")
         self._bind_profile_form_signals()
         return group
