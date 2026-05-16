@@ -156,11 +156,13 @@ class ForgeControlApp:
 
         step_container = QWidget()
         outer = QVBoxLayout(step_container)
-        outer.setContentsMargins(40, 8, 40, 16)
-        outer.setSpacing(10)
+        outer.setContentsMargins(0, 12, 0, 12)
+        outer.setSpacing(0)
         self.scroll.setWidget(step_container)
 
         self.step_stack = QStackedWidget()
+        self.step_stack.setMaximumWidth(820)
+        self.step_stack.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.step_stack.addWidget(self.profile_card)
         self.step_stack.addWidget(self.proposal_card)
         self.step_stack.addWidget(self.backup_card)
@@ -168,8 +170,17 @@ class ForgeControlApp:
         self.step_stack.addWidget(self.review_card)
         self.step_stack.addWidget(self.approval_card)
         self.step_stack.addWidget(self._build_status_page())
-        outer.addWidget(self.step_stack, 1)
-        outer.addStretch()
+
+        # Center the content column with breathing room on both sides.
+        # addStretch(1) on each side keeps it centered; step_stack never
+        # wider than 820px so there is always white space visible on wide windows.
+        center_h = QHBoxLayout()
+        center_h.setContentsMargins(16, 0, 16, 0)
+        center_h.addStretch(1)
+        center_h.addWidget(self.step_stack)
+        center_h.addStretch(1)
+        outer.addLayout(center_h)
+        outer.addStretch()  # pushes content to top, absorbs empty vertical space
 
         self.wizard_current_step = 6
         self._had_session = False
@@ -466,7 +477,7 @@ class ForgeControlApp:
 
     def _build_now_what_card(self) -> QGroupBox:
         group = QGroupBox("What I'm working on right now")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.primary_label = QLabel()
         self.primary_label.setWordWrap(True)
@@ -484,7 +495,7 @@ class ForgeControlApp:
 
     def _build_host_card(self) -> QGroupBox:
         group = QGroupBox("Your computer's tools")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.host_label = QLabel()
         self.host_label.setWordWrap(True)
@@ -499,7 +510,7 @@ class ForgeControlApp:
 
     def _build_device_card(self) -> QGroupBox:
         group = QGroupBox("About this device")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.device_title = QLabel()
         self.device_title.setWordWrap(True)
@@ -522,7 +533,7 @@ class ForgeControlApp:
 
     def _build_autonomous_card(self) -> QGroupBox:
         group = QGroupBox("What I've been doing")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.autonomous_title = QLabel()
         self.autonomous_title.setWordWrap(True)
@@ -535,7 +546,7 @@ class ForgeControlApp:
 
     def _build_self_heal_card(self) -> QGroupBox:
         group = QGroupBox("I noticed a problem")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.self_heal_status = QLabel("I'll let you know here if I ran into trouble and tried to fix it on my own.")
         self.self_heal_status.setWordWrap(True)
@@ -553,7 +564,7 @@ class ForgeControlApp:
 
     def _build_profile_card(self) -> QGroupBox:
         group = QGroupBox("Tell me about this device")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         outer = QVBoxLayout(group)
         outer.setSpacing(8)
 
@@ -710,7 +721,7 @@ class ForgeControlApp:
 
     def _build_connection_help_card(self) -> QGroupBox:
         group = QGroupBox("How to connect this phone")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.connection_help_title = QLabel("Once I can see the phone, I'll walk you through the exact steps to connect it.")
         self.connection_help_title.setWordWrap(True)
@@ -723,7 +734,7 @@ class ForgeControlApp:
 
     def _build_proposal_card(self) -> QGroupBox:
         group = QGroupBox("Here's my plan")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.proposal_status = QLabel("I'll show you what I think would work best for this device once I've had a look at it.")
         self.proposal_status.setWordWrap(True)
@@ -757,7 +768,7 @@ class ForgeControlApp:
 
     def _build_backup_card(self) -> QGroupBox:
         group = QGroupBox("Let's protect your data first")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.backup_status = QLabel("I won't touch anything destructive until we have a safe recovery path in place.")
         self.backup_status.setWordWrap(True)
@@ -781,7 +792,7 @@ class ForgeControlApp:
 
     def _build_artifact_card(self) -> QGroupBox:
         group = QGroupBox("Getting the files ready")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.artifact_status = QLabel(
             "I'll tell you exactly what files I need and what's already staged — nothing happens until the pieces are in place."
@@ -816,7 +827,7 @@ class ForgeControlApp:
 
     def _build_review_card(self) -> QGroupBox:
         group = QGroupBox("Let's review together")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.review_status = QLabel(
             "Before I do anything permanent, let's make sure we're on the same page about the plan, the recovery path, and what's not included."
@@ -879,7 +890,7 @@ class ForgeControlApp:
 
     def _build_approval_card(self) -> QGroupBox:
         group = QGroupBox("Ready to install")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
 
         self.approval_status = QLabel(
@@ -928,7 +939,7 @@ class ForgeControlApp:
 
     def _build_help_card(self) -> QGroupBox:
         group = QGroupBox("Quick links")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(group)
         self.help_buttons: dict[str, QPushButton] = {}
         for key, label, path in [
