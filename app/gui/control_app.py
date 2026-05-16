@@ -10,7 +10,7 @@ from time import monotonic
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -56,6 +56,19 @@ from app.integrations.udev import list_usb_mobile_devices
 from app.tools.strategy_selector import BuildStrategySelectorTool
 
 
+class _WheelGuard(QObject):
+    """Block wheel events on widgets that don't have keyboard focus.
+
+    Installed on every QComboBox and interactive form widget so that
+    scrolling the page doesn't accidentally cycle through dropdown values.
+    """
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Wheel and not watched.hasFocus():
+            event.ignore()
+            return True
+        return super().eventFilter(watched, event)
+
+
 class ForgeControlApp:
     def __init__(self, root: Path, bootstrap_report: dict[str, object]) -> None:
         self.project_root = root
@@ -79,6 +92,7 @@ class ForgeControlApp:
         self.profile_form_dirty = False
         self.profile_form_syncing = False
         self.profile_form_session: Path | None = None
+        self._wheel_guard = _WheelGuard()
         self.review_form_dirty = False
         self.review_form_syncing = False
         self.review_form_session: Path | None = None
@@ -540,13 +554,15 @@ class ForgeControlApp:
     def _build_profile_card(self) -> QGroupBox:
         group = QGroupBox("Tell me about this device")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        layout = QVBoxLayout(group)
+        outer = QVBoxLayout(group)
+        outer.setSpacing(8)
 
         self.profile_status = QLabel("Tell me who this phone is for and what you want it to do.")
         self.profile_status.setWordWrap(True)
         self.profile_status.setProperty("role", "body")
-        layout.addWidget(self.profile_status)
+        outer.addWidget(self.profile_status)
 
+        # ── Dropdowns ──────────────────────────────────────────────────
         self.persona_combo = QComboBox()
         self.persona_combo.addItem("Daily user", UserPersona.DAILY.value)
         self.persona_combo.addItem("Senior", UserPersona.SENIOR.value)
@@ -573,7 +589,7 @@ class ForgeControlApp:
         self.google_combo = QComboBox()
         self.google_combo.addItem("Keep Google services", GoogleServicesPreference.KEEP.value)
         self.google_combo.addItem("Reduce Google services", GoogleServicesPreference.REDUCE.value)
-        self.google_combo.addItem("Remove Google services where feasible", GoogleServicesPreference.REMOVE.value)
+        self.google_combo.addItem("Remove Google", GoogleServicesPreference.REMOVE.value)
 
         self.autonomy_combo = QComboBox()
         self.autonomy_combo.addItem("Conservative autonomy", AutonomyLimit.CONSERVATIVE.value)
@@ -586,19 +602,19 @@ class ForgeControlApp:
         self.risk_combo.addItem("High risk tolerance", RiskTolerance.HIGH.value)
 
         self.restore_combo = QComboBox()
-        self.restore_combo.addItem("One-click restore preferred", RestoreExpectation.MUST_BE_ONE_CLICK.value)
+        self.restore_combo.addItem("One-click restore", RestoreExpectation.MUST_BE_ONE_CLICK.value)
         self.restore_combo.addItem("Guided restore is okay", RestoreExpectation.GUIDED_IS_OK.value)
-        self.restore_combo.addItem("Research-first restore path is acceptable", RestoreExpectation.RESEARCH_OK.value)
+        self.restore_combo.addItem("Research-first is okay", RestoreExpectation.RESEARCH_OK.value)
 
         self.use_case_combo = QComboBox()
         for label, value in [
-            ("Accessibility-focused phone", UseCaseCategory.ACCESSIBILITY.value),
+            ("Accessibility phone", UseCaseCategory.ACCESSIBILITY.value),
             ("Kid-safe communication", UseCaseCategory.KID_SAFE.value),
             ("Media device", UseCaseCategory.MEDIA.value),
-            ("Offline utility tool", UseCaseCategory.OFFLINE_UTILITY.value),
+            ("Offline utility", UseCaseCategory.OFFLINE_UTILITY.value),
             ("Home control panel", UseCaseCategory.HOME_CONTROL.value),
-            ("Lightweight custom Android", UseCaseCategory.LIGHTWEIGHT_ANDROID.value),
-            ("Experimental hybrid path", UseCaseCategory.EXPERIMENTAL.value),
+            ("Lightweight Android", UseCaseCategory.LIGHTWEIGHT_ANDROID.value),
+            ("Experimental hybrid", UseCaseCategory.EXPERIMENTAL.value),
             ("Special-purpose terminal", UseCaseCategory.KIOSK.value),
         ]:
             self.use_case_combo.addItem(label, value)
@@ -614,50 +630,73 @@ class ForgeControlApp:
         ]:
             self.secondary_goal_combo.addItem(label, value)
 
-        self.updates_check = QCheckBox("Reliable updates are required")
-        self.updates_check.setChecked(True)
-        self.battery_check = QCheckBox("Long battery life is preferred")
-        self.battery_check.setChecked(True)
-        self.lockdown_check = QCheckBox("Lockdown defaults are preferred")
-        self.lockdown_check.setChecked(True)
-        self.lawful_use_check = QCheckBox("I own or am authorized to modify this device")
+        # 2-column grid: label | combo  label | combo
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(4)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+        pairs = [
+            ("Who is this for?",     self.persona_combo,        "Technical level?",     self.comfort_combo),
+            ("What matters most?",   self.priority_combo,       "Google apps?",         self.google_combo),
+            ("How autonomous?",      self.autonomy_combo,       "Risk tolerance?",      self.risk_combo),
+            ("If it goes wrong?",    self.restore_combo,        "Use case?",            self.use_case_combo),
+            ("Secondary priority?",  self.secondary_goal_combo, None,                   None),
+        ]
+        for row, (l1, w1, l2, w2) in enumerate(pairs):
+            lbl1 = QLabel(l1)
+            lbl1.setProperty("role", "hint")
+            grid.addWidget(lbl1, row, 0)
+            grid.addWidget(w1,   row, 1)
+            if l2 and w2:
+                lbl2 = QLabel(l2)
+                lbl2.setProperty("role", "hint")
+                grid.addWidget(lbl2, row, 2)
+                grid.addWidget(w2,   row, 3)
+        outer.addLayout(grid)
 
-        self.intended_user_input = QLineEdit()
-        self.intended_user_input.setPlaceholderText("Example: kitchen wall tablet for family use")
-        self.end_product_input = QTextEdit()
-        self.end_product_input.setMaximumHeight(90)
-        self.end_product_input.setPlaceholderText("Describe the finished device role, apps, restrictions, and expected daily workflow.")
-        self.success_criteria_input = QTextEdit()
-        self.success_criteria_input.setMaximumHeight(80)
-        self.success_criteria_input.setPlaceholderText("Describe what must be true before this is considered done.")
-
-        for label_text, widget in [
-            ("Who is this phone for?", self.persona_combo),
-            ("How technical is the user?", self.comfort_combo),
-            ("What matters most?", self.priority_combo),
-            ("Google apps?", self.google_combo),
-            ("How much should I decide on my own?", self.autonomy_combo),
-            ("How cautious should I be?", self.risk_combo),
-            ("If something goes wrong, restore should be...", self.restore_combo),
-            ("What will this phone be used for?", self.use_case_combo),
-            ("Secondary priority?", self.secondary_goal_combo),
-            ("Where will this phone live?", self.intended_user_input),
-            ("Describe the finished phone", self.end_product_input),
-            ("How will we know when it's done?", self.success_criteria_input),
+        # Install wheel guard on all combos so scroll doesn't cycle values
+        _guard = _WheelGuard(group)
+        for combo in [
+            self.persona_combo, self.comfort_combo, self.priority_combo,
+            self.google_combo, self.autonomy_combo, self.risk_combo,
+            self.restore_combo, self.use_case_combo, self.secondary_goal_combo,
         ]:
-            label = QLabel(label_text)
-            label.setProperty("role", "hint")
-            layout.addWidget(label)
-            layout.addWidget(widget)
+            combo.installEventFilter(_guard)
+            combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        layout.addWidget(self.updates_check)
-        layout.addWidget(self.battery_check)
-        layout.addWidget(self.lockdown_check)
-        layout.addWidget(self.lawful_use_check)
+        # ── Text inputs ────────────────────────────────────────────────
+        self.intended_user_input = QLineEdit()
+        self.intended_user_input.setPlaceholderText("Where will this phone live? e.g. kitchen wall tablet for family")
+        outer.addWidget(self.intended_user_input)
+
+        self.end_product_input = QTextEdit()
+        self.end_product_input.setMaximumHeight(64)
+        self.end_product_input.setPlaceholderText("Describe the finished device — role, apps, restrictions.")
+        outer.addWidget(self.end_product_input)
+
+        self.success_criteria_input = QTextEdit()
+        self.success_criteria_input.setMaximumHeight(56)
+        self.success_criteria_input.setPlaceholderText("Done when… (what must be true before this is considered finished)")
+        outer.addWidget(self.success_criteria_input)
+
+        # ── Checkboxes ────────────────────────────────────────────────
+        check_row = QHBoxLayout()
+        self.updates_check = QCheckBox("Reliable updates")
+        self.updates_check.setChecked(True)
+        self.battery_check = QCheckBox("Long battery life")
+        self.battery_check.setChecked(True)
+        self.lockdown_check = QCheckBox("Lockdown defaults")
+        self.lockdown_check.setChecked(True)
+        self.lawful_use_check = QCheckBox("I own / am authorized to modify this device")
+        for chk in [self.updates_check, self.battery_check, self.lockdown_check, self.lawful_use_check]:
+            check_row.addWidget(chk)
+        check_row.addStretch()
+        outer.addLayout(check_row)
 
         self.save_profile_button = QPushButton("Save and update my plan")
         self.save_profile_button.clicked.connect(self.save_profile_and_recompute)
-        layout.addWidget(self.save_profile_button)
+        outer.addWidget(self.save_profile_button)
         self._set_button_state(self.save_profile_button, "pending")
         self._bind_profile_form_signals()
         return group
@@ -685,6 +724,8 @@ class ForgeControlApp:
         self.proposal_choice_combo = QComboBox()
         self.proposal_choice_combo.addItem("No options yet", "")
         self.proposal_choice_combo.currentIndexChanged.connect(self._proposal_selection_changed)
+        self.proposal_choice_combo.installEventFilter(self._wheel_guard)
+        self.proposal_choice_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.proposal_os_label = QLabel("The proposed OS profile will appear here once I've worked out the best path.")
         self.proposal_os_label.setWordWrap(True)
         self.proposal_os_label.setProperty("role", "body")
