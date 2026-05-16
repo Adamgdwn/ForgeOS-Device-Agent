@@ -415,6 +415,12 @@ class ForgeControlApp:
         button_col = self.button_col
         button_col.setContentsMargins(0, 0, 0, 0)
         button_col.setSpacing(10)
+        self.run_now_button = QPushButton("Run now")
+        self.run_now_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.run_now_button.setToolTip("Force the agent to run its full cycle immediately")
+        self.run_now_button.clicked.connect(self._force_run_now)
+        self._set_button_state(self.run_now_button, "ready")
+        button_col.addWidget(self.run_now_button)
         for label, callback in [
             ("Refresh", self.manual_refresh),
             ("Help guide", lambda: self._open_path(self.project_root / "USER_GUIDE.md")),
@@ -734,6 +740,11 @@ class ForgeControlApp:
         self.artifact_text.setReadOnly(True)
         self.artifact_text.setMaximumHeight(220)
         buttons = QHBoxLayout()
+        self.find_firmware_button = QPushButton("Find & download firmware")
+        self.find_firmware_button.setToolTip("Search LineageOS, TWRP, and GSI sources and download firmware automatically")
+        self.find_firmware_button.clicked.connect(self._trigger_firmware_download)
+        self._set_button_state(self.find_firmware_button, "ready")
+        buttons.addWidget(self.find_firmware_button)
         self.open_artifact_source_button = QPushButton("Open source staging")
         self.open_artifact_source_button.clicked.connect(lambda: self._open_session_artifact("artifacts/os-source"))
         self.open_artifact_manifest_button = QPushButton("See artifact manifest")
@@ -3154,6 +3165,51 @@ class ForgeControlApp:
         newest_mtime = max(p.stat().st_mtime for p in staged_files)
         return newest_mtime > self.last_autonomous_runtime_at
 
+    def _force_run_now(self) -> None:
+        """Immediately trigger a full autonomous runtime cycle, bypassing the halting-state guard."""
+        if self.current_session_dir is None:
+            return
+        if self.runtime_recompute_in_flight:
+            self.status_label.setText("Already running — hang on…")
+            return
+        self._set_button_state(self.run_now_button, "pending")
+        self.run_now_button.setEnabled(False)
+        self.run_now_button.setText("Working…")
+        self._schedule_autonomous_runtime(self.current_session_dir, "operator-triggered run now")
+
+    def _trigger_firmware_download(self) -> None:
+        """Kick off FirmwareDownloader in a background thread and then run the full cycle."""
+        if self.current_session_dir is None:
+            return
+        self.find_firmware_button.setEnabled(False)
+        self.find_firmware_button.setText("Searching…")
+
+        session_dir = self.current_session_dir
+
+        def _worker() -> None:
+            try:
+                profile_path = session_dir / "device-profile.json"
+                if profile_path.exists():
+                    import json as _json
+                    p = _json.loads(profile_path.read_text())
+                    codename = p.get("device_codename") or ""
+                    android_version = p.get("android_version") or ""
+                else:
+                    codename, android_version = "", ""
+                from app.tools.firmware_downloader import FirmwareDownloader
+                result = FirmwareDownloader().resolve_and_download(codename, android_version, session_dir)
+                self.logger.info("Firmware download result: %s", result)
+            except Exception as exc:
+                self.logger.warning("Firmware download failed: %s", exc)
+            finally:
+                self.find_firmware_button.setText("Find & download firmware")
+                self.find_firmware_button.setEnabled(True)
+            # Wake the full cycle so it picks up the new files
+            if not self.runtime_recompute_in_flight:
+                self._schedule_autonomous_runtime(session_dir, "firmware downloaded — resuming cycle")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _schedule_autonomous_runtime(self, session_dir: Path, reason: str) -> None:
         if self.runtime_recompute_in_flight:
             return
@@ -3171,6 +3227,9 @@ class ForgeControlApp:
                 self.logger.exception("Autonomous runtime recompute failed for %s", session_dir)
             finally:
                 self.runtime_recompute_in_flight = False
+                self.run_now_button.setText("Run now")
+                self.run_now_button.setEnabled(True)
+                self._set_button_state(self.run_now_button, "neutral")
 
         threading.Thread(target=_worker, daemon=True).start()
 
