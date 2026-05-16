@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.core.gemma_engine import GemmaEngine
 from app.core.host_capabilities import discover_host_capabilities
 from app.core.models import (
     RetryTelemetry,
@@ -329,6 +330,8 @@ class WorkerRuntime:
                 env={"OLLAMA_API_BASE": str(self.capabilities.get("ollama_api_base", "http://127.0.0.1:11434"))},
                 escalation_triggers=route.escalation_triggers,
             )
+        if route.selected_worker == WorkerRole.FRONTIER_ARCHITECT:
+            return self._run_gemma_frontier(route, task, session_dir)
 
         execution = WorkerExecution(
             worker=route.selected_worker.value,
@@ -341,6 +344,45 @@ class WorkerRuntime:
             telemetry=RetryTelemetry(attempts=0, retry_budget=task.retry_budget, exhausted=False),
         )
         return self._write_transcript(session_dir, execution, {"task": task.summary})
+
+    def _run_gemma_frontier(
+        self,
+        route: WorkerRouteDecision,
+        task: WorkerTask,
+        session_dir: Path,
+    ) -> WorkerExecution:
+        """Route FRONTIER_ARCHITECT tasks to the local Gemma model instead of Codex."""
+        engine = GemmaEngine()
+        device_context = task.context or {}
+        code = engine.write_code(task.prompt or task.summary, device_context)
+        if code:
+            script_path = session_dir / "runtime" / f"gemma_frontier_{int(time.monotonic() * 1000)}.py"
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+            script_path.write_text(code)
+            return self._run_adapter(
+                worker=route.selected_worker,
+                adapter_name="gemma_frontier_codegen",
+                task=task,
+                session_dir=session_dir,
+                command=["python3", str(script_path)],
+                env={},
+                escalation_triggers=route.escalation_triggers,
+            )
+        response = engine.ask(task.prompt or task.summary)
+        summary = (
+            response.get("response") or response.get("summary") or str(response) or "Gemma returned no response."
+        )[:500]
+        execution = WorkerExecution(
+            worker=route.selected_worker.value,
+            adapter_name="gemma_frontier_ask",
+            task_type=task.task_type,
+            status="completed" if response else "failed",
+            summary=summary,
+            confidence=0.65 if response else 0.1,
+            escalation_triggers=route.escalation_triggers,
+            telemetry=RetryTelemetry(attempts=1, retry_budget=task.retry_budget, exhausted=False),
+        )
+        return self._write_transcript(session_dir, execution, {"task": task.summary, "gemma_response": response})
 
     def _run_local_general(
         self,

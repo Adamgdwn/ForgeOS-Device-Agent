@@ -75,6 +75,7 @@ class CodegenRuntime:
         blocker: dict[str, Any],
         connection_plan: dict[str, Any],
         build_plan: dict[str, Any],
+        device_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         runtime_dir = session_dir / "codegen"
         runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -85,7 +86,7 @@ class CodegenRuntime:
 
         artifact_name = f"generated_{task['task_id'].replace('-', '_')}.py"
         script_path = runtime_dir / artifact_name
-        script_path.write_text(self._artifact_source(task, session_dir))
+        script_path.write_text(self._artifact_source(task, session_dir, device_context or {}))
 
         queue = {
             "generated_at": utc_now(),
@@ -578,7 +579,33 @@ if __name__ == "__main__":
             "generated_at": utc_now(),
         }
 
-    def _artifact_source(self, task: dict[str, Any], session_dir: Path) -> str:
+    def _artifact_source(
+        self,
+        task: dict[str, Any],
+        session_dir: Path,
+        device_context: dict[str, Any] | None = None,
+    ) -> str:
+        if device_context:
+            try:
+                from app.core.gemma_engine import GemmaEngine
+                task_desc = (
+                    f"Remediation family: {task.get('remediation_family', 'generic_diagnostic')}\n"
+                    f"Objective: {task.get('objective', '')}\n"
+                    f"Blocker type: {task.get('blocker_type', 'unknown')}\n"
+                    f"Blocker summary: {task.get('blocker_summary', '')}\n"
+                    f"Session dir: {session_dir}\n"
+                    f"Root: {self.root}\n\n"
+                    "The script must:\n"
+                    "1. Import from app.integrations (adb, fastboot) as needed\n"
+                    "2. Write a JSON result to SESSION_DIR/codegen/remediation-result.json with keys: status, evidence, advanced\n"
+                    "3. Exit 0 on success, non-zero on failure"
+                )
+                gemma_code = GemmaEngine().write_code(task_desc, device_context)
+                if gemma_code:
+                    return gemma_code
+            except Exception:
+                pass
+
         session_dir_str = str(session_dir)
         root_str = str(self.root)
         remediation_family = task.get("remediation_family", "generic_diagnostic")

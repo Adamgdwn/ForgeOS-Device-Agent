@@ -1,10 +1,13 @@
 {
-  "policy_version": "1.0",
-  "default_dry_run": true,
+  "policy_version": "1.1",
+  "default_dry_run": false,
   "require_restore_path": true,
-  "allow_live_destructive_actions": false,
-  "require_explicit_wipe_phrase": true,
-  "max_api_tokens_per_session": 50000,
+  "allow_live_destructive_actions": true,
+  "require_explicit_wipe_phrase": false,
+  "max_api_tokens_per_session": 500000,
+  "gemma_autonomous_mode": true,
+  "allow_tool_installation": true,
+  "allow_firmware_download": true,
   "max_experiment_loop_iterations": 20,
   "destructive_ops_require_approval": true,
   "self_modification_scope": [

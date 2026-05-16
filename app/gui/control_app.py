@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -119,9 +120,6 @@ class ForgeControlApp:
         outer.setSpacing(14)
 
         self.content_grid = QGridLayout()
-        self.content_grid.setHorizontalSpacing(14)
-        self.content_grid.setVerticalSpacing(14)
-        outer.addLayout(self.content_grid)
 
         self.now_card = self._build_now_what_card()
         self.steps_card = self._build_steps_card()
@@ -137,7 +135,27 @@ class ForgeControlApp:
         self.autonomous_card = self._build_autonomous_card()
         self.device_card = self._build_device_card()
         self.help_card = self._build_help_card()
-        self._apply_layout_mode("wide")
+
+        outer.addWidget(self.now_card)
+        outer.addWidget(self.connection_help_card)
+        self.connection_help_card.setVisible(False)
+
+        wizard_nav_widget = self._build_wizard_nav()
+        outer.addWidget(wizard_nav_widget)
+
+        self.step_stack = QStackedWidget()
+        self.step_stack.addWidget(self.profile_card)
+        self.step_stack.addWidget(self.proposal_card)
+        self.step_stack.addWidget(self.backup_card)
+        self.step_stack.addWidget(self.artifact_card)
+        self.step_stack.addWidget(self.review_card)
+        self.step_stack.addWidget(self.approval_card)
+        self.step_stack.addWidget(self._build_status_page())
+        outer.addWidget(self.step_stack, 1)
+
+        self.wizard_current_step = 6
+        self._had_session = False
+        self._set_wizard_step(6)
         self._update_responsive_layout(self.window.width())
 
         self.timer = QTimer()
@@ -152,96 +170,180 @@ class ForgeControlApp:
     def _stylesheet(self) -> str:
         return """
         QWidget {
-            background: #f3ede4;
-            color: #233443;
+            background: #f5f0e8;
+            color: #1e2d3d;
             font-family: "Noto Sans";
-            font-size: 13px;
+            font-size: 14px;
         }
         QGroupBox {
-            background: #fffaf3;
-            border: 1px solid #d8c7b0;
-            border-radius: 14px;
-            margin-top: 10px;
-            font-weight: bold;
-            padding-top: 14px;
+            background: #fffdf8;
+            border: 1.5px solid #e0d0bc;
+            border-radius: 18px;
+            margin-top: 12px;
+            font-weight: 700;
+            font-size: 14px;
+            padding-top: 16px;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
-            left: 14px;
-            padding: 0 6px 0 6px;
-            color: #264057;
+            left: 16px;
+            padding: 0 8px 0 8px;
+            color: #3a5a72;
         }
         QLabel[role="title"] {
-            color: #1f3447;
-            font-size: 26px;
-            font-weight: 700;
+            color: #1a2e3f;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
         }
         QLabel[role="subtitle"] {
-            color: #5b7287;
-            font-size: 13px;
+            color: #5a7080;
+            font-size: 14px;
         }
         QLabel[role="body"] {
-            color: #2f4457;
+            color: #2a3d4d;
+            font-size: 14px;
         }
         QLabel[role="hint"] {
-            color: #6f8293;
+            color: #6a7f90;
+            font-size: 13px;
         }
         QLabel[role="legend"] {
-            color: #6f8293;
+            color: #7a8fa0;
             font-size: 12px;
         }
         QTextEdit {
-            background: #f9f4ec;
-            border: 1px solid #d9c7ad;
-            border-radius: 10px;
-            padding: 8px;
-            color: #2a3d4d;
+            background: #fdf8f2;
+            border: 1.5px solid #ddd0bc;
+            border-radius: 12px;
+            padding: 10px;
+            color: #1e2d3d;
             font-family: "DejaVu Sans Mono";
             font-size: 12px;
         }
-        QPushButton {
-            background: #f7941d;
-            color: #1f3447;
-            border: none;
+        QComboBox {
+            background: #fffdf8;
+            border: 1.5px solid #d8c8b0;
             border-radius: 10px;
-            padding: 10px 14px;
+            padding: 6px 10px;
+            color: #1e2d3d;
+            font-size: 13px;
+        }
+        QComboBox::drop-down {
+            border: none;
+        }
+        QLineEdit {
+            background: #fffdf8;
+            border: 1.5px solid #d8c8b0;
+            border-radius: 10px;
+            padding: 7px 10px;
+            color: #1e2d3d;
+            font-size: 13px;
+        }
+        QPushButton {
+            background: #e07b2a;
+            color: #fff8f0;
+            border: none;
+            border-radius: 12px;
+            padding: 10px 18px;
             font-weight: 700;
+            font-size: 13px;
         }
         QPushButton[state="neutral"] {
-            background: #60758b;
-            color: #fffaf3;
+            background: #5a7080;
+            color: #f0f6fa;
         }
         QPushButton[state="view"] {
-            background: #4d7a91;
-            color: #fffaf3;
+            background: #3a7a92;
+            color: #f0f8fb;
         }
         QPushButton[state="pending"] {
-            background: #9ca7b2;
-            color: #fffaf3;
+            background: #a0afba;
+            color: #f0f6fa;
         }
         QPushButton[state="ready"] {
-            background: #f7941d;
-            color: #1f3447;
+            background: #e07b2a;
+            color: #fff8f0;
         }
         QPushButton[state="done"] {
-            background: #2f8f63;
-            color: #f4fff9;
+            background: #2a8f62;
+            color: #f0fff8;
         }
         QPushButton[state="blocked"] {
-            background: #9ea3aa;
-            color: #f3f0eb;
+            background: #a8b0b8;
+            color: #f0f2f4;
         }
         QPushButton:hover {
-            background: #ffb14d;
+            background: #f09040;
+            color: #fff8f0;
         }
         QPushButton:disabled {
-            background: #b3b7bd;
-            color: #f5f3ef;
+            background: #c0c8d0;
+            color: #e8edf2;
+        }
+        QPushButton[role="wizard_step"] {
+            background: #e8dfd4;
+            color: #3a5060;
+            border: 1.5px solid #d4c8b8;
+            border-radius: 14px;
+            padding: 8px 6px;
+            font-weight: 600;
+            font-size: 12px;
+            text-align: center;
+        }
+        QPushButton[role="wizard_step"][wizard_active="true"] {
+            background: #e07b2a;
+            color: #fff8f0;
+            border: 2px solid #c86018;
+        }
+        QPushButton[role="wizard_step"]:hover {
+            background: #d8cfc4;
+            color: #1e2d3d;
+        }
+        QPushButton[role="wizard_step"][wizard_active="true"]:hover {
+            background: #f09040;
+            color: #fff8f0;
+        }
+        QPushButton[role="wizard_step"]:disabled {
+            background: #ece8e2;
+            color: #b0b8c0;
+            border-color: #ddd8d0;
+        }
+        QPushButton[role="handy"] {
+            background: #4a8a70;
+            color: #f0fff8;
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        QPushButton[role="handy"]:hover {
+            background: #5aaa88;
+        }
+        QFrame[role="wizard_nav"] {
+            background: #ede5da;
+            border: 1.5px solid #d8ccc0;
+            border-radius: 16px;
+            padding: 6px;
         }
         QFrame[role="stepblock"] {
-            background: #f6efe5;
-            border: 1px solid #d6c4a8;
-            border-radius: 10px;
+            background: #f5efe6;
+            border: 1px solid #d8c8b0;
+            border-radius: 12px;
+        }
+        QScrollArea {
+            background: transparent;
+            border: none;
+        }
+        QScrollBar:vertical {
+            background: #ede8e0;
+            width: 8px;
+            border-radius: 4px;
+        }
+        QScrollBar::handle:vertical {
+            background: #c0b0a0;
+            border-radius: 4px;
+            min-height: 30px;
         }
         """
 
@@ -254,20 +356,22 @@ class ForgeControlApp:
         layout = self.header_layout
         layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(14)
 
         text_frame = QWidget()
         self.header_text_col = QVBoxLayout(text_frame)
         text_col = self.header_text_col
         text_col.setContentsMargins(0, 0, 0, 0)
-        text_col.setSpacing(6)
-        title = QLabel("ForgeOS Device Agent")
+        text_col.setSpacing(4)
+        title = QLabel("Forge")
         title.setProperty("role", "title")
-        title.setWordWrap(True)
-        title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        subtitle = QLabel(
-            "Runtime control surface for device rehabilitation, approvals, evidence, and recovery"
-        )
+        title.setWordWrap(False)
+        title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        subtitle = QLabel("Your device rehabilitation assistant — I'll guide you through every step")
         subtitle.setProperty("role", "subtitle")
         subtitle.setWordWrap(True)
         subtitle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -280,43 +384,55 @@ class ForgeControlApp:
         self.activity_icon_label = QLabel()
         self.activity_icon_label.setProperty("role", "activity")
         self.activity_icon_label.setFixedSize(24, 24)
-        self.activity_icon_label.setToolTip("ForgeOS activity indicator")
-        self.status_label = QLabel("Refresh status: starting up")
+        self.activity_icon_label.setToolTip("Forge activity indicator")
+        self.status_label = QLabel("Starting up…")
         self.status_label.setProperty("role", "subtitle")
         self.status_label.setWordWrap(True)
         self.status_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         status_row.addWidget(self.activity_icon_label, 0, Qt.AlignmentFlag.AlignTop)
         status_row.addWidget(self.status_label, 1)
         text_col.addLayout(status_row)
-        self.button_legend = QLabel("Button colors: blue = view, orange = your action, green = done, gray = unavailable")
+
+        self.button_legend = QLabel("Buttons: blue = view info,  orange = your turn,  green = done,  gray = not available yet")
         self.button_legend.setProperty("role", "legend")
         self.button_legend.setWordWrap(True)
         self.button_legend.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         text_col.addWidget(self.button_legend)
-        layout.addWidget(text_frame)
+
+        title_row.addWidget(text_frame, 1)
+
+        handy_btn = QPushButton("🎤 Speak")
+        handy_btn.setProperty("role", "handy")
+        handy_btn.setToolTip("Toggle Handy voice input (dictation)")
+        handy_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        handy_btn.clicked.connect(self._toggle_handy)
+        title_row.addWidget(handy_btn, 0, Qt.AlignmentFlag.AlignTop)
+
+        layout.addLayout(title_row)
 
         button_frame = QWidget()
         self.button_col = QHBoxLayout(button_frame)
         button_col = self.button_col
         button_col.setContentsMargins(0, 0, 0, 0)
-        button_col.setSpacing(12)
+        button_col.setSpacing(10)
         for label, callback in [
             ("Refresh", self.manual_refresh),
-            ("Open User Guide", lambda: self._open_path(self.project_root / "USER_GUIDE.md")),
-            ("Open Devices Folder", lambda: self._open_path(self.devices_dir)),
+            ("Help guide", lambda: self._open_path(self.project_root / "USER_GUIDE.md")),
+            ("All devices", lambda: self._open_path(self.devices_dir)),
         ]:
             button = QPushButton(label)
             button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             button.clicked.connect(callback)
             button_col.addWidget(button)
-        self.advanced_toggle = QCheckBox("Show Advanced Details")
+        self.advanced_toggle = QCheckBox("Show details")
         self.advanced_toggle.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.advanced_toggle.toggled.connect(self._toggle_advanced_mode)
         button_col.addWidget(self.advanced_toggle)
         button_col.addStretch(1)
         layout.addWidget(button_frame)
         for button in box.findChildren(QPushButton):
-            self._set_button_state(button, "neutral")
+            if button.property("role") != "handy":
+                self._set_button_state(button, "neutral")
         return box
 
     def _sync_header_height(self) -> None:
@@ -325,7 +441,7 @@ class ForgeControlApp:
         self.header_box.setMinimumHeight(self.header_box.sizeHint().height())
 
     def _build_now_what_card(self) -> QGroupBox:
-        group = QGroupBox("What ForgeOS Is Doing Now")
+        group = QGroupBox("What I'm working on right now")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.primary_label = QLabel()
@@ -343,7 +459,7 @@ class ForgeControlApp:
         return group
 
     def _build_host_card(self) -> QGroupBox:
-        group = QGroupBox("Host Readiness")
+        group = QGroupBox("Your computer's tools")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.host_label = QLabel()
@@ -358,7 +474,7 @@ class ForgeControlApp:
         return group
 
     def _build_device_card(self) -> QGroupBox:
-        group = QGroupBox("Current Device Session")
+        group = QGroupBox("About this device")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.device_title = QLabel()
@@ -370,9 +486,9 @@ class ForgeControlApp:
         layout.addWidget(self.device_text, 1)
 
         actions = QHBoxLayout()
-        self.open_folder_button = QPushButton("Open Session Folder")
+        self.open_folder_button = QPushButton("Open device folder")
         self.open_folder_button.clicked.connect(self._open_current_session)
-        self.open_code_button = QPushButton("Open Session In VS Code")
+        self.open_code_button = QPushButton("Open in VS Code")
         self.open_code_button.clicked.connect(lambda: self._open_current_session(code=True))
         actions.addWidget(self.open_folder_button)
         actions.addWidget(self.open_code_button)
@@ -381,7 +497,7 @@ class ForgeControlApp:
         return group
 
     def _build_autonomous_card(self) -> QGroupBox:
-        group = QGroupBox("Autonomous Activity")
+        group = QGroupBox("What I've been doing")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.autonomous_title = QLabel()
@@ -394,16 +510,16 @@ class ForgeControlApp:
         return group
 
     def _build_self_heal_card(self) -> QGroupBox:
-        group = QGroupBox("Autonomous Self-Heal")
+        group = QGroupBox("I noticed a problem")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
-        self.self_heal_status = QLabel("ForgeOS will report autonomous fix-loop activity here.")
+        self.self_heal_status = QLabel("I'll let you know here if I ran into trouble and tried to fix it on my own.")
         self.self_heal_status.setWordWrap(True)
         self.self_heal_status.setProperty("role", "body")
         self.self_heal_text = QTextEdit()
         self.self_heal_text.setReadOnly(True)
         self.self_heal_text.setMaximumHeight(180)
-        self.allow_extra_fix_button = QPushButton("Approve 3 More Fix Loops")
+        self.allow_extra_fix_button = QPushButton("Let it keep trying")
         self.allow_extra_fix_button.clicked.connect(self.approve_extra_fix_loop)
         layout.addWidget(self.self_heal_status)
         layout.addWidget(self.self_heal_text)
@@ -412,11 +528,11 @@ class ForgeControlApp:
         return group
 
     def _build_profile_card(self) -> QGroupBox:
-        group = QGroupBox("1. Intake And Autonomy Limits")
+        group = QGroupBox("Tell me about this device")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
 
-        self.profile_status = QLabel("Select the intended user and goals for this device session.")
+        self.profile_status = QLabel("Tell me who this phone is for and what you want it to do.")
         self.profile_status.setWordWrap(True)
         self.profile_status.setProperty("role", "body")
         layout.addWidget(self.profile_status)
@@ -506,18 +622,18 @@ class ForgeControlApp:
         self.success_criteria_input.setPlaceholderText("Describe what must be true before this is considered done.")
 
         for label_text, widget in [
-            ("Primary user persona", self.persona_combo),
-            ("Technical comfort", self.comfort_combo),
-            ("Top priority", self.priority_combo),
-            ("Google services preference", self.google_combo),
-            ("Autonomy limit", self.autonomy_combo),
-            ("Acceptable risk tolerance", self.risk_combo),
-            ("Restore expectation", self.restore_combo),
-            ("Target use case category", self.use_case_combo),
-            ("Secondary goal", self.secondary_goal_combo),
-            ("Intended user or placement", self.intended_user_input),
-            ("Desired end product", self.end_product_input),
-            ("Success criteria", self.success_criteria_input),
+            ("Who is this phone for?", self.persona_combo),
+            ("How technical is the user?", self.comfort_combo),
+            ("What matters most?", self.priority_combo),
+            ("Google apps?", self.google_combo),
+            ("How much should I decide on my own?", self.autonomy_combo),
+            ("How cautious should I be?", self.risk_combo),
+            ("If something goes wrong, restore should be...", self.restore_combo),
+            ("What will this phone be used for?", self.use_case_combo),
+            ("Secondary priority?", self.secondary_goal_combo),
+            ("Where will this phone live?", self.intended_user_input),
+            ("Describe the finished phone", self.end_product_input),
+            ("How will we know when it's done?", self.success_criteria_input),
         ]:
             label = QLabel(label_text)
             label.setProperty("role", "hint")
@@ -529,7 +645,7 @@ class ForgeControlApp:
         layout.addWidget(self.lockdown_check)
         layout.addWidget(self.lawful_use_check)
 
-        self.save_profile_button = QPushButton("Save Profile And Refresh Plan")
+        self.save_profile_button = QPushButton("Save and update my plan")
         self.save_profile_button.clicked.connect(self.save_profile_and_recompute)
         layout.addWidget(self.save_profile_button)
         self._set_button_state(self.save_profile_button, "pending")
@@ -537,10 +653,10 @@ class ForgeControlApp:
         return group
 
     def _build_connection_help_card(self) -> QGroupBox:
-        group = QGroupBox("Connection Setup For This Phone")
+        group = QGroupBox("How to connect this phone")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
-        self.connection_help_title = QLabel("ForgeOS will show model-aware phone-side setup steps here.")
+        self.connection_help_title = QLabel("Once I can see the phone, I'll walk you through the exact steps to connect it.")
         self.connection_help_title.setWordWrap(True)
         self.connection_help_title.setProperty("role", "body")
         self.connection_help_text = QTextEdit()
@@ -550,22 +666,22 @@ class ForgeControlApp:
         return group
 
     def _build_proposal_card(self) -> QGroupBox:
-        group = QGroupBox("2. Proposed Outcome And Preview")
+        group = QGroupBox("Here's my plan")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
-        self.proposal_status = QLabel("ForgeOS will show the proposed rehabilitation path here.")
+        self.proposal_status = QLabel("I'll show you what I think would work best for this device once I've had a look at it.")
         self.proposal_status.setWordWrap(True)
         self.proposal_status.setProperty("role", "body")
         self.proposal_choice_combo = QComboBox()
-        self.proposal_choice_combo.addItem("No proposed options yet", "")
+        self.proposal_choice_combo.addItem("No options yet", "")
         self.proposal_choice_combo.currentIndexChanged.connect(self._proposal_selection_changed)
-        self.proposal_os_label = QLabel("Proposed OS profile will appear here once ForgeOS resolves candidate paths.")
+        self.proposal_os_label = QLabel("The proposed OS profile will appear here once I've worked out the best path.")
         self.proposal_os_label.setWordWrap(True)
         self.proposal_os_label.setProperty("role", "body")
         preview_buttons = QHBoxLayout()
-        self.preview_folder_button = QPushButton("Open Preview Folder")
+        self.preview_folder_button = QPushButton("See preview folder")
         self.preview_folder_button.clicked.connect(lambda: self._open_session_artifact("runtime/preview"))
-        self.preview_report_button = QPushButton("View Build Plan")
+        self.preview_report_button = QPushButton("See build plan")
         self.preview_report_button.clicked.connect(lambda: self._open_session_artifact("reports/build_plan.json"))
         preview_buttons.addWidget(self.preview_folder_button)
         preview_buttons.addWidget(self.preview_report_button)
@@ -582,19 +698,19 @@ class ForgeControlApp:
         return group
 
     def _build_backup_card(self) -> QGroupBox:
-        group = QGroupBox("3. Backup And Restore")
+        group = QGroupBox("Let's protect your data first")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
-        self.backup_status = QLabel("ForgeOS will show backup readiness here before any destructive step is considered.")
+        self.backup_status = QLabel("I won't touch anything destructive until we have a safe recovery path in place.")
         self.backup_status.setWordWrap(True)
         self.backup_status.setProperty("role", "body")
         self.backup_text = QTextEdit()
         self.backup_text.setReadOnly(True)
         self.backup_text.setMaximumHeight(240)
         backup_buttons = QHBoxLayout()
-        self.open_backup_bundle_button = QPushButton("View Backup Bundle")
+        self.open_backup_bundle_button = QPushButton("See backup bundle")
         self.open_backup_bundle_button.clicked.connect(lambda: self._open_best_backup_artifact("bundle"))
-        self.open_restore_plan_button = QPushButton("View Restore Plan")
+        self.open_restore_plan_button = QPushButton("See restore plan")
         self.open_restore_plan_button.clicked.connect(lambda: self._open_session_artifact("restore/restore-plan.json"))
         backup_buttons.addWidget(self.open_backup_bundle_button)
         backup_buttons.addWidget(self.open_restore_plan_button)
@@ -606,11 +722,11 @@ class ForgeControlApp:
         return group
 
     def _build_artifact_card(self) -> QGroupBox:
-        group = QGroupBox("4. Build Artifacts")
+        group = QGroupBox("Getting the files ready")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.artifact_status = QLabel(
-            "ForgeOS will show whether a real installable artifact set has been staged for this session."
+            "I'll tell you exactly what files I need and what's already staged — nothing happens until the pieces are in place."
         )
         self.artifact_status.setWordWrap(True)
         self.artifact_status.setProperty("role", "body")
@@ -618,11 +734,11 @@ class ForgeControlApp:
         self.artifact_text.setReadOnly(True)
         self.artifact_text.setMaximumHeight(220)
         buttons = QHBoxLayout()
-        self.open_artifact_source_button = QPushButton("Open Source Staging")
+        self.open_artifact_source_button = QPushButton("Open source staging")
         self.open_artifact_source_button.clicked.connect(lambda: self._open_session_artifact("artifacts/os-source"))
-        self.open_artifact_manifest_button = QPushButton("View Artifact Manifest")
+        self.open_artifact_manifest_button = QPushButton("See artifact manifest")
         self.open_artifact_manifest_button.clicked.connect(lambda: self._open_session_artifact("runtime/build/artifact-manifest.json"))
-        self.open_artifact_bundle_button = QPushButton("View Flashable Bundle")
+        self.open_artifact_bundle_button = QPushButton("See flashable bundle")
         self.open_artifact_bundle_button.clicked.connect(lambda: self._open_session_artifact("runtime/build/flashable-artifacts.tar.gz"))
         buttons.addWidget(self.open_artifact_source_button)
         buttons.addWidget(self.open_artifact_manifest_button)
@@ -636,27 +752,27 @@ class ForgeControlApp:
         return group
 
     def _build_review_card(self) -> QGroupBox:
-        group = QGroupBox("5. Verification Review")
+        group = QGroupBox("Let's review together")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.review_status = QLabel(
-            "Use this panel to confirm the proposed outcome, restore approach, and acceptable limitations before install is even discussed."
+            "Before I do anything permanent, let's make sure we're on the same page about the plan, the recovery path, and what's not included."
         )
         self.review_status.setWordWrap(True)
         self.review_status.setProperty("role", "body")
         layout.addWidget(self.review_status)
 
-        self.review_fit_check = QCheckBox("The proposed outcome fits the intended user")
-        self.review_restore_check = QCheckBox("The backup and restore approach looks acceptable")
-        self.review_limitations_check = QCheckBox("The listed limitations are acceptable")
+        self.review_fit_check = QCheckBox("This plan fits the intended user")
+        self.review_restore_check = QCheckBox("I'm comfortable with the backup and restore plan")
+        self.review_limitations_check = QCheckBox("The listed limitations are fine with me")
         layout.addWidget(self.review_fit_check)
         layout.addWidget(self.review_restore_check)
         layout.addWidget(self.review_limitations_check)
 
-        feature_label = QLabel("Feature selection")
+        feature_label = QLabel("Which features do you want?")
         feature_label.setProperty("role", "hint")
         layout.addWidget(feature_label)
-        self.review_feature_status = QLabel("ForgeOS will list the proposed features here so you can keep or reject them.")
+        self.review_feature_status = QLabel("Here are the features I'm planning to include — keep what you want, uncheck anything you don't.")
         self.review_feature_status.setWordWrap(True)
         self.review_feature_status.setProperty("role", "body")
         layout.addWidget(self.review_feature_status)
@@ -667,7 +783,7 @@ class ForgeControlApp:
         layout.addWidget(self.review_feature_list)
         self.review_feature_checks: dict[str, QCheckBox] = {}
 
-        review_notes_label = QLabel("Review notes and rejected features")
+        review_notes_label = QLabel("Anything you want to flag or exclude?")
         review_notes_label.setProperty("role", "hint")
         layout.addWidget(review_notes_label)
         self.review_notes = QTextEdit()
@@ -675,7 +791,7 @@ class ForgeControlApp:
         layout.addWidget(self.review_notes)
         self._bind_review_form_signals()
 
-        self.save_review_button = QPushButton("Save Review Decisions")
+        self.save_review_button = QPushButton("Save my review")
         self.save_review_button.clicked.connect(self.save_operator_review)
         layout.addWidget(self.save_review_button)
         self._set_button_state(self.save_review_button, "pending")
@@ -687,9 +803,9 @@ class ForgeControlApp:
         return group
 
     def _build_steps_card(self) -> QGroupBox:
-        group = QGroupBox("Current Checklist")
+        group = QGroupBox("What's happening next")
         layout = QVBoxLayout(group)
-        self.steps_title = QLabel("ForgeOS will show the live execution checklist here.")
+        self.steps_title = QLabel("I'll keep this checklist up to date as we work through the process together.")
         self.steps_title.setWordWrap(True)
         self.steps_title.setProperty("role", "body")
         self.steps_text = QTextEdit()
@@ -699,28 +815,28 @@ class ForgeControlApp:
         return group
 
     def _build_approval_card(self) -> QGroupBox:
-        group = QGroupBox("6. Install Gate")
+        group = QGroupBox("Ready to install")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
 
         self.approval_status = QLabel(
-            "This panel stays inactive until ForgeOS finishes research, preview, verification, and install preparation."
+            "I won't do anything permanent until you've reviewed everything and explicitly said go — we're not there yet."
         )
         self.approval_status.setWordWrap(True)
         self.approval_status.setProperty("role", "body")
         layout.addWidget(self.approval_status)
 
-        self.restore_confirm_check = QCheckBox("I confirm the restore path has been reviewed")
+        self.restore_confirm_check = QCheckBox("I've reviewed the restore plan")
         layout.addWidget(self.restore_confirm_check)
 
-        phrase_label = QLabel("Type WIPE_AND_REBUILD only when ForgeOS says install is ready")
+        phrase_label = QLabel("Type WIPE_AND_REBUILD to confirm you're ready")
         phrase_label.setProperty("role", "hint")
         layout.addWidget(phrase_label)
         self.confirmation_input = QLineEdit()
         self.confirmation_input.setPlaceholderText("WIPE_AND_REBUILD")
         layout.addWidget(self.confirmation_input)
 
-        notes_label = QLabel("Optional operator notes")
+        notes_label = QLabel("Anything you want to note?")
         notes_label.setProperty("role", "hint")
         layout.addWidget(notes_label)
         self.approval_notes = QTextEdit()
@@ -728,11 +844,11 @@ class ForgeControlApp:
         layout.addWidget(self.approval_notes)
 
         buttons = QHBoxLayout()
-        self.approve_button = QPushButton("Record Install Approval")
+        self.approve_button = QPushButton("I approve this install")
         self.approve_button.clicked.connect(self.record_wipe_approval)
-        self.dry_run_button = QPushButton("Run Approved Dry Run")
+        self.dry_run_button = QPushButton("Test it first (dry run)")
         self.dry_run_button.clicked.connect(lambda: self.execute_flash(live_mode=False))
-        self.live_button = QPushButton("Run Live Wipe And Flash")
+        self.live_button = QPushButton("Go — wipe and install")
         self.live_button.clicked.connect(lambda: self.execute_flash(live_mode=True))
         buttons.addWidget(self.approve_button)
         buttons.addWidget(self.dry_run_button)
@@ -748,14 +864,14 @@ class ForgeControlApp:
         return group
 
     def _build_help_card(self) -> QGroupBox:
-        group = QGroupBox("Artifacts")
+        group = QGroupBox("Quick links")
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(group)
         self.help_buttons: dict[str, QPushButton] = {}
         for key, label, path in [
-            ("guide", "Open User Guide", self.project_root / "USER_GUIDE.md"),
-            ("session", "Open Session Folder", self.project_root / "devices"),
-            ("backup", "Open Session Backup", self.project_root / "devices"),
+            ("guide", "Help guide", self.project_root / "USER_GUIDE.md"),
+            ("session", "All device sessions", self.project_root / "devices"),
+            ("backup", "Session backup folder", self.project_root / "devices"),
         ]:
             button = QPushButton(label)
             button.clicked.connect(lambda _checked=False, p=path: self._open_path(p))
@@ -1079,11 +1195,11 @@ class ForgeControlApp:
             f"Workspace file: {details.get('workspace_file')}",
         ]
         if details.get("adb_available") and details.get("fastboot_available") and host.get("goose_ready"):
-            summary = "This computer is ready for guided device assessment and local worker execution."
+            summary = "Your machine has everything I need — we're good to go."
         else:
             summary = (
-                "ForgeOS can start, but missing transport or local-worker capabilities will limit autonomous execution depth. "
-                "Install or configure the missing tools and model providers to unlock the full runtime."
+                "I can start, but some tools are missing that I'll need for deeper autonomous work. "
+                "Install or configure the missing items below to unlock the full experience."
             )
         return "\n".join(lines), summary
 
@@ -1147,32 +1263,40 @@ class ForgeControlApp:
         model = profile.get("model") or ""
         device_name = f"{manufacturer} {model}".strip()
         phase = runtime_plan.get("phase", "unknown")
+        bootloader_locked = profile.get("bootloader_locked")
+        if bootloader_locked and (manufacturer or "").lower() in {"samsung", "samsung electronics"}:
+            return (
+                f"Your {device_name} bootloader needs to be unlocked once — this is physical and takes 30 seconds.\n\n"
+                "Power the phone off completely, then hold  Volume Down + Bixby + plug in USB  at the same time. "
+                "The screen will show a Download Mode warning. Press Volume Up to confirm. "
+                "I'm watching — the moment it appears I'll take over automatically."
+            )
         if engagement_status == "usb_only_detected":
             steps = list((playbook or {}).get("steps", []))[:2]
-            return " ".join(steps) if steps else f"Unlock the {device_name}, enable USB debugging, and approve the trust prompt."
+            return " ".join(steps) if steps else f"Unlock your {device_name}, turn on USB debugging, and approve the trust prompt."
         if engagement_status == "awaiting_user_approval":
-            return f"Unlock the {device_name} and approve the USB debugging trust prompt."
+            return f"Unlock your {device_name} and approve the USB debugging prompt."
         if phase in {"deep_scan", "guided_access_enablement"}:
-            return "Keep the phone connected while ForgeOS deep-scans the device and gathers transport and hardware evidence."
+            return "Keep the phone connected while I gather everything I need to know about it."
         if phase == "recommendation":
-            return "Wait while ForgeOS turns the device evidence and your profile into a recommended rehabilitation path."
+            return "I'm working out the best plan — I'll update you when I have a recommendation."
         if phase == "backup_restore":
-            return "Wait while ForgeOS finalizes backup and restore readiness before any install work is considered."
+            return "I'm setting up your safety net — won't touch anything until backup is sorted."
         if phase == "build_preview":
-            return "Wait while ForgeOS generates and records the preview path for the proposed build."
+            return "I'm building a preview so you can see what the finished phone will look like."
         if phase == "interactive_verification":
-            return "Review the verification output and expected limitations before any destructive install step is considered."
+            return "Check the 'Let's review together' tab and confirm the plan looks right to you."
         if phase == "wipe_install" and not approval.get("approved"):
-            return "Review the install plan and restore notes, then approve install only if you want ForgeOS to proceed."
+            return "Review the install plan and restore notes in the 'Ready to install' tab, then approve when you're ready."
         if not backup_plan:
-            return "Wait while ForgeOS finishes the host recovery bundle."
+            return "I'm still finishing the recovery bundle — hang tight."
         if not metadata_backup.get("adb_metadata_available"):
-            return "Keep the phone unlocked and connected while ForgeOS retries the live device metadata backup."
+            return "Keep the phone unlocked and connected while I finish the live device metadata backup."
         if not flash_plan_available:
-            return "Wait while ForgeOS finishes the current research and planning stage."
+            return "I'm still in the research and planning stage — I'll let you know when I need you."
         if not approval.get("approved"):
-            return "Approval is not needed yet unless ForgeOS explicitly moves the session into install readiness."
-        return "Click Run Approved Dry Run to rehearse the wipe-and-flash plan without touching the phone."
+            return "Nothing for you to do yet — I'll prompt you when I reach install readiness."
+        return "Click 'Test it first (dry run)' to rehearse the plan without touching the phone."
 
     def _phase_copy(
         self,
@@ -1188,48 +1312,48 @@ class ForgeControlApp:
 
         if phase in {"guided_access_enablement", "deep_scan"}:
             return (
-                "ForgeOS is actively assessing the connected device.",
-                "Deep scan is in progress. ForgeOS is gathering transport, hardware, and system evidence before making any build decision.",
+                "I'm taking a close look at what I'm working with.",
+                "I'm gathering transport, hardware, and system evidence before I commit to any build path. Keep the phone connected.",
                 "Collecting live device evidence, updating the assessment, and holding all destructive work behind the evidence gate.",
             )
         if phase == "recommendation":
             summary = (
-                f"Research is in progress. ForgeOS is comparing device evidence and your profile to choose the best attainable outcome. "
-                f"Current recommendation: {recommended_use_case.replace('_', ' ')}."
+                f"I'm comparing what I've learned about this device with your profile to find the best attainable outcome. "
+                f"Current direction: {recommended_use_case.replace('_', ' ')}."
             )
             if recommended_path == "research_only_path":
-                summary += " Install planning stays deferred until transport and feasibility improve."
+                summary += " I'm holding off on install planning until transport and feasibility improve."
             return (
-                "ForgeOS is researching the best rehabilitation path.",
+                "I'm working out the best path for this device.",
                 summary,
                 "Reviewing support evidence, scoring attainable use cases, and deferring wipe/install until the path is credible.",
             )
         if phase == "backup_restore":
             return (
-                "ForgeOS is preparing backup and restore readiness.",
+                "I'm making sure we can get back if anything goes sideways.",
                 f"Assessment status is {support}. Restore evidence is {'ready' if backup_ready else 'still being built'}, and live metadata is {'ready' if metadata_ready else 'still improving'}.",
                 "Recording the host recovery bundle, restore notes, and rollback evidence before any later-stage build work.",
             )
         if phase == "build_preview":
             return (
-                "ForgeOS is generating a preview of the proposed build.",
-                "The runtime has a candidate path and is building preview artifacts before install is even considered.",
+                "I'm building a preview of what the finished device will look like.",
+                "I've found a solid candidate path and I'm generating preview artifacts so you can see the plan before I do anything permanent.",
                 "Producing preview output, preserving restore visibility, and keeping install gated.",
             )
         if phase == "interactive_verification":
             return (
-                "ForgeOS is verifying the proposed outcome.",
-                "Preview and verification are underway so the user can inspect limitations and recovery assumptions before any wipe/install decision.",
-                "Running verification checkpoints and collecting operator-facing review items.",
+                "I want to make sure we're both happy with the plan before I go any further.",
+                "Preview is done and I'm running final verification — take a look at the limitations and recovery assumptions before we talk about installing anything.",
+                "Running verification checkpoints and collecting review items for you.",
             )
         if phase == "wipe_install":
             return (
-                "ForgeOS has reached install review readiness.",
-                "Research, preview, and verification are complete enough for an operator install decision. Wipe/install still requires explicit approval.",
-                "Holding the destructive plan behind the install gate and waiting for operator review.",
+                "Everything looks good — I'm ready when you are.",
+                "Research, preview, and verification are done. The install is ready but I won't touch the phone until you explicitly say go.",
+                "Holding the destructive plan behind the install gate and waiting for your approval.",
             )
         return (
-            f"ForgeOS is tracking the current session state: {phase}.",
+            f"I'm keeping track of the current state: {phase}.",
             f"Assessment status is {support}. Restore evidence is {'ready' if backup_ready else 'still being built'}, and live metadata is {'ready' if metadata_ready else 'still improving'}.",
             f"Tracking the next blocker and keeping the session current. Current blocker: {blocker_summary}",
         )
@@ -1718,7 +1842,7 @@ class ForgeControlApp:
         self._write_operator_review(self.current_session_dir, payload)
         self.review_form_dirty = False
         self.review_form_session = self.current_session_dir
-        self.review_status.setText("Review decisions saved. ForgeOS will keep them visible while install remains gated.")
+        self.review_status.setText("Saved your review — I'll keep these choices visible while the install stays gated.")
         self._set_button_state(self.save_review_button, "done")
         self.refresh_ui("Review decisions saved")
 
@@ -1997,7 +2121,7 @@ class ForgeControlApp:
                 lines.append(f"- {item.get('label', 'unknown')}: {item.get('reason', '')}")
         self._set_text_preserve_scroll(self.review_text, "\n".join(lines))
         self.review_status.setText(
-            "Review the proposed profile here before touching artifacts or approvals. Your saved choices should stay attached to this session."
+            "Look over my plan here before we move to install. Your choices will stay saved with this session."
         )
         review_complete = (
             bool(review.get("fit_confirmed"))
@@ -2141,7 +2265,7 @@ class ForgeControlApp:
         )
         self.orchestrator.recompute_session_runtime(self.current_session_dir, lightweight=True)
         self.profile_status.setText(
-            f"Saved profile. ForgeOS refreshed the recommendation and safety plan for `{strategy['strategy_id']}` without starting heavy worker execution."
+            f"Got it — I've updated my plan for `{strategy['strategy_id']}` based on your changes."
         )
         self.refresh_ui("Profile updated")
 
@@ -2160,7 +2284,7 @@ class ForgeControlApp:
             notes=notes,
         )
         self.approval_status.setText(
-            "Approval record saved for this session. You can now run a dry run, and live destructive execution remains policy-gated."
+            "Approval saved. You can run a dry run now — live execution is still gated by policy until you're ready."
         )
         self.refresh_ui("Approval recorded")
 
@@ -2256,66 +2380,65 @@ class ForgeControlApp:
                     live_session=False,
                 )
                 self._set_execution_checklist(title, checklist, agent_status)
-            self.device_title.setText("No device session detected yet.")
+            self.device_title.setText("No phone connected yet.")
             waiting_text = (
-                "Waiting for a manageable device.\n\n"
-                "Recommended first test:\n"
-                "- Start with a non-primary phone.\n"
-                "- Use a reliable USB data cable.\n"
-                "- Enable USB debugging if Android is booted.\n"
-                "- Wait for a session folder to appear under devices/.\n"
+                "I'm ready — just waiting for a phone.\n\n"
+                "To get started:\n"
+                "- Use a phone you don't rely on day-to-day.\n"
+                "- Use a good USB data cable (not just a charging cable).\n"
+                "- Turn on USB debugging if the phone is booted into Android.\n"
+                "- I'll create a session automatically once I can see it.\n"
             )
             if usb_only_device:
                 waiting_text += (
-                    "\nUSB observation:\n"
+                    "\nI can see the phone over USB, but:\n"
                     f"- {usb_only_device.get('description')}\n"
-                    "- Current mode looks like MTP or generic USB only.\n"
-                    "- ForgeOS needs adb, fastboot, or recovery visibility to create a device session.\n"
+                    "- It looks like it's in MTP or basic USB mode right now.\n"
+                    "- I need ADB, fastboot, or recovery access to create a session.\n"
                 )
             self._set_text_preserve_scroll(self.device_text, waiting_text)
-            self.autonomous_title.setText("Current autonomous status: waiting for a manageable device")
-            self.profile_status.setText("Connect or select a device session before setting the user profile.")
-            self.connection_help_title.setText("No device session is loaded yet.")
+            self.autonomous_title.setText("Waiting for a phone to connect…")
+            self.profile_status.setText("Connect a phone first and I'll load the profile for it.")
+            self.connection_help_title.setText("No phone connected yet.")
             self._set_text_preserve_scroll(
                 self.connection_help_text,
-                "Connect a phone and ForgeOS will show vendor- and model-specific setup steps here.\n\n"
-                "This panel is meant to tell the operator exactly how to get from USB-only visibility to adb, fastboot, or another manageable transport."
+                "Connect a phone and I'll walk you through the exact steps to get it talking to me.\n\n"
+                "I'll show vendor-specific and model-specific setup instructions once I can see the device."
             )
-            self.artifact_status.setText("Connect or select a device session before staging install artifacts.")
+            self.artifact_status.setText("Connect a phone first — then I'll show you what files I need.")
             self._set_text_preserve_scroll(
                 self.artifact_text,
-                "No device session is loaded yet.\n\nOnce ForgeOS has a session, stage OS install inputs under `artifacts/os-source/` for this device."
+                "No phone connected yet.\n\nOnce I have a session, drop OS install files into `artifacts/os-source/` for this device."
             )
-            self.approval_status.setText("Connect or select a device session before recording wipe approval.")
+            self.approval_status.setText("Connect a phone and work through the earlier steps before we get to this.")
             self._set_text_preserve_scroll(self.flash_plan_text, "No flash plan is available yet.")
             if usb_only_device:
                 self._set_text_preserve_scroll(
                     self.autonomous_text,
-                    "ForgeOS can see a phone at the USB level and is waiting for a manageable transport.\n\n"
-                    "Agent is waiting for:\n"
-                    "- Unlock the phone.\n"
-                    "- Enable USB debugging.\n"
-                    "- Approve the computer trust prompt.\n"
+                    "I can see the phone over USB but I need a bit more from it before I can get started.\n\n"
+                    "Here's what to do on the phone:\n"
+                    "- Unlock it.\n"
+                    "- Turn on USB debugging.\n"
+                    "- Approve this computer when the trust prompt appears.\n"
                     "- Reconnect the USB cable if needed.\n"
                 )
                 self._maybe_show_intervention_alert(
                     alert_key=f"usb-only:{usb_only_device.get('description', 'unknown')}",
-                    title="Phone Needs Operator Setup",
+                    title="Phone needs a little help",
                     summary=(
-                        "ForgeOS can see the phone over USB, but it is not yet exposing adb, fastboot, "
-                        "or recovery control."
+                        "I can see the phone over USB, but it's not yet giving me ADB or fastboot access."
                     ),
                     steps=[
                         "Unlock the phone.",
-                        "Enable USB debugging if Android is booted.",
-                        "Approve this computer if a trust prompt appears.",
-                        "Reconnect the USB cable if the phone stays in USB-only mode.",
+                        "Turn on USB debugging.",
+                        "Approve this computer when prompted.",
+                        "Reconnect the USB cable if it stays in USB-only mode.",
                     ],
                 )
             else:
                 self._set_text_preserve_scroll(
                     self.autonomous_text,
-                    "ForgeOS is idle and waiting for a phone that exposes USB, adb, fastboot, or recovery visibility."
+                    "I'm idle and watching for a phone over USB, ADB, fastboot, or recovery."
                 )
             self.open_folder_button.setEnabled(False)
             self.open_code_button.setEnabled(False)
@@ -2409,9 +2532,9 @@ class ForgeControlApp:
                 next_action="Reconnect the phone when you are ready to continue.",
             )
 
-        title_prefix = "Live session" if live_session else "Latest saved session"
+        title_prefix = "Connected" if live_session else "Last seen"
         self.device_title.setText(
-            f"{title_prefix}: {self.current_session_dir.name}  |  State: {state.get('state', 'unknown')}"
+            f"{title_prefix}: {self.current_session_dir.name}  |  {state.get('state', 'unknown')}"
         )
         self._set_text_preserve_scroll(self.device_text, self._format_device_text(self.current_session_dir))
         autonomous_title, autonomous_text = self._format_autonomous_text(self.current_session_dir)
@@ -2422,7 +2545,7 @@ class ForgeControlApp:
         self._set_text_preserve_scroll(self.autonomous_text, autonomous_text)
         self._refresh_self_heal_status(self.current_session_dir)
         self._load_profile_form(self.current_session_dir)
-        self.profile_status.setText("Profile is loaded for this session. Save changes to recompute the OS path.")
+        self.profile_status.setText("Profile loaded. Change anything and hit Save to update my plan.")
         self._refresh_proposal_panel(self.current_session_dir, runtime_plan)
         self._refresh_backup_panel(self.current_session_dir)
         self._refresh_artifact_panel(self.current_session_dir)
@@ -2492,16 +2615,16 @@ class ForgeControlApp:
             summary = "The phone is waiting for you to approve the USB debugging trust prompt."
             steps = ["Unlock the phone.", "Approve the USB debugging prompt.", "Keep the phone connected."]
         elif user_steps:
-            summary = blocker_summary or next_action or "ForgeOS needs an external action before it can continue."
+            summary = blocker_summary or next_action or "I need your help before I can continue."
             steps = [str(step) for step in user_steps[:5]]
         else:
-            summary = blocker_summary or next_action or "ForgeOS needs an external action before it can continue."
-            steps = [next_action] if next_action else ["Review the current blocker panel for the required action."]
+            summary = blocker_summary or next_action or "I need your help before I can continue."
+            steps = [next_action] if next_action else ["Check the current blocker details for what's needed."]
 
         alert_key = f"{session_dir.name}:{state_name}:{engagement_status}:{blocker_type}:{summary[:120]}"
         self._maybe_show_intervention_alert(
             alert_key=alert_key,
-            title="Operator Intervention Required",
+            title="I need your help",
             summary=summary,
             steps=steps,
         )
@@ -2599,23 +2722,23 @@ class ForgeControlApp:
         self.secondary_label.setText(subheadline)
         if playbook:
             lines = [
-                "ForgeOS is doing now:",
-                f"- {agent_action or 'Watching USB, adb, and fastboot, retrying safe engagement, and updating the session automatically.'}",
+                "What I'm doing right now:",
+                f"- {agent_action or 'Watching USB, ADB, and fastboot, and keeping things ready for when the phone is visible.'}",
                 "",
-                "You need to do next:",
+                "What you need to do:",
             ]
-            lines.append(f"- {next_action or 'Wait while ForgeOS continues the current runtime step.'}")
+            lines.append(f"- {next_action or 'Wait while I finish this step.'}")
             self._set_text_preserve_scroll(self.objective_text, "\n".join(lines))
         else:
             self._set_text_preserve_scroll(
                 self.objective_text,
                 "\n".join(
                     [
-                        "ForgeOS is doing now:",
-                        f"- {agent_action or 'Waiting for a phone and keeping the workspace ready.'}",
+                        "What I'm doing right now:",
+                        f"- {agent_action or 'Keeping the workspace ready and watching for a phone.'}",
                         "",
-                        "You need to do next:",
-                        f"- {next_action or 'Connect one Android phone with a good USB data cable and unlock it if Android is booted.'}",
+                        "What you need to do:",
+                        f"- {next_action or 'Connect an Android phone with a good USB cable and unlock it.'}",
                     ]
                 ),
             )
@@ -2629,10 +2752,10 @@ class ForgeControlApp:
         self.steps_title.setText(title)
         lines: list[str] = []
         if agent_status:
-            lines.extend(["What ForgeOS has already done:"])
+            lines.extend(["What I've already done:"])
             lines.extend(f"- {item}" for item in agent_status)
             lines.append("")
-        lines.append("What happens next:")
+        lines.append("What comes next:")
         lines.extend(f"- {item}" for item in checklist)
         self._set_text_preserve_scroll(self.steps_text, "\n".join(lines))
 
@@ -2666,110 +2789,110 @@ class ForgeControlApp:
         backup_with_adb = bool(metadata_backup.get("adb_metadata_available"))
 
         agent_status = [
-            f"Connected to the phone over {engagement_status.replace('_', ' ')}.",
-            f"Assessment status is {support_status}.",
+            f"Connected over {engagement_status.replace('_', ' ')}.",
+            f"Assessment status: {support_status}.",
         ]
         if backup_plan:
-            agent_status.append("The host recovery bundle is ready.")
+            agent_status.append("Recovery bundle is ready.")
         else:
-            agent_status.append("ForgeOS is still preparing the host recovery bundle.")
+            agent_status.append("Still building the recovery bundle.")
         agent_status.append(
-            "The live device metadata backup is ready." if backup_with_adb else "ForgeOS is still improving the live device metadata backup."
+            "Live device metadata backup is ready." if backup_with_adb else "Still improving the live metadata backup."
         )
 
         if engagement_status == "usb_only_detected":
             checklist = [
-                "Unlock the phone and complete the connection steps shown in the connection panel.",
-                "Wait for ForgeOS to detect adb, fastboot, or another manageable transport automatically.",
+                "Unlock the phone and follow the connection steps in the banner above.",
+                "I'll detect ADB or fastboot automatically once the phone is ready.",
             ]
             return (
-                f"Current stage for {manufacturer} {model}: connection setup",
+                f"{manufacturer} {model} — getting connected",
                 checklist,
                 agent_status + [
-                    "ForgeOS is retrying safe adb engagement and watching for a transport change."
+                    "Retrying ADB engagement and watching for a transport change."
                 ],
             )
 
         if engagement_status == "awaiting_user_approval":
             checklist = [
                 "Unlock the phone and approve the USB debugging trust prompt.",
-                "Keep the phone unlocked until ForgeOS shows adb connected.",
+                "Keep it unlocked until I confirm ADB is connected.",
             ]
             return (
-                f"Current stage for {manufacturer} {model}: trust approval",
+                f"{manufacturer} {model} — waiting for your approval on the phone",
                 checklist,
                 agent_status + [
-                    "ForgeOS is waiting only for the phone-side trust prompt."
+                    "Just waiting for the phone-side trust prompt."
                 ],
             )
 
         if live_session and support_status in {"actionable", "research_only"}:
             phase_labels = {
-                "deep_scan": "deep scan",
-                "recommendation": "research and recommendation",
-                "backup_restore": "backup and restore readiness",
-                "build_preview": "preview generation",
-                "interactive_verification": "interactive verification",
-                "wipe_install": "install decision",
+                "deep_scan": "getting to know the device",
+                "recommendation": "working out the best plan",
+                "backup_restore": "setting up your safety net",
+                "build_preview": "building a preview",
+                "interactive_verification": "reviewing together",
+                "wipe_install": "ready to install",
             }
             checklist: list[str] = []
             if phase in {"deep_scan", "guided_access_enablement"}:
                 checklist.extend(
                     [
-                        "Keep the phone connected and unlocked while ForgeOS collects hardware, transport, and partition evidence.",
-                        "Wait for the assessment and recommendation outputs to update.",
+                        "Keep the phone connected and unlocked while I gather what I need.",
+                        "I'll update you when the assessment is ready.",
                     ]
                 )
             elif phase == "recommendation":
                 checklist.extend(
                     [
-                        "Wait while ForgeOS compares device evidence, your profile, and support data.",
-                        "Review the proposed OS profile and adjust the feature selection when it appears.",
+                        "I'm comparing what I know about this device with your profile — won't be long.",
+                        "Check the 'Here's my plan' tab when the proposal appears.",
                     ]
                 )
             elif phase == "backup_restore":
                 checklist.extend(
                     [
-                        "Wait for ForgeOS to capture backup and restore readiness before any install work is considered.",
-                        "Keep the device connected so recovery evidence remains current.",
+                        "Keep the phone connected while I lock in your recovery options.",
+                        "I won't start any install work until the backup is sorted.",
                     ]
                 )
             elif phase in {"build_preview", "interactive_verification"}:
                 checklist.extend(
                     [
-                        "Review the preview and verification outputs for the proposed build path.",
-                        "Confirm expected limitations and restore assumptions before install is considered.",
+                        "Check the 'Let's review together' tab and confirm the plan looks right.",
+                        "I'll hold off on install until you've signed off on the limitations.",
                     ]
                 )
             elif phase == "wipe_install" and flash_plan and not approval.get("approved"):
                 checklist.extend(
                     [
-                        "Review the install plan and restore notes in the install panel.",
-                        "Approve install only if you want ForgeOS to move from planning into destructive execution.",
+                        "Review the plan in the 'Ready to install' tab.",
+                        "Approve only when you're ready — I won't do anything permanent until you do.",
                     ]
                 )
             elif approval.get("approved"):
-                checklist.append("Run an approved dry run first. Use live wipe and flash only when policy explicitly allows it.")
+                checklist.append("Run a dry run first to make sure everything looks right before going live.")
             else:
-                checklist.append("ForgeOS has finished the current non-destructive preparation step.")
+                checklist.append("I've finished this preparation step — I'll let you know what's next.")
             return (
-                f"Current stage for {manufacturer} {model}: {phase_labels.get(phase, state_name.replace('_', ' ').lower())}",
+                f"{manufacturer} {model} — {phase_labels.get(phase, state_name.replace('_', ' ').lower())}",
                 checklist,
                 agent_status + [
-                    "No wipe or destructive flash has happened."
+                    "Nothing destructive has happened yet."
                 ],
             )
 
         checklist = [
-            "Connect one Android phone with a good USB data cable.",
-            "Keep the phone unlocked if Android is booted.",
-            "Approve USB debugging if the phone asks.",
-            "Let ForgeOS create or resume the device session automatically.",
+            "Connect an Android phone with a good USB cable.",
+            "Keep it unlocked if it's booted into Android.",
+            "Approve USB debugging when prompted.",
+            "I'll create or resume the session automatically.",
         ]
         return (
-            "Getting started checklist",
+            "Ready to go — just need a phone",
             checklist,
-            ["ForgeOS is waiting for a live device and keeping the workspace ready."],
+            ["Watching for a device and keeping the workspace ready."],
         )
 
     def _refresh_approval_panel(self, session_dir: Path) -> None:
@@ -2935,36 +3058,47 @@ class ForgeControlApp:
         phase = runtime_plan.get("phase", "unknown")
         flash_plan = self.sessions.load_flash_plan(self.current_session_dir) if self.current_session_dir else None
         install_visible = has_session and (phase == "wipe_install" or self.show_advanced) and flash_plan is not None and flash_plan.status != "deferred"
+        review_visible = has_session and phase in {"recommendation", "build_preview", "interactive_verification", "wipe_install"}
         show_connection_help = usb_only_device or engagement_status in {"usb_only_detected", "awaiting_user_approval"}
         self.connection_help_card.setVisible(show_connection_help)
-        self.approval_card.setVisible(install_visible)
-        self.profile_card.setVisible(has_session)
-        self.proposal_card.setVisible(has_session)
-        self.backup_card.setVisible(has_session)
-        self.artifact_card.setVisible(has_session)
-        self.review_card.setVisible(has_session and phase in {"recommendation", "build_preview", "interactive_verification", "wipe_install"})
-        self.self_heal_card.setVisible(has_session)
-        self.help_card.setVisible(has_session or usb_only_device)
-        self.device_card.setVisible(self.show_advanced and has_session)
-        self.autonomous_card.setVisible(self.show_advanced and has_session)
-        self.host_card.setVisible(self.show_advanced or not has_session)
+
+        step_enabled = [
+            has_session,       # 0: Tell me about this device (profile)
+            has_session,       # 1: Here's my plan (proposal)
+            has_session,       # 2: Protect your data (backup)
+            has_session,       # 3: Getting files ready (artifact)
+            review_visible,    # 4: Let's review together (review)
+            install_visible,   # 5: Ready to install (approval)
+            True,              # 6: Logs & details (always)
+        ]
+        for i, (btn, enabled) in enumerate(zip(self.wizard_step_buttons, step_enabled)):
+            btn.setEnabled(enabled)
+
+        prev_had_session = getattr(self, "_had_session", False)
+        if has_session and not prev_had_session:
+            self._set_wizard_step(0)
+        elif not has_session and self.wizard_current_step < 6:
+            self._set_wizard_step(6)
+        elif not step_enabled[self.wizard_current_step]:
+            self._set_wizard_step(6)
+        self._had_session = has_session
 
     def _update_refresh_status(self, reason: str, has_live_device: bool, has_usb_only: bool) -> None:
         timestamp = utc_now().split("T", 1)[1].split(".", 1)[0]
         if has_live_device:
-            state = "live device detected"
+            state = "phone connected and active"
         elif has_usb_only:
-            state = "usb phone seen, waiting for adb/fastboot"
+            state = "I can see the phone over USB — waiting for ADB or fastboot"
         elif self.current_session_dir:
-            state = "showing latest saved session"
+            state = "showing the last saved session"
         else:
-            state = "waiting for phone"
+            state = "waiting for a phone"
         if self.runtime_recompute_in_flight and self.runtime_recompute_session is not None:
-            state += f" | autonomous improvement running for {self.runtime_recompute_session.name}"
+            state += f" | working on {self.runtime_recompute_session.name}"
         elif self.runtime_recompute_error:
-            state += f" | autonomous improvement error: {self.runtime_recompute_error}"
+            state += f" | hit a snag: {self.runtime_recompute_error}"
         self._set_activity_indicator(has_live_device or has_usb_only or self.runtime_recompute_in_flight)
-        self.status_label.setText(f"Refresh status: {reason} at {timestamp} | {state}")
+        self.status_label.setText(f"Last updated {timestamp} ({reason}) — {state}")
         self._sync_header_height()
         self.logger.info("GUI refresh: reason=%s state=%s", reason, state)
 
@@ -3042,71 +3176,8 @@ class ForgeControlApp:
 
     def _apply_layout_mode(self, mode: str) -> None:
         self.layout_mode = mode
-        while self.content_grid.count():
-            self.content_grid.takeAt(0)
-
-        if mode == "narrow":
-            self.content_grid.addWidget(self.now_card, 0, 0)
-            self.content_grid.addWidget(self.steps_card, 1, 0)
-            self.content_grid.addWidget(self.profile_card, 2, 0)
-            self.content_grid.addWidget(self.proposal_card, 3, 0)
-            self.content_grid.addWidget(self.review_card, 4, 0)
-            self.content_grid.addWidget(self.backup_card, 5, 0)
-            self.content_grid.addWidget(self.artifact_card, 6, 0)
-            self.content_grid.addWidget(self.self_heal_card, 7, 0)
-            self.content_grid.addWidget(self.connection_help_card, 8, 0)
-            self.content_grid.addWidget(self.host_card, 9, 0)
-            self.content_grid.addWidget(self.device_card, 10, 0)
-            self.content_grid.addWidget(self.autonomous_card, 11, 0)
-            self.content_grid.addWidget(self.approval_card, 12, 0)
-            self.content_grid.addWidget(self.help_card, 13, 0)
-            self.content_grid.setColumnStretch(0, 1)
-            self.content_grid.setColumnStretch(1, 0)
-        else:
-            left_column = QWidget()
-            left_layout = QVBoxLayout(left_column)
-            left_layout.setContentsMargins(0, 0, 0, 0)
-            left_layout.setSpacing(14)
-            for widget in [
-                self.now_card,
-                self.profile_card,
-                self.proposal_card,
-                self.review_card,
-                self.backup_card,
-                self.artifact_card,
-                self.self_heal_card,
-                self.connection_help_card,
-                self.device_card,
-            ]:
-                left_layout.addWidget(widget)
-            left_layout.addStretch(1)
-
-            right_column = QWidget()
-            right_layout = QVBoxLayout(right_column)
-            right_layout.setContentsMargins(0, 0, 0, 0)
-            right_layout.setSpacing(14)
-            for widget in [
-                self.steps_card,
-                self.host_card,
-                self.help_card,
-            ]:
-                right_layout.addWidget(widget)
-            right_layout.addStretch(1)
-
-            self.content_grid.addWidget(left_column, 0, 0)
-            self.content_grid.addWidget(right_column, 0, 1)
-            self.content_grid.addWidget(self.autonomous_card, 5, 0, 1, 2)
-            self.content_grid.addWidget(self.approval_card, 6, 0, 1, 2)
-            self.content_grid.setColumnStretch(0, 5)
-            self.content_grid.setColumnStretch(1, 5)
-        for row in range(8):
-            self.content_grid.setRowStretch(row, 0)
-        self.content_grid.setRowStretch(7, 1)
 
     def _update_responsive_layout(self, width: int) -> None:
-        desired_mode = "narrow" if width < 1380 else "wide"
-        if desired_mode != self.layout_mode:
-            self._apply_layout_mode(desired_mode)
         buttons_stacked = width < 980
         if buttons_stacked:
             self.button_col.setDirection(QVBoxLayout.Direction.TopToBottom)
@@ -3136,6 +3207,68 @@ class ForgeControlApp:
             subprocess.Popen(["code", str(self.current_session_dir)])
         else:
             self._open_path(self.current_session_dir)
+
+    def _toggle_handy(self) -> None:
+        try:
+            subprocess.Popen(["handy", "--toggle-transcription"])
+        except FileNotFoundError:
+            self.logger.warning("handy not found — install it to use voice input")
+
+    def _build_wizard_nav(self) -> QWidget:
+        widget = QFrame()
+        widget.setProperty("role", "wizard_nav")
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.wizard_step_buttons: list[QPushButton] = []
+        steps = [
+            "Tell me about\nthis device",
+            "Here's\nmy plan",
+            "Protect\nyour data",
+            "Get files\nready",
+            "Review\ntogether",
+            "Ready\nto install",
+            "Logs &\ndetails",
+        ]
+        for idx, label in enumerate(steps):
+            num = str(idx + 1) if idx < 6 else "★"
+            btn = QPushButton(f"{num}\n{label}")
+            btn.setProperty("role", "wizard_step")
+            btn.setProperty("wizard_active", False)
+            btn.setCheckable(False)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setMinimumHeight(58)
+            btn.clicked.connect(lambda _=False, i=idx: self._set_wizard_step(i))
+            layout.addWidget(btn)
+            self.wizard_step_buttons.append(btn)
+        return widget
+
+    def _set_wizard_step(self, step: int) -> None:
+        self.wizard_current_step = step
+        self.step_stack.setCurrentIndex(step)
+        for i, btn in enumerate(self.wizard_step_buttons):
+            active = i == step
+            btn.setProperty("wizard_active", active)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.update()
+
+    def _build_status_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        for widget in [
+            self.steps_card,
+            self.host_card,
+            self.device_card,
+            self.autonomous_card,
+            self.self_heal_card,
+            self.help_card,
+        ]:
+            layout.addWidget(widget)
+        layout.addStretch(1)
+        return page
 
     def run(self) -> None:
         session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()

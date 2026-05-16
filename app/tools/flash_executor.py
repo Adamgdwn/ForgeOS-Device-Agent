@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.models import DestructiveApproval, FlashPlan, PolicyModel, Transport
-from app.integrations import adb, fastboot
+from app.integrations import adb, fastboot, heimdall
 from app.tools.base import BaseTool
 
 
@@ -321,6 +321,8 @@ class FlashExecutorTool(BaseTool):
             return self._execute_fastboot_step(serial, manifest, name, flash_plan.transport)
         if flash_plan.install_mode == "adb_sideload":
             return self._execute_adb_sideload_step(serial, manifest, name)
+        if flash_plan.install_mode == "heimdall_flash":
+            return self._execute_heimdall_step(manifest, name)
         return {"ok": False, "reason": f"Unsupported install mode {flash_plan.install_mode}"}
 
     def _execute_fastboot_step(
@@ -367,3 +369,41 @@ class FlashExecutorTool(BaseTool):
         if staged_file is None:
             return {"ok": False, "reason": f"Staged package {package_name} not found"}
         return adb.run(prefix + ["sideload", str(staged_file)])
+
+    def _execute_heimdall_step(self, manifest: dict[str, Any], step_name: str) -> dict[str, Any]:
+        if step_name == "detect_download_mode":
+            return heimdall.detect()
+        if step_name == "print_pit":
+            return heimdall.print_pit()
+        if step_name == "boot_validation":
+            return heimdall.reboot_device()
+        if step_name == "wipe_userdata":
+            # Wipe via recovery sideload or TWRP; heimdall itself doesn't wipe—mark as deferred
+            return {"ok": True, "stdout": "wipe deferred to recovery step", "stderr": "", "returncode": 0}
+        flash_step = next(
+            (s for s in manifest.get("flash_steps", []) if s.get("name") == step_name), None
+        )
+        if not flash_step:
+            return {"ok": False, "reason": f"No manifest step for {step_name}"}
+        # flash_step["partitions"] is a dict of {"BOOT": "boot.img", "SYSTEM": "system.img", ...}
+        raw_partitions: dict[str, str] = flash_step.get("partitions") or {}
+        if not raw_partitions:
+            # Fallback: parse from command string "heimdall flash --BOOT boot.img --SYSTEM system.img"
+            command = str(flash_step.get("command", ""))
+            parts = command.split()
+            i = 0
+            while i < len(parts):
+                if parts[i].startswith("--") and i + 1 < len(parts):
+                    raw_partitions[parts[i][2:]] = parts[i + 1]
+                    i += 2
+                else:
+                    i += 1
+        staged: dict[str, Path] = {}
+        for partition, image_name in raw_partitions.items():
+            match = next(
+                (Path(p) for p in manifest.get("staged_files", []) if Path(p).name == image_name), None
+            )
+            if match is None:
+                return {"ok": False, "reason": f"Staged image {image_name} not found for partition {partition}"}
+            staged[partition] = match
+        return heimdall.flash(staged, reboot=step_name == "flash_final")

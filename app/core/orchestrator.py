@@ -41,6 +41,9 @@ from app.tools.use_case_recommender import UseCaseRecommenderTool
 from app.tools.vscode_opener import VSCodeOpenerTool
 from app.core.adapter_registry import AdapterRegistry
 from app.core.blocker_engine import BlockerEngine
+from app.core.gemma_engine import GemmaEngine
+from app.tools.firmware_downloader import FirmwareDownloader
+from app.tools.tool_installer import ToolInstaller
 from app.workers.research_worker import ResearchWorker
 from app.integrations import adb, fastboot, fastbootd
 from app.core.models import Transport
@@ -897,7 +900,7 @@ class ForgeOrchestrator:
             self.sessions.write_session_state(session_dir, current_state)
             remediation_started = time.monotonic()
             self._safe_transition(session_dir, "CODEGEN_WRITE", "Writing executable remediation artifact into the active session")
-            generated_runtime = self.codegen_runtime.generate(session_dir, blocker, connection_plan, build_plan)
+            generated_runtime = self.codegen_runtime.generate(session_dir, blocker, connection_plan, build_plan, device_context)
             self._safe_transition(session_dir, "PATCH_APPLY", "Registering generated remediation artifacts")
             patch_result = self.patch_executor.apply(session_dir, generated_runtime)
             self._safe_transition(session_dir, "EXECUTE_ARTIFACT", "Executing generated remediation artifact")
@@ -1002,23 +1005,31 @@ class ForgeOrchestrator:
             if blocker["blocker_type"] != "none":
                 self._safe_transition(session_dir, "BLOCKER_CLASSIFY", "Reclassifying blocker after remediation artifact execution")
         elif blocker["blocker_type"] != "none":
-            # Real external-action or approval boundary — pause for operator.
-            # Before pausing, fire web research to enrich the guidance we show.
-            if execute_workers:
-                blocker_type = blocker["blocker_type"]
-                if blocker_type not in {"none", "policy_blocker", "source_blocker"}:
-                    # Persistent non-trivial blocker — search for solutions.
-                    blocker_research_path = session_dir / "research" / f"blocker_{blocker_type}.json"
-                    if not blocker_research_path.exists():
-                        self.research_worker.research_blocker(
-                            session_dir=session_dir,
-                            manufacturer=current_profile.manufacturer or "Unknown",
-                            model=current_profile.model or "Unknown",
-                            blocker_type=blocker_type,
-                            blocker_summary=str(blocker.get("summary", blocker_type)),
-                            transport=device_context.get("transport", "unknown"),
-                        )
-            self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires external action or approval")
+            # Before pausing for the operator, ask Gemma whether it can resolve this.
+            gemma_acted = False
+            if execute_workers and blocker["blocker_type"] not in {"policy_blocker"}:
+                gemma_acted = self._try_gemma_resolution(
+                    blocker=blocker,
+                    session_dir=session_dir,
+                    current_profile=current_profile,
+                    device_context=device_context,
+                )
+            if not gemma_acted:
+                # Fire web research to enrich the guidance we show the operator.
+                if execute_workers:
+                    blocker_type = blocker["blocker_type"]
+                    if blocker_type not in {"none", "policy_blocker", "source_blocker"}:
+                        blocker_research_path = session_dir / "research" / f"blocker_{blocker_type}.json"
+                        if not blocker_research_path.exists():
+                            self.research_worker.research_blocker(
+                                session_dir=session_dir,
+                                manufacturer=current_profile.manufacturer or "Unknown",
+                                model=current_profile.model or "Unknown",
+                                blocker_type=blocker_type,
+                                blocker_summary=str(blocker.get("summary", blocker_type)),
+                                transport=device_context.get("transport", "unknown"),
+                            )
+                self._safe_transition(session_dir, "QUESTION_GATE", "Blocker requires external action or approval")
 
         retry_plan = self.retry_planner.build_plan(
             blocker,
@@ -1032,7 +1043,20 @@ class ForgeOrchestrator:
             self.retry_planner.mark_advanced(session_dir)
         elif experiment_entry.get("advanced") is True:
             self.retry_planner.mark_advanced(session_dir)
-        if execute_workers and retry_plan.get("action") == "escalate_strategy" and blocker.get("blocker_type") == "source_blocker":
+        if execute_workers and blocker.get("blocker_type") == "source_blocker":
+            os_source_dir = session_dir / "artifacts" / "os-source"
+            has_staged = os_source_dir.exists() and any(os_source_dir.iterdir())
+            if not has_staged and current_profile.device_codename:
+                self.logger.info("SOURCE blocker: attempting autonomous firmware download for %s", current_profile.device_codename)
+                try:
+                    dl_result = FirmwareDownloader().resolve_and_download(
+                        codename=current_profile.device_codename,
+                        android_version=current_profile.android_version or "",
+                        session_dir=session_dir,
+                    )
+                    self.logger.info("Firmware download result: %s", dl_result.get("status"))
+                except Exception as exc:
+                    self.logger.warning("Firmware download failed: %s", exc)
             self.research_worker.research_firmware(
                 session_dir=session_dir,
                 manufacturer=current_profile.manufacturer or "Unknown",
@@ -1704,6 +1728,65 @@ class ForgeOrchestrator:
             details=result["details"],
         )
         return result
+
+    def _try_gemma_resolution(
+        self,
+        blocker: dict[str, Any],
+        session_dir: Path,
+        current_profile: Any,
+        device_context: dict[str, Any],
+    ) -> bool:
+        """Ask Gemma how to resolve the blocker. Return True if it took an action."""
+        try:
+            engine = GemmaEngine()
+            prompt = (
+                f"Device: {current_profile.manufacturer} {current_profile.model} "
+                f"({current_profile.device_codename}), Android {current_profile.android_version}, "
+                f"transport={device_context.get('transport', 'unknown')}.\n"
+                f"Blocker type: {blocker.get('blocker_type')}\n"
+                f"Summary: {blocker.get('summary', '')}\n"
+                f"User steps: {blocker.get('user_steps', [])}\n\n"
+                "Decide the best autonomous action. Reply with exactly one of:\n"
+                '{"action":"install_tool","tool":"<tool_name>"}\n'
+                '{"action":"download_firmware","codename":"<codename>"}\n'
+                '{"action":"run_command","command":"<adb or fastboot command>"}\n'
+                '{"action":"ask_operator","reason":"<why human is needed>"}'
+            )
+            decision = engine.ask(prompt, temperature=0.1)
+            action = decision.get("action", "ask_operator")
+            self.logger.info("Gemma blocker decision: %s", decision)
+
+            if action == "install_tool":
+                tool = decision.get("tool", "")
+                if tool:
+                    ok = ToolInstaller().ensure(tool)
+                    self.logger.info("Gemma install_tool %s → %s", tool, "ok" if ok else "failed")
+                    return ok
+
+            elif action == "download_firmware":
+                codename = decision.get("codename") or current_profile.device_codename or ""
+                if codename:
+                    result = FirmwareDownloader().resolve_and_download(
+                        codename=codename,
+                        android_version=current_profile.android_version or "",
+                        session_dir=session_dir,
+                    )
+                    downloaded = result.get("status") == "downloaded"
+                    self.logger.info("Gemma download_firmware %s → %s", codename, result.get("status"))
+                    return downloaded
+
+            elif action == "run_command":
+                command_str = decision.get("command", "").strip()
+                if command_str:
+                    import subprocess as _sp
+                    parts = command_str.split()
+                    result = _sp.run(parts, capture_output=True, text=True, check=False, timeout=30)
+                    self.logger.info("Gemma run_command %s → rc=%d", parts[:3], result.returncode)
+                    return True
+
+        except Exception as exc:
+            self.logger.warning("Gemma resolution attempt failed: %s", exc)
+        return False
 
     def _safe_transition(self, session_dir: Path, target_name: str, reason: str) -> None:
         state = self.sessions.load_session_state(session_dir)

@@ -11,6 +11,7 @@ from app.core.host_capabilities import discover_host_capabilities
 from app.core.models import ForgePaths
 from app.core.policy import PolicyEngine
 from app.core.reporting import ReportWriter
+from app.tools.tool_installer import ToolInstaller
 
 
 WORKSPACE_FILE = "forgeos.code-workspace"
@@ -213,6 +214,10 @@ def run_bootstrap(root: Path) -> dict[str, object]:
 
     policy = PolicyEngine(paths.master / "policies" / "default_policy.json").load()
 
+    tool_installer = ToolInstaller()
+    required_tools = (policy.host_requirements or {}).get("tools", ["adb", "fastboot"])
+    tool_results = tool_installer.ensure_all(required_tools)
+
     details = {
         "platform": platform.system(),
         "platform_release": platform.release(),
@@ -228,6 +233,7 @@ def run_bootstrap(root: Path) -> dict[str, object]:
         "promotion_dir": str(paths.promotion),
         "default_dry_run": policy.default_dry_run,
         "host_capabilities": discover_host_capabilities(root),
+        "tool_install_results": tool_results,
     }
 
     report_writer = ReportWriter(paths.output)

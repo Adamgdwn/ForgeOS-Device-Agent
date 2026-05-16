@@ -29,6 +29,18 @@ class ImageBuilderTool(BaseTool):
         "super.img",
     ]
 
+    # Heimdall partition name → common image filename patterns
+    _HEIMDALL_PARTITION_PATTERNS: dict[str, list[str]] = {
+        "RECOVERY": ["recovery.img", "twrp*.img", "recovery*.img"],
+        "BOOT":     ["boot.img"],
+        "SYSTEM":   ["system.img"],
+        "VENDOR":   ["vendor.img"],
+        "USERDATA": ["userdata.img"],
+        "CACHE":    ["cache.img"],
+        "BL":       ["bl.img", "bootloader.img"],
+        "CP":       ["cp.img", "modem.img"],
+    }
+
     def __init__(self, root: Path) -> None:
         super().__init__(root)
 
@@ -67,12 +79,15 @@ class ImageBuilderTool(BaseTool):
 
         sideload_zip = self._find_sideload_zip(source_dir)
         fastboot_images = self._find_fastboot_images(source_dir)
+        heimdall_images = self._find_heimdall_images(source_dir)
         source_artifact = str(sideload_zip) if sideload_zip else ""
-        if not sideload_zip and not fastboot_images:
+        if not sideload_zip and not fastboot_images and not heimdall_images:
             extracted = self._extract_fastboot_archive(source_dir, extracted_dir)
             if extracted:
                 fastboot_images = extracted
                 source_artifact = str(extracted[0][1].parent)
+            if not fastboot_images:
+                heimdall_images = self._extract_samsung_archive(source_dir, extracted_dir)
 
         status = "missing_source"
         install_mode = "unavailable"
@@ -80,7 +95,25 @@ class ImageBuilderTool(BaseTool):
         flash_steps: list[dict[str, str]] = []
         missing: list[str] = []
 
-        if sideload_zip:
+        if heimdall_images:
+            status = "ready"
+            install_mode = "heimdall_flash"
+            partitions: dict[str, str] = {}
+            for partition, source_path in heimdall_images:
+                copied = staged_dir / source_path.name
+                shutil.copy2(source_path, copied)
+                staged_files.append(copied)
+                partitions[partition] = copied.name
+            flash_steps = [
+                {
+                    "name": "flash_samsung",
+                    "kind": "flash",
+                    "command": "heimdall flash " + " ".join(f"--{p} {f}" for p, f in partitions.items()),
+                    "partitions": partitions,
+                    "description": "Flash Samsung partitions via Heimdall in Download Mode.",
+                }
+            ]
+        elif sideload_zip:
             copied = staged_dir / sideload_zip.name
             shutil.copy2(sideload_zip, copied)
             staged_files.append(copied)
@@ -172,6 +205,60 @@ class ImageBuilderTool(BaseTool):
             or "META-INF/com/android/metadata" in names
             or "META-INF/com/google/android/metadata" in names
         )
+
+    def _find_heimdall_images(self, source_dir: Path) -> list[tuple[str, Path]]:
+        """Find images that should be flashed via Heimdall (Samsung Download Mode)."""
+        if not source_dir.exists():
+            return []
+        found: list[tuple[str, Path]] = []
+        all_imgs = list(source_dir.glob("*.img"))
+        for partition, patterns in self._HEIMDALL_PARTITION_PATTERNS.items():
+            for pattern in patterns:
+                for img in all_imgs:
+                    import fnmatch
+                    if fnmatch.fnmatch(img.name.lower(), pattern.lower()):
+                        found.append((partition, img))
+                        break
+                if any(p == partition for p, _ in found):
+                    break
+        return found
+
+    def _extract_samsung_archive(self, source_dir: Path, extracted_dir: Path) -> list[tuple[str, Path]]:
+        """Extract Samsung tar.md5 firmware archives and return heimdall-ready image pairs."""
+        samsung_archives = [
+            *sorted(source_dir.glob("*.tar.md5")),
+            *sorted(source_dir.glob("AP_*.tar")),
+            *sorted(source_dir.glob("BL_*.tar")),
+        ]
+        if not samsung_archives:
+            return []
+        target_dir = extracted_dir / "samsung_extracted"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for archive_path in samsung_archives:
+            try:
+                open_path = archive_path
+                if archive_path.suffix == ".md5":
+                    open_path = archive_path.with_suffix("")
+                    if not open_path.exists():
+                        import shutil as _sh
+                        _sh.copy2(archive_path, open_path)
+                with tarfile.open(open_path) as tar:
+                    for member in tar.getmembers():
+                        fname = Path(member.name).name
+                        if member.isfile() and (fname.endswith(".img") or fname.endswith(".img.lz4")):
+                            tar.extract(member, target_dir)
+            except Exception as exc:
+                self.logger.warning("Samsung archive extraction failed for %s: %s", archive_path.name, exc)
+        # Decompress any .lz4 files
+        for lz4_file in target_dir.rglob("*.img.lz4"):
+            out = lz4_file.with_suffix("")
+            if not out.exists():
+                try:
+                    import subprocess as _sp
+                    _sp.run(["lz4", "-d", str(lz4_file), str(out)], check=False, capture_output=True)
+                except Exception:
+                    pass
+        return self._find_heimdall_images(target_dir)
 
     def _find_fastboot_images(self, source_dir: Path) -> list[tuple[str, Path]]:
         if not source_dir.exists():
