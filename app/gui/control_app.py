@@ -37,10 +37,12 @@ from app.core.knowledge import KnowledgeEngine
 from app.core.codex_handoff import CodexHandoffEngine
 from app.core.connection_engine import ConnectionEngine
 from app.core.connection_playbook import ConnectionPlaybookEngine
+from app.core.device_form_factor import apply_form_factor_inference
 from app.core.orchestrator import ForgeOrchestrator
 from app.core.policy import PolicyEngine
 from app.core.models import (
     AutonomyLimit,
+    DeviceFormFactor,
     GoogleServicesPreference,
     PriorityFocus,
     RestoreExpectation,
@@ -568,7 +570,7 @@ class ForgeControlApp:
         outer = QVBoxLayout(group)
         outer.setSpacing(8)
 
-        self.profile_status = QLabel("Tell me who this phone is for and what you want it to do.")
+        self.profile_status = QLabel("Tell me who this device is for and what you want it to do.")
         self.profile_status.setWordWrap(True)
         self.profile_status.setProperty("role", "body")
         outer.addWidget(self.profile_status)
@@ -617,6 +619,11 @@ class ForgeControlApp:
         self.restore_combo.addItem("Guided restore is okay", RestoreExpectation.GUIDED_IS_OK.value)
         self.restore_combo.addItem("Research-first is okay", RestoreExpectation.RESEARCH_OK.value)
 
+        self.form_factor_combo = QComboBox()
+        self.form_factor_combo.addItem("Auto detect type", "auto")
+        self.form_factor_combo.addItem("Phone", DeviceFormFactor.PHONE.value)
+        self.form_factor_combo.addItem("Tablet", DeviceFormFactor.TABLET.value)
+
         self.use_case_combo = QComboBox()
         for label, value in [
             ("Accessibility phone", UseCaseCategory.ACCESSIBILITY.value),
@@ -653,8 +660,8 @@ class ForgeControlApp:
             ("Who is this for?",     self.persona_combo,        "Technical level?",     self.comfort_combo),
             ("What matters most?",   self.priority_combo,       "Google apps?",         self.google_combo),
             ("How autonomous?",      self.autonomy_combo,       "Risk tolerance?",      self.risk_combo),
-            ("If it goes wrong?",    self.restore_combo,        "Use case?",            self.use_case_combo),
-            ("Secondary priority?",  self.secondary_goal_combo, None,                   None),
+            ("If it goes wrong?",    self.restore_combo,        "Device type?",         self.form_factor_combo),
+            ("Use case?",            self.use_case_combo,       "Secondary priority?",  self.secondary_goal_combo),
         ]
         for row, (l1, w1, l2, w2) in enumerate(pairs):
             lbl1 = QLabel(l1)
@@ -673,7 +680,7 @@ class ForgeControlApp:
         for combo in [
             self.persona_combo, self.comfort_combo, self.priority_combo,
             self.google_combo, self.autonomy_combo, self.risk_combo,
-            self.restore_combo, self.use_case_combo, self.secondary_goal_combo,
+            self.restore_combo, self.form_factor_combo, self.use_case_combo, self.secondary_goal_combo,
         ]:
             combo.installEventFilter(_guard)
             combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -681,7 +688,7 @@ class ForgeControlApp:
 
         # ── Text inputs ────────────────────────────────────────────────
         self.intended_user_input = QLineEdit()
-        self.intended_user_input.setPlaceholderText("Where will this phone live? e.g. kitchen wall tablet for family")
+        self.intended_user_input.setPlaceholderText("Where will this device live? e.g. kitchen wall tablet for family")
         outer.addWidget(self.intended_user_input)
 
         self.end_product_input = QTextEdit()
@@ -1050,6 +1057,7 @@ class ForgeControlApp:
             self.autonomy_combo,
             self.risk_combo,
             self.restore_combo,
+            self.form_factor_combo,
             self.use_case_combo,
             self.secondary_goal_combo,
         ]:
@@ -1459,6 +1467,7 @@ class ForgeControlApp:
             f"Model: {profile.get('model') or 'unknown'}",
             f"Serial: {profile.get('serial') or 'unknown'}",
             f"Transport: {profile.get('transport') or 'unknown'}",
+            f"Device type: {profile.get('form_factor') or 'unknown'} ({profile.get('form_factor_source') or 'unknown'}, confidence {profile.get('form_factor_confidence', 0.0)})",
             f"Android version: {profile.get('android_version') or 'unknown'}",
             f"Bootloader locked: {profile.get('bootloader_locked')}",
             f"Verified boot state: {profile.get('verified_boot_state') or 'unknown'}",
@@ -2216,6 +2225,7 @@ class ForgeControlApp:
         if self.profile_form_dirty and self.profile_form_session == session_dir:
             return
         profile = self.sessions.load_user_profile(session_dir)
+        device_profile = self.sessions.load_device_profile(session_dir)
         goals = self.sessions.load_os_goals(session_dir)
         self.profile_form_syncing = True
         try:
@@ -2226,6 +2236,10 @@ class ForgeControlApp:
             self._set_combo_by_value(self.autonomy_combo, profile.autonomy_limit.value)
             self._set_combo_by_value(self.risk_combo, profile.risk_tolerance.value)
             self._set_combo_by_value(self.restore_combo, profile.restore_expectation.value)
+            self._set_combo_by_value(
+                self.form_factor_combo,
+                device_profile.form_factor_override.value if device_profile.form_factor_override else "auto",
+            )
             self._set_combo_by_value(self.use_case_combo, profile.target_use_case.value)
             self._set_combo_by_value(self.secondary_goal_combo, goals.secondary_goal.value)
             self.intended_user_input.setText(profile.intended_user)
@@ -2262,6 +2276,16 @@ class ForgeControlApp:
         user_profile.success_criteria = self.success_criteria_input.toPlainText().strip()
         user_profile.lawful_use_attested = self.lawful_use_check.isChecked()
         self.sessions.write_user_profile(self.current_session_dir, user_profile)
+
+        device_profile = self.sessions.load_device_profile(self.current_session_dir)
+        selected_form_factor = str(self.form_factor_combo.currentData() or "auto")
+        if selected_form_factor == "auto":
+            device_profile.form_factor_override = None
+            apply_form_factor_inference(device_profile, device_profile.raw_probe_data)
+        else:
+            device_profile.form_factor_override = DeviceFormFactor(selected_form_factor)
+            apply_form_factor_inference(device_profile, device_profile.raw_probe_data)
+        self.sessions.write_device_profile(self.current_session_dir, device_profile)
 
         os_goals = self.sessions.load_os_goals(self.current_session_dir)
         os_goals.top_goal = PriorityFocus(self.priority_combo.currentData())

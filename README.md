@@ -110,6 +110,7 @@ This checkpoint is runnable and auditable. It can now:
 
 - detect Android-family devices over USB, `adb`, and `fastboot`
 - create or resume per-device execution sessions
+- infer whether the target is a phone or tablet, with an operator override selector in the profile form
 - assess transport and initial support feasibility
 - refresh live hardware evidence from `adb`
 - generate host-side recovery bundles and restore plans

@@ -10,6 +10,7 @@ from typing import Any
 from app.core.codex_handoff import CodexHandoffEngine
 from app.core.codegen_runtime import CodegenRuntime
 from app.core.connection_engine import ConnectionEngine
+from app.core.device_form_factor import apply_form_factor_inference
 from app.core.knowledge import KnowledgeEngine
 from app.core.knowledge_lookup import KnowledgeLookup
 from app.core.policy_guard import PolicyGuard
@@ -123,6 +124,7 @@ class ForgeOrchestrator:
             if probe_result["device"].get("transport"):
                 profile.transport = probe_result["device"]["transport"]
             profile.raw_probe_data |= probe_result["device"]
+            apply_form_factor_inference(profile, probe_result["device"])
             self.sessions.write_device_profile(waiting_session, profile)
             self._safe_transition(waiting_session, "BLOCKER_CLASSIFY", "Device state changed while waiting at QUESTION_GATE — re-entering blocker classification")
             self.recompute_session_runtime(waiting_session)
@@ -132,7 +134,18 @@ class ForgeOrchestrator:
         self._safe_transition(session_dir, "DISCOVER", "Runtime discovery started")
         self._safe_transition(session_dir, "PROFILE_SYNTHESIS", "Device profile synthesis started")
 
-        device_payload = probe_result["device"]
+        session_profile = self.sessions.load_device_profile(session_dir)
+        device_payload = {
+            **probe_result["device"],
+            "form_factor": session_profile.form_factor.value,
+            "form_factor_source": session_profile.form_factor_source,
+            "form_factor_confidence": session_profile.form_factor_confidence,
+            "form_factor_override": (
+                session_profile.form_factor_override.value
+                if session_profile.form_factor_override
+                else None
+            ),
+        }
         self._safe_transition(session_dir, "ASSESS", "Device assessment started")
         assessment = self.assessor.execute({"device": device_payload, "session_dir": str(session_dir)})
         self.sessions.annotate(session_dir, assessment["summary"])
@@ -454,6 +467,10 @@ class ForgeOrchestrator:
             "battery": profile.battery or {},
             "transport": profile.transport,
             "device_codename": profile.device_codename,
+            "form_factor": profile.form_factor.value,
+            "form_factor_source": profile.form_factor_source,
+            "form_factor_confidence": profile.form_factor_confidence,
+            "form_factor_override": profile.form_factor_override.value if profile.form_factor_override else None,
             "raw_event": profile.raw_probe_data.get("raw_event", profile.raw_probe_data),
         }
         runtime_result = self._run_runtime_cycle(
@@ -541,6 +558,14 @@ class ForgeOrchestrator:
             "serial": current_profile.serial,
             "hardware_snapshot": hw_snapshot,
             "slot_info": current_profile.slot_info or {},
+            "form_factor": current_profile.form_factor.value,
+            "form_factor_source": current_profile.form_factor_source,
+            "form_factor_confidence": current_profile.form_factor_confidence,
+            "form_factor_override": (
+                current_profile.form_factor_override.value
+                if current_profile.form_factor_override
+                else None
+            ),
         }
         no_master_adapter = not self.adapter_registry.has_master_adapter(
             current_profile.manufacturer, current_profile.model
@@ -958,6 +983,14 @@ class ForgeOrchestrator:
                             "slot_info": current_profile.slot_info or {},
                             "battery": current_profile.battery or {},
                             "device_codename": current_profile.device_codename,
+                            "form_factor": current_profile.form_factor.value,
+                            "form_factor_source": current_profile.form_factor_source,
+                            "form_factor_confidence": current_profile.form_factor_confidence,
+                            "form_factor_override": (
+                                current_profile.form_factor_override.value
+                                if current_profile.form_factor_override
+                                else None
+                            ),
                             "raw_event": current_profile.raw_probe_data.get("raw_event", current_profile.raw_probe_data),
                         },
                         "user_profile": {

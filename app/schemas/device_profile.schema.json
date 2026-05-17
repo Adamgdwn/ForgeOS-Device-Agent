@@ -24,6 +24,16 @@
     },
     "bootloader_locked": { "type": ["boolean", "null"] },
     "verified_boot_state": { "type": ["string", "null"] },
+    "form_factor": {
+      "type": "string",
+      "enum": ["unknown", "phone", "tablet"]
+    },
+    "form_factor_source": { "type": "string" },
+    "form_factor_confidence": { "type": "number" },
+    "form_factor_override": {
+      "type": ["string", "null"],
+      "enum": ["unknown", "phone", "tablet", null]
+    },
     "slot_info": { "type": ["object", "null"] },
     "battery": { "type": ["object", "null"] },
     "raw_probe_data": { "type": "object" }

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.io_utils import atomic_write_json
+from app.core.device_form_factor import apply_form_factor_inference
 from app.core.models import (
     DestructiveApproval,
     DeviceProfile,
@@ -97,6 +98,7 @@ class SessionManager:
             # the assessor and blocker engine can use them without digging into
             # raw_probe_data.
             self._promote_hardware_snapshot(profile, probe_data)
+            apply_form_factor_inference(profile, probe_data)
             self.write_device_profile(session_dir, profile)
             return session_dir
 
@@ -132,6 +134,7 @@ class SessionManager:
             ],
         )
         self._promote_hardware_snapshot(profile, probe_data)
+        apply_form_factor_inference(profile, probe_data)
         self.write_device_profile(session_dir, profile)
         self.write_session_state(session_dir, state)
         self.write_user_profile(session_dir, UserProfile(session_id=session_name))
