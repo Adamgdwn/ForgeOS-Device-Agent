@@ -1433,6 +1433,7 @@ class ForgeOrchestrator:
         if device_codename:
             updated_profile.device_codename = device_codename
         updated_profile.raw_probe_data |= probe_result["device"]
+        apply_form_factor_inference(updated_profile, probe_result["device"])
         self.sessions.write_device_profile(session_dir, updated_profile)
         return probe_result["device"]
 
@@ -1633,6 +1634,7 @@ class ForgeOrchestrator:
                         profile.transport = profile.transport.__class__(value)
                     else:
                         setattr(profile, key, value)
+            apply_form_factor_inference(profile, profile.raw_probe_data)
             self.sessions.write_device_profile(session_dir, profile)
             self.sessions.annotate(session_dir, inspection.get("summary", "Remediation artifact updated the device profile."))
         if inspection.get("engagement_updates"):

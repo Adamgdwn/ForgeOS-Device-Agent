@@ -1170,6 +1170,7 @@ class ForgeControlApp:
                 **live_profile,
             },
         }
+        apply_form_factor_inference(profile_model, profile_model.raw_probe_data)
         self.sessions.write_device_profile(session_dir, profile_model)
 
         device_payload = {
@@ -1187,6 +1188,14 @@ class ForgeControlApp:
             "transport": profile_model.transport,
             "reachability": "adb-visible",
             "device_codename": profile_model.device_codename,
+            "form_factor": profile_model.form_factor.value,
+            "form_factor_source": profile_model.form_factor_source,
+            "form_factor_confidence": profile_model.form_factor_confidence,
+            "form_factor_override": (
+                profile_model.form_factor_override.value
+                if profile_model.form_factor_override
+                else None
+            ),
             "raw_event": profile_model.raw_probe_data.get("raw_event", {}),
         }
         assessment = self.orchestrator.assessor.execute({"device": device_payload, "session_dir": str(session_dir)})
