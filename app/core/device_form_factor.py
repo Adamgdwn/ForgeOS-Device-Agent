@@ -29,6 +29,9 @@ def infer_device_form_factor(device: dict[str, Any] | Any) -> tuple[DeviceFormFa
         return DeviceFormFactor.TABLET, "model_prefix", 0.92
     if re.match(r"^(SM-A|SM-G|SM-N|SM-S|GT-I|SGH-I|SAMSUNG-SM-G)", model_upper):
         return DeviceFormFactor.PHONE, "model_prefix", 0.86
+    model_lower = model.lower()
+    if re.search(r"\bgalaxy (s|a|note)[0-9]", model_lower):
+        return DeviceFormFactor.PHONE, "model_name", 0.82
 
     tablet_terms = [
         "tablet",
@@ -45,9 +48,6 @@ def infer_device_form_factor(device: dict[str, Any] | Any) -> tuple[DeviceFormFa
     phone_terms = [
         "phone",
         "pixel ",
-        "galaxy s",
-        "galaxy a",
-        "galaxy note",
         "moto g",
         "oneplus",
         "iphone",

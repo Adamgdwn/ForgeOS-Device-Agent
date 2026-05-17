@@ -139,6 +139,27 @@ def test_create_session_infers_tablet_form_factor_from_model_prefix(tmp_path: Pa
     assert profile.form_factor_source == "model_prefix"
 
 
+def test_generic_samsung_mtp_stays_unknown_until_model_is_known(tmp_path: Path) -> None:
+    (tmp_path / "master" / "strategies").mkdir(parents=True)
+    manager = SessionManager(tmp_path)
+
+    session_dir = manager.create_or_resume(
+        {
+            "manufacturer": "Samsung",
+            "model": "USB-attached Android",
+            "serial": "usb-04e8-6860",
+            "transport": Transport.USB_MTP,
+            "raw_event": {
+                "usb_description": "Samsung Electronics Co., Ltd Galaxy series, misc. (MTP mode)"
+            },
+        }
+    )
+
+    profile = manager.load_device_profile(session_dir)
+    assert profile.form_factor == DeviceFormFactor.UNKNOWN
+    assert profile.form_factor_source == "insufficient_evidence"
+
+
 def test_operator_form_factor_override_survives_new_probe(tmp_path: Path) -> None:
     (tmp_path / "master" / "strategies").mkdir(parents=True)
     manager = SessionManager(tmp_path)
