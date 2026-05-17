@@ -10,7 +10,7 @@ from time import monotonic
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QSize, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -69,6 +69,18 @@ class _WheelGuard(QObject):
             event.ignore()
             return True
         return super().eventFilter(watched, event)
+
+
+class _CurrentPageStack(QStackedWidget):
+    """Size the wizard to the visible page instead of the tallest hidden page."""
+
+    def sizeHint(self) -> QSize:
+        widget = self.currentWidget()
+        return widget.sizeHint() if widget else super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        widget = self.currentWidget()
+        return widget.minimumSizeHint() if widget else super().minimumSizeHint()
 
 
 class ForgeControlApp:
@@ -162,9 +174,9 @@ class ForgeControlApp:
         outer.setSpacing(0)
         self.scroll.setWidget(step_container)
 
-        self.step_stack = QStackedWidget()
+        self.step_stack = _CurrentPageStack()
         self.step_stack.setMaximumWidth(820)
-        self.step_stack.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.step_stack.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.step_stack.addWidget(self.profile_card)
         self.step_stack.addWidget(self.proposal_card)
         self.step_stack.addWidget(self.backup_card)
@@ -172,6 +184,7 @@ class ForgeControlApp:
         self.step_stack.addWidget(self.review_card)
         self.step_stack.addWidget(self.approval_card)
         self.step_stack.addWidget(self._build_status_page())
+        self.step_stack.currentChanged.connect(self._sync_step_stack_height)
 
         # Center the content column with breathing room on both sides.
         # addStretch(1) on each side keeps it centered; step_stack never
@@ -566,8 +579,9 @@ class ForgeControlApp:
 
     def _build_profile_card(self) -> QGroupBox:
         group = QGroupBox("Tell me about this device")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(group)
+        outer.setContentsMargins(10, 14, 10, 10)
         outer.setSpacing(8)
 
         self.profile_status = QLabel("Tell me who this device is for and what you want it to do.")
@@ -692,11 +706,13 @@ class ForgeControlApp:
         outer.addWidget(self.intended_user_input)
 
         self.end_product_input = QTextEdit()
+        self.end_product_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.end_product_input.setMaximumHeight(64)
         self.end_product_input.setPlaceholderText("Describe the finished device — role, apps, restrictions.")
         outer.addWidget(self.end_product_input)
 
         self.success_criteria_input = QTextEdit()
+        self.success_criteria_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.success_criteria_input.setMaximumHeight(56)
         self.success_criteria_input.setPlaceholderText("Done when… (what must be true before this is considered finished)")
         outer.addWidget(self.success_criteria_input)
@@ -3400,12 +3416,23 @@ class ForgeControlApp:
     def _set_wizard_step(self, step: int) -> None:
         self.wizard_current_step = step
         self.step_stack.setCurrentIndex(step)
+        self._sync_step_stack_height()
         for i, btn in enumerate(self.wizard_step_buttons):
             active = i == step
             btn.setProperty("wizard_active", active)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
             btn.update()
+
+    def _sync_step_stack_height(self, *_args: object) -> None:
+        widget = self.step_stack.currentWidget()
+        if not widget:
+            return
+        height = widget.sizeHint().height()
+        self.step_stack.setMinimumHeight(height)
+        self.step_stack.setMaximumHeight(height)
+        self.step_stack.updateGeometry()
+        self.scroll.widget().updateGeometry()
 
     def _build_status_page(self) -> QWidget:
         page = QWidget()
