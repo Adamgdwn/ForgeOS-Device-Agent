@@ -9,6 +9,7 @@ output/
 devices/
 !.gitkeep
 .aider*
+.claude/
 .vscode/
 /device-profile.json
 /session-state.json
@@ -17,6 +18,8 @@ devices/
 /reports/assessment.json
 /reports/engagement.json
 knowledge/session_outcomes.json
+knowledge/strategy_memory.sqlite3
+knowledge/strategy_memory_snapshot.json
 knowledge/support_matrix.json
 promotion/candidates.json
 promotion/adapters/
