@@ -284,7 +284,7 @@ class ImageBuilderTool(BaseTool):
         except OSError:
             return False
         lowered = sample.lower()
-        if b"simulated firmware content" in lowered or b"placeholder" in lowered:
+        if b"mock content" in lowered or b"simulated firmware content" in lowered or b"placeholder" in lowered:
             return False
         return True
 
