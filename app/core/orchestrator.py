@@ -1119,7 +1119,7 @@ class ForgeOrchestrator:
         elif blocker["blocker_type"] != "none":
             # Before pausing for the operator, ask Gemma whether it can resolve this.
             gemma_acted = False
-            if execute_workers and blocker["blocker_type"] not in {"policy_blocker"}:
+            if execute_workers and model_worker_allowed and blocker["blocker_type"] not in {"policy_blocker"}:
                 gemma_acted = self._try_gemma_resolution(
                     blocker=blocker,
                     session_dir=session_dir,
@@ -1128,7 +1128,7 @@ class ForgeOrchestrator:
                 )
             if not gemma_acted:
                 # Fire web research to enrich the guidance we show the operator.
-                if execute_workers:
+                if execute_workers and model_worker_allowed:
                     blocker_type = blocker["blocker_type"]
                     if blocker_type not in {"none", "policy_blocker", "source_blocker"}:
                         blocker_research_path = session_dir / "research" / f"blocker_{blocker_type}.json"
@@ -1155,7 +1155,7 @@ class ForgeOrchestrator:
             self.retry_planner.mark_advanced(session_dir)
         elif experiment_entry.get("advanced") is True:
             self.retry_planner.mark_advanced(session_dir)
-        if execute_workers and blocker.get("blocker_type") == "source_blocker":
+        if execute_workers and model_worker_allowed and blocker.get("blocker_type") == "source_blocker":
             os_source_dir = session_dir / "artifacts" / "os-source"
             has_staged = self._has_plausible_source_artifact(os_source_dir)
             if not has_staged and current_profile.device_codename:
