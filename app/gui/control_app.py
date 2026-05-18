@@ -10,7 +10,7 @@ from time import monotonic
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QSize, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -37,10 +37,12 @@ from app.core.knowledge import KnowledgeEngine
 from app.core.codex_handoff import CodexHandoffEngine
 from app.core.connection_engine import ConnectionEngine
 from app.core.connection_playbook import ConnectionPlaybookEngine
+from app.core.device_form_factor import apply_form_factor_inference
 from app.core.orchestrator import ForgeOrchestrator
 from app.core.policy import PolicyEngine
 from app.core.models import (
     AutonomyLimit,
+    DeviceFormFactor,
     GoogleServicesPreference,
     PriorityFocus,
     RestoreExpectation,
@@ -67,6 +69,18 @@ class _WheelGuard(QObject):
             event.ignore()
             return True
         return super().eventFilter(watched, event)
+
+
+class _CurrentPageStack(QStackedWidget):
+    """Size the wizard to the visible page instead of the tallest hidden page."""
+
+    def sizeHint(self) -> QSize:
+        widget = self.currentWidget()
+        return widget.sizeHint() if widget else super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        widget = self.currentWidget()
+        return widget.minimumSizeHint() if widget else super().minimumSizeHint()
 
 
 class ForgeControlApp:
@@ -160,9 +174,9 @@ class ForgeControlApp:
         outer.setSpacing(0)
         self.scroll.setWidget(step_container)
 
-        self.step_stack = QStackedWidget()
+        self.step_stack = _CurrentPageStack()
         self.step_stack.setMaximumWidth(820)
-        self.step_stack.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.step_stack.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.step_stack.addWidget(self.profile_card)
         self.step_stack.addWidget(self.proposal_card)
         self.step_stack.addWidget(self.backup_card)
@@ -170,6 +184,7 @@ class ForgeControlApp:
         self.step_stack.addWidget(self.review_card)
         self.step_stack.addWidget(self.approval_card)
         self.step_stack.addWidget(self._build_status_page())
+        self.step_stack.currentChanged.connect(self._sync_step_stack_height)
 
         # Center the content column with breathing room on both sides.
         # addStretch(1) on each side keeps it centered; step_stack never
@@ -564,11 +579,12 @@ class ForgeControlApp:
 
     def _build_profile_card(self) -> QGroupBox:
         group = QGroupBox("Tell me about this device")
-        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(group)
+        outer.setContentsMargins(10, 14, 10, 10)
         outer.setSpacing(8)
 
-        self.profile_status = QLabel("Tell me who this phone is for and what you want it to do.")
+        self.profile_status = QLabel("Tell me who this device is for and what you want it to do.")
         self.profile_status.setWordWrap(True)
         self.profile_status.setProperty("role", "body")
         outer.addWidget(self.profile_status)
@@ -617,6 +633,11 @@ class ForgeControlApp:
         self.restore_combo.addItem("Guided restore is okay", RestoreExpectation.GUIDED_IS_OK.value)
         self.restore_combo.addItem("Research-first is okay", RestoreExpectation.RESEARCH_OK.value)
 
+        self.form_factor_combo = QComboBox()
+        self.form_factor_combo.addItem("Auto detect type", "auto")
+        self.form_factor_combo.addItem("Phone", DeviceFormFactor.PHONE.value)
+        self.form_factor_combo.addItem("Tablet", DeviceFormFactor.TABLET.value)
+
         self.use_case_combo = QComboBox()
         for label, value in [
             ("Accessibility phone", UseCaseCategory.ACCESSIBILITY.value),
@@ -653,8 +674,8 @@ class ForgeControlApp:
             ("Who is this for?",     self.persona_combo,        "Technical level?",     self.comfort_combo),
             ("What matters most?",   self.priority_combo,       "Google apps?",         self.google_combo),
             ("How autonomous?",      self.autonomy_combo,       "Risk tolerance?",      self.risk_combo),
-            ("If it goes wrong?",    self.restore_combo,        "Use case?",            self.use_case_combo),
-            ("Secondary priority?",  self.secondary_goal_combo, None,                   None),
+            ("If it goes wrong?",    self.restore_combo,        "Device type?",         self.form_factor_combo),
+            ("Use case?",            self.use_case_combo,       "Secondary priority?",  self.secondary_goal_combo),
         ]
         for row, (l1, w1, l2, w2) in enumerate(pairs):
             lbl1 = QLabel(l1)
@@ -673,7 +694,7 @@ class ForgeControlApp:
         for combo in [
             self.persona_combo, self.comfort_combo, self.priority_combo,
             self.google_combo, self.autonomy_combo, self.risk_combo,
-            self.restore_combo, self.use_case_combo, self.secondary_goal_combo,
+            self.restore_combo, self.form_factor_combo, self.use_case_combo, self.secondary_goal_combo,
         ]:
             combo.installEventFilter(_guard)
             combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -681,15 +702,17 @@ class ForgeControlApp:
 
         # ── Text inputs ────────────────────────────────────────────────
         self.intended_user_input = QLineEdit()
-        self.intended_user_input.setPlaceholderText("Where will this phone live? e.g. kitchen wall tablet for family")
+        self.intended_user_input.setPlaceholderText("Where will this device live? e.g. kitchen wall tablet for family")
         outer.addWidget(self.intended_user_input)
 
         self.end_product_input = QTextEdit()
+        self.end_product_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.end_product_input.setMaximumHeight(64)
         self.end_product_input.setPlaceholderText("Describe the finished device — role, apps, restrictions.")
         outer.addWidget(self.end_product_input)
 
         self.success_criteria_input = QTextEdit()
+        self.success_criteria_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.success_criteria_input.setMaximumHeight(56)
         self.success_criteria_input.setPlaceholderText("Done when… (what must be true before this is considered finished)")
         outer.addWidget(self.success_criteria_input)
@@ -1050,6 +1073,7 @@ class ForgeControlApp:
             self.autonomy_combo,
             self.risk_combo,
             self.restore_combo,
+            self.form_factor_combo,
             self.use_case_combo,
             self.secondary_goal_combo,
         ]:
@@ -1162,6 +1186,7 @@ class ForgeControlApp:
                 **live_profile,
             },
         }
+        apply_form_factor_inference(profile_model, profile_model.raw_probe_data)
         self.sessions.write_device_profile(session_dir, profile_model)
 
         device_payload = {
@@ -1179,6 +1204,14 @@ class ForgeControlApp:
             "transport": profile_model.transport,
             "reachability": "adb-visible",
             "device_codename": profile_model.device_codename,
+            "form_factor": profile_model.form_factor.value,
+            "form_factor_source": profile_model.form_factor_source,
+            "form_factor_confidence": profile_model.form_factor_confidence,
+            "form_factor_override": (
+                profile_model.form_factor_override.value
+                if profile_model.form_factor_override
+                else None
+            ),
             "raw_event": profile_model.raw_probe_data.get("raw_event", {}),
         }
         assessment = self.orchestrator.assessor.execute({"device": device_payload, "session_dir": str(session_dir)})
@@ -1459,6 +1492,7 @@ class ForgeControlApp:
             f"Model: {profile.get('model') or 'unknown'}",
             f"Serial: {profile.get('serial') or 'unknown'}",
             f"Transport: {profile.get('transport') or 'unknown'}",
+            f"Device type: {profile.get('form_factor') or 'unknown'} ({profile.get('form_factor_source') or 'unknown'}, confidence {profile.get('form_factor_confidence', 0.0)})",
             f"Android version: {profile.get('android_version') or 'unknown'}",
             f"Bootloader locked: {profile.get('bootloader_locked')}",
             f"Verified boot state: {profile.get('verified_boot_state') or 'unknown'}",
@@ -2216,6 +2250,7 @@ class ForgeControlApp:
         if self.profile_form_dirty and self.profile_form_session == session_dir:
             return
         profile = self.sessions.load_user_profile(session_dir)
+        device_profile = self.sessions.load_device_profile(session_dir)
         goals = self.sessions.load_os_goals(session_dir)
         self.profile_form_syncing = True
         try:
@@ -2226,6 +2261,10 @@ class ForgeControlApp:
             self._set_combo_by_value(self.autonomy_combo, profile.autonomy_limit.value)
             self._set_combo_by_value(self.risk_combo, profile.risk_tolerance.value)
             self._set_combo_by_value(self.restore_combo, profile.restore_expectation.value)
+            self._set_combo_by_value(
+                self.form_factor_combo,
+                device_profile.form_factor_override.value if device_profile.form_factor_override else "auto",
+            )
             self._set_combo_by_value(self.use_case_combo, profile.target_use_case.value)
             self._set_combo_by_value(self.secondary_goal_combo, goals.secondary_goal.value)
             self.intended_user_input.setText(profile.intended_user)
@@ -2262,6 +2301,16 @@ class ForgeControlApp:
         user_profile.success_criteria = self.success_criteria_input.toPlainText().strip()
         user_profile.lawful_use_attested = self.lawful_use_check.isChecked()
         self.sessions.write_user_profile(self.current_session_dir, user_profile)
+
+        device_profile = self.sessions.load_device_profile(self.current_session_dir)
+        selected_form_factor = str(self.form_factor_combo.currentData() or "auto")
+        if selected_form_factor == "auto":
+            device_profile.form_factor_override = None
+            apply_form_factor_inference(device_profile, device_profile.raw_probe_data)
+        else:
+            device_profile.form_factor_override = DeviceFormFactor(selected_form_factor)
+            apply_form_factor_inference(device_profile, device_profile.raw_probe_data)
+        self.sessions.write_device_profile(self.current_session_dir, device_profile)
 
         os_goals = self.sessions.load_os_goals(self.current_session_dir)
         os_goals.top_goal = PriorityFocus(self.priority_combo.currentData())
@@ -2698,7 +2747,7 @@ class ForgeControlApp:
         alert_key = f"{session_dir.name}:{state_name}:{engagement_status}:{blocker_type}:{summary[:120]}"
         self._maybe_show_intervention_alert(
             alert_key=alert_key,
-            title="I need your help",
+            title="Operator Intervention Required",
             summary=summary,
             steps=steps,
         )
@@ -3160,13 +3209,13 @@ class ForgeControlApp:
     def _update_refresh_status(self, reason: str, has_live_device: bool, has_usb_only: bool) -> None:
         timestamp = utc_now().split("T", 1)[1].split(".", 1)[0]
         if has_live_device:
-            state = "phone connected and active"
+            state = "device connected and active"
         elif has_usb_only:
-            state = "I can see the phone over USB — waiting for ADB or fastboot"
+            state = "I can see the device over USB — waiting for ADB or fastboot"
         elif self.current_session_dir:
             state = "showing the last saved session"
         else:
-            state = "waiting for a phone"
+            state = "waiting for a device"
         if self.runtime_recompute_in_flight and self.runtime_recompute_session is not None:
             state += f" | working on {self.runtime_recompute_session.name}"
         elif self.runtime_recompute_error:
@@ -3367,12 +3416,23 @@ class ForgeControlApp:
     def _set_wizard_step(self, step: int) -> None:
         self.wizard_current_step = step
         self.step_stack.setCurrentIndex(step)
+        self._sync_step_stack_height()
         for i, btn in enumerate(self.wizard_step_buttons):
             active = i == step
             btn.setProperty("wizard_active", active)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
             btn.update()
+
+    def _sync_step_stack_height(self, *_args: object) -> None:
+        widget = self.step_stack.currentWidget()
+        if not widget:
+            return
+        height = widget.sizeHint().height()
+        self.step_stack.setMinimumHeight(height)
+        self.step_stack.setMaximumHeight(height)
+        self.step_stack.updateGeometry()
+        self.scroll.widget().updateGeometry()
 
     def _build_status_page(self) -> QWidget:
         page = QWidget()

@@ -159,6 +159,8 @@ class CodegenRuntime:
             "result": parsed,
             "elapsed_seconds": round(time.monotonic() - started_monotonic, 3),
         }
+        parsed = self._validate_generated_side_effects(session_dir, generated, parsed)
+        result["result"] = parsed
         with tempfile.NamedTemporaryFile("w", delete=False, dir=transcripts_dir, suffix=".tmp") as tmp_file:
             json.dump(result, tmp_file, indent=2)
             tmp_name = tmp_file.name
@@ -171,6 +173,63 @@ class CodegenRuntime:
             "returncode": completed.returncode,
             "elapsed_seconds": float(result.get("elapsed_seconds", 0.0) or 0.0),
         }
+
+    def _validate_generated_side_effects(
+        self,
+        session_dir: Path,
+        generated: dict[str, Any],
+        parsed: dict[str, Any],
+    ) -> dict[str, Any]:
+        task = dict(generated.get("task") or {})
+        if task.get("remediation_family") != "source_acquisition_and_staging":
+            return parsed
+
+        source_dir = session_dir / "artifacts" / "os-source"
+        removed: list[str] = []
+        plausible: list[str] = []
+        if source_dir.exists():
+            for path in sorted(source_dir.iterdir()):
+                if not path.is_file() or path.name == "README.md":
+                    continue
+                if path.suffix.lower() not in {".zip", ".img", ".gz", ".tar", ".bin"}:
+                    continue
+                if self._is_plausible_source_artifact(path):
+                    plausible.append(str(path))
+                    continue
+                removed.append(str(path))
+                path.unlink(missing_ok=True)
+
+        evidence = dict(parsed.get("evidence") or {})
+        source_acquisition = dict(evidence.get("source_acquisition") or {})
+        source_acquisition["staged_files"] = plausible
+        if removed:
+            source_acquisition["invalid_artifacts_removed"] = removed
+        evidence["source_acquisition"] = source_acquisition
+
+        normalized_status = str(parsed.get("status") or "").strip().lower()
+        if normalized_status in {"success", "solved", "ok"} and not plausible:
+            parsed = {
+                **parsed,
+                "status": "partial",
+                "summary": (
+                    "Generated source acquisition did not stage any plausible firmware artifacts. "
+                    "Tiny mock or placeholder outputs were removed."
+                ),
+                "next_action": "reclassify",
+            }
+        parsed["evidence"] = evidence
+        return parsed
+
+    def _is_plausible_source_artifact(self, path: Path) -> bool:
+        try:
+            if path.stat().st_size < 1024 * 1024:
+                return False
+            sample = path.read_bytes()[:256]
+        except OSError:
+            return False
+        lowered = sample.lower()
+        fake_markers = [b"mock content", b"simulated firmware content", b"placeholder"]
+        return not any(marker in lowered for marker in fake_markers)
 
     def generate_device_adapter(
         self,
@@ -585,9 +644,11 @@ if __name__ == "__main__":
         session_dir: Path,
         device_context: dict[str, Any] | None = None,
     ) -> str:
-        if device_context:
+        remediation_family = task.get("remediation_family", "generic_diagnostic")
+        if device_context and remediation_family != "source_acquisition_and_staging":
             try:
                 from app.core.gemma_engine import GemmaEngine
+                from app.core.model_router import ModelRouter
                 task_desc = (
                     f"Remediation family: {task.get('remediation_family', 'generic_diagnostic')}\n"
                     f"Objective: {task.get('objective', '')}\n"
@@ -600,7 +661,8 @@ if __name__ == "__main__":
                     "2. Write a JSON result to SESSION_DIR/codegen/remediation-result.json with keys: status, evidence, advanced\n"
                     "3. Exit 0 on success, non-zero on failure"
                 )
-                gemma_code = GemmaEngine().write_code(task_desc, device_context)
+                model = ModelRouter.discover().select("coding").model
+                gemma_code = GemmaEngine(model=model).write_code(task_desc, device_context)
                 if gemma_code:
                     return gemma_code
             except Exception:
@@ -608,7 +670,6 @@ if __name__ == "__main__":
 
         session_dir_str = str(session_dir)
         root_str = str(self.root)
-        remediation_family = task.get("remediation_family", "generic_diagnostic")
         return f"""from __future__ import annotations
 
 import json
@@ -864,6 +925,19 @@ def _candidate_score(path: Path, keywords: list[str]) -> int:
     return score
 
 
+def _plausible_source_candidate(path: Path) -> bool:
+    try:
+        if path.stat().st_size < 1024 * 1024:
+            return False
+        sample = path.read_bytes()[:256]
+    except OSError:
+        return False
+    lowered = sample.lower()
+    if b"mock content" in lowered or b"simulated firmware content" in lowered or b"placeholder" in lowered:
+        return False
+    return True
+
+
 def _find_local_source_candidates(keywords: list[str]) -> list[dict[str, object]]:
     candidates: list[dict[str, object]] = []
     for root in _source_search_roots():
@@ -877,6 +951,8 @@ def _find_local_source_candidates(keywords: list[str]) -> list[dict[str, object]
             if not entry.is_file():
                 continue
             if entry.name == "README.md" or entry.suffix.lower() not in {".zip", ".img", ".gz", ".tar", ".bin"}:
+                continue
+            if not _plausible_source_candidate(entry):
                 continue
             score = _candidate_score(entry, keywords)
             if score <= 0:

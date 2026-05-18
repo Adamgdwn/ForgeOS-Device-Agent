@@ -1,4 +1,5 @@
 import json
+import zipfile
 from pathlib import Path
 
 from app.core.codegen_runtime import CodegenRuntime
@@ -43,7 +44,8 @@ def test_codegen_runtime_source_acquisition_stages_local_firmware(monkeypatch, t
     session_dir = tmp_path / "devices" / "sample"
     downloads_dir = tmp_path / "Downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
-    (downloads_dir / "SM-A520W_update.zip").write_bytes(b"zip")
+    with zipfile.ZipFile(downloads_dir / "SM-A520W_update.zip", "w") as archive:
+        archive.writestr("payload.bin", b"\0" * (1024 * 1024 + 1))
     monkeypatch.setenv("HOME", str(tmp_path))
     runtime = CodegenRuntime(Path(__file__).resolve().parents[1])
 
@@ -91,3 +93,33 @@ def test_codegen_runtime_source_acquisition_reports_partial_when_nothing_is_stag
     assert executed["status"] == "executed"
     assert inspected["status"] == "partial"
     assert inspected["evidence"]["source_acquisition"]["staged_files"] == []
+
+
+def test_codegen_runtime_removes_mock_source_artifacts(monkeypatch, tmp_path: Path) -> None:
+    session_dir = tmp_path / "devices" / "sample"
+    runtime = CodegenRuntime(Path(__file__).resolve().parents[1])
+    generated = {
+        "task": {"remediation_family": "source_acquisition_and_staging"},
+        "script_path": str(session_dir / "codegen" / "mock_writer.py"),
+    }
+    script_path = Path(generated["script_path"])
+    script_path.parent.mkdir(parents=True)
+    script_path.write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "source_dir = Path(__file__).parents[1] / 'artifacts' / 'os-source'",
+                "source_dir.mkdir(parents=True, exist_ok=True)",
+                "(source_dir / 'boot.img').write_text('Mock content for boot.img')",
+                "print('{\"status\":\"solved\",\"summary\":\"staged\"}')",
+            ]
+        )
+    )
+
+    executed = runtime.execute_generated(session_dir, generated)
+    inspected = runtime.inspect_result(executed)
+
+    assert inspected["status"] == "partial"
+    assert not (session_dir / "artifacts" / "os-source" / "boot.img").exists()
+    assert inspected["evidence"]["source_acquisition"]["staged_files"] == []
+    assert inspected["evidence"]["source_acquisition"]["invalid_artifacts_removed"]

@@ -20,4 +20,6 @@ Describe the project in operator-friendly terms.
 
 ## Operator Notes
 
-Capture practical operating tips, common gotchas, and handoff guidance.
+- Device sessions infer `form_factor` as `phone`, `tablet`, or `unknown` from ADB/build/model evidence.
+- Use the profile form's "Device type?" selector to leave detection on auto or override it when the model is ambiguous.
+- Tablet/phone evidence influences use-case recommendations, but destructive actions remain governed by restore and approval gates.

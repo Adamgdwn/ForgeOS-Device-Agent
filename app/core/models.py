@@ -21,6 +21,12 @@ class Transport(str, Enum):
     UNKNOWN = "unknown"
 
 
+class DeviceFormFactor(str, Enum):
+    UNKNOWN = "unknown"
+    PHONE = "phone"
+    TABLET = "tablet"
+
+
 class SessionStateName(str, Enum):
     IDLE = "IDLE"
     DEVICE_ATTACHED = "DEVICE_ATTACHED"
@@ -222,6 +228,10 @@ class DeviceProfile:
     transport: Transport = Transport.UNKNOWN
     bootloader_locked: bool | None = None
     verified_boot_state: str | None = None
+    form_factor: DeviceFormFactor = DeviceFormFactor.UNKNOWN
+    form_factor_source: str = "insufficient_evidence"
+    form_factor_confidence: float = 0.0
+    form_factor_override: DeviceFormFactor | None = None
     slot_info: dict[str, Any] | None = None
     battery: dict[str, Any] | None = None
     raw_probe_data: dict[str, Any] = field(default_factory=dict)
@@ -548,6 +558,7 @@ def session_state_from_dict(data: dict[str, Any]) -> SessionState:
 
 
 def device_profile_from_dict(data: dict[str, Any]) -> DeviceProfile:
+    override = data.get("form_factor_override")
     return DeviceProfile(
         session_id=data["session_id"],
         canonical_name=data["canonical_name"],
@@ -560,6 +571,10 @@ def device_profile_from_dict(data: dict[str, Any]) -> DeviceProfile:
         transport=Transport(data.get("transport", Transport.UNKNOWN.value)),
         bootloader_locked=data.get("bootloader_locked"),
         verified_boot_state=data.get("verified_boot_state"),
+        form_factor=DeviceFormFactor(data.get("form_factor", DeviceFormFactor.UNKNOWN.value)),
+        form_factor_source=data.get("form_factor_source", "insufficient_evidence"),
+        form_factor_confidence=float(data.get("form_factor_confidence", 0.0)),
+        form_factor_override=DeviceFormFactor(override) if override else None,
         slot_info=data.get("slot_info"),
         battery=data.get("battery"),
         raw_probe_data=data.get("raw_probe_data", {}),

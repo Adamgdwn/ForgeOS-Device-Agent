@@ -66,6 +66,7 @@ class RuntimePlanner:
         verification_execution: VerificationExecution,
         governance_summary: dict[str, Any] | None = None,
         self_improvement_summary: dict[str, Any] | None = None,
+        deliberation: dict[str, Any] | None = None,
     ) -> dict[str, str]:
         user_profile = self.sessions.load_user_profile(session_dir)
         end_product_brief = self._end_product_brief(user_profile)
@@ -92,7 +93,7 @@ class RuntimePlanner:
             preview_execution=preview_execution,
             verification_execution=verification_execution,
             evidence=self._evidence_paths(session_dir),
-            next_actions=self._next_actions(blocker, install_gate),
+            next_actions=self._next_actions(build_plan, blocker, install_gate, deliberation or {}),
             hard_stops=self._hard_stops(blocker, install_gate),
         )
 
@@ -137,11 +138,20 @@ class RuntimePlanner:
                         "next_actions": plan.next_actions,
                         "governance_summary": governance_summary or {},
                         "self_improvement_summary": self_improvement_summary or {},
+                        "product_memory": build_plan.get("product_memory", {}),
+                        "starter_troubleshooting": build_plan.get("starter_troubleshooting", {}),
+                        "deliberation": {
+                            "selected_action": (deliberation or {}).get("action_plan", {}).get("selected_action"),
+                            "rationale": (deliberation or {}).get("action_plan", {}).get("rationale"),
+                            "operator_questions": (deliberation or {}).get("action_plan", {}).get("operator_questions", []),
+                            "files": (deliberation or {}).get("files", {}),
+                        },
                     },
                 )
             ),
             "experiment_log_path": str(session_dir / "reports" / "autonomous-experiments.json"),
         }
+        files.update((deliberation or {}).get("files", {}))
         return files
 
     def _proposal_manifest(
@@ -408,12 +418,28 @@ class RuntimePlanner:
         ]
         return [str(path) for path in candidates if path.exists()]
 
-    def _next_actions(self, blocker: dict[str, Any], install_gate: ApprovalGate) -> list[str]:
-        if blocker.get("machine_solvable"):
-            return [
+    def _next_actions(
+        self,
+        build_plan: dict[str, Any],
+        blocker: dict[str, Any],
+        install_gate: ApprovalGate,
+        deliberation: dict[str, Any],
+    ) -> list[str]:
+        starter_loop = dict(build_plan.get("starter_troubleshooting") or {})
+        starter_actions = list(starter_loop.get("next_actions") or [])
+        if starter_actions and not starter_loop.get("model_worker_allowed", True):
+            return starter_actions[:6]
+        operator_questions = list((deliberation.get("action_plan") or {}).get("operator_questions") or [])
+        execution_policy = dict((deliberation.get("action_plan") or {}).get("execution_policy") or {})
+        if blocker.get("machine_solvable") and execution_policy.get("machine_remediation_allowed", True):
+            actions = [
                 "Continue local remediation through the routed worker.",
                 "Validate the result and retry locally if the failure is recoverable.",
             ]
+            actions.extend(operator_questions)
+            return actions[:6]
+        if operator_questions:
+            return operator_questions[:6]
         actions = list(blocker.get("user_steps", []))
         if install_gate.missing_requirements:
             actions.extend(install_gate.missing_requirements)

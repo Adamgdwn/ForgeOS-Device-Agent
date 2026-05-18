@@ -1,6 +1,7 @@
 project_name: ForgeOS Device Agent
 project_type: agent
 risk_tier: medium
+governance_level: 2
 repository_model: single-repo
 owner:
   name: Adam Goodwin

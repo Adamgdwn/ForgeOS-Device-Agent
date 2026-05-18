@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.integrations import adb, fastboot
+from app.core.model_router import ModelRouter
 
 
 def _safe_run(command: list[str]) -> dict[str, Any]:
@@ -67,6 +68,7 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
 
     ollama_models = _safe_run([ollama_exec, "list"]) if shutil.which(ollama_exec) else {"ok": False, "stdout": "", "stderr": "ollama unavailable"}
     model_available = ollama_model in ollama_models.get("stdout", "")
+    model_router = ModelRouter.from_ollama_list(ollama_models.get("stdout", ""), os.environ)
 
     aider_ready = bool(shutil.which(aider_exec)) and bool(
         aider_model
@@ -82,6 +84,7 @@ def discover_host_capabilities(root: Path) -> dict[str, Any]:
     return {
         "workspace_root": str(root),
         "local_model": ollama_model,
+        "model_routes": model_router.configured_routes(),
         "ollama_api_base": ollama_api_base,
         "tools": tool_records,
         "adb_available": adb.adb_available(),

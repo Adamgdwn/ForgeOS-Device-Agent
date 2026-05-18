@@ -11,6 +11,7 @@ from typing import Any
 
 from app.core.gemma_engine import GemmaEngine
 from app.core.host_capabilities import discover_host_capabilities
+from app.core.model_router import ModelRouter, ModelSelection
 from app.core.models import (
     RetryTelemetry,
     TaskRisk,
@@ -59,13 +60,13 @@ class OllamaAdapter:
         self.model = os.environ.get("FORGEOS_OLLAMA_MODEL", "gemma4:latest")
         self.available = shutil.which(self.executable) is not None
 
-    def build_command(self, task: WorkerTask) -> list[str]:
+    def build_command(self, task: WorkerTask, model: str | None = None) -> list[str]:
         if task.invocation_override:
             return list(task.invocation_override)
         return [
             self.executable,
             "run",
-            self.model,
+            model or self.model,
             task.prompt or task.summary,
             "--format",
             "json",
@@ -81,7 +82,7 @@ class GooseAdapter:
         self.model = os.environ.get("FORGEOS_GOOSE_MODEL", "gemma4:latest")
         self.available = shutil.which(self.executable) is not None
 
-    def build_command(self, task: WorkerTask) -> list[str]:
+    def build_command(self, task: WorkerTask, model: str | None = None) -> list[str]:
         if task.invocation_override:
             return list(task.invocation_override)
         return [
@@ -96,7 +97,7 @@ class GooseAdapter:
             "--provider",
             self.provider,
             "--model",
-            self.model,
+            model or self.model,
         ]
 
 
@@ -107,7 +108,7 @@ class AiderAdapter:
         self.model = os.environ.get("FORGEOS_AIDER_MODEL", "ollama_chat/gemma4:latest")
         self.available = shutil.which(self.executable) is not None
 
-    def build_command(self, task: WorkerTask, session_dir: Path) -> list[str]:
+    def build_command(self, task: WorkerTask, session_dir: Path, model: str | None = None) -> list[str]:
         if task.invocation_override:
             return list(task.invocation_override)
         command = [
@@ -129,8 +130,9 @@ class AiderAdapter:
             "--llm-history-file",
             str(session_dir / "runtime" / ".aider.llm.history.log"),
         ]
-        if self.model:
-            command.extend(["--model", self.model])
+        selected_model = model or self.model
+        if selected_model:
+            command.extend(["--model", selected_model])
         for target in task.target_files:
             command.extend(["--file", target])
         return command
@@ -300,7 +302,11 @@ class WorkerRuntime:
         self.ollama = OllamaAdapter(root)
         self.goose = GooseAdapter(root)
         self.aider = AiderAdapter(root)
-        self.ollama.available = bool(self.capabilities.get("ollama_model_available"))
+        self.model_router = ModelRouter.from_ollama_list(
+            str(self.capabilities.get("ollama_models_output", "")),
+            os.environ,
+        )
+        self.ollama.available = bool(self.capabilities.get("ollama_available")) and bool(self.model_router.available_models)
         self.goose.available = bool(self.capabilities.get("goose_ready"))
         self.aider.available = bool(self.capabilities.get("aider_ready"))
 
@@ -321,14 +327,22 @@ class WorkerRuntime:
         if route.selected_worker == WorkerRole.LOCAL_GENERAL:
             return self._run_local_general(route, task, session_dir)
         if route.selected_worker == WorkerRole.LOCAL_EDITOR:
+            model_selection = self.model_router.select_for_task(
+                task_type=task.task_type,
+                risk=task.risk.value,
+                needs_repo_edit=True,
+                architecture_level=task.architecture_level,
+                repetitive=task.repetitive,
+            )
             return self._run_adapter(
                 worker=route.selected_worker,
                 adapter_name=route.adapter_name,
                 task=task,
                 session_dir=session_dir,
-                command=self.aider.build_command(task, session_dir),
+                command=self.aider.build_command(task, session_dir, model=model_selection.aider_model()),
                 env={"OLLAMA_API_BASE": str(self.capabilities.get("ollama_api_base", "http://127.0.0.1:11434"))},
                 escalation_triggers=route.escalation_triggers,
+                model_selection=model_selection,
             )
         if route.selected_worker == WorkerRole.FRONTIER_ARCHITECT:
             return self._run_gemma_frontier(route, task, session_dir)
@@ -352,7 +366,14 @@ class WorkerRuntime:
         session_dir: Path,
     ) -> WorkerExecution:
         """Route FRONTIER_ARCHITECT tasks to the local Gemma model instead of Codex."""
-        engine = GemmaEngine()
+        model_selection = self.model_router.select_for_task(
+            task_type=task.task_type,
+            risk=task.risk.value,
+            needs_repo_edit=task.needs_repo_edit,
+            architecture_level=True,
+            repetitive=task.repetitive,
+        )
+        engine = GemmaEngine(model=model_selection.model)
         device_context = task.context or {}
         code = engine.write_code(task.prompt or task.summary, device_context)
         if code:
@@ -367,6 +388,7 @@ class WorkerRuntime:
                 command=["python3", str(script_path)],
                 env={},
                 escalation_triggers=route.escalation_triggers,
+                model_selection=model_selection,
             )
         response = engine.ask(task.prompt or task.summary)
         summary = (
@@ -382,7 +404,15 @@ class WorkerRuntime:
             escalation_triggers=route.escalation_triggers,
             telemetry=RetryTelemetry(attempts=1, retry_budget=task.retry_budget, exhausted=False),
         )
-        return self._write_transcript(session_dir, execution, {"task": task.summary, "gemma_response": response})
+        return self._write_transcript(
+            session_dir,
+            execution,
+            {
+                "task": task.summary,
+                "gemma_response": response,
+                "model_selection": model_selection.as_dict(),
+            },
+        )
 
     def _run_local_general(
         self,
@@ -401,15 +431,23 @@ class WorkerRuntime:
                 escalation_triggers=route.escalation_triggers,
             )
         helper_first = task.repetitive or task.risk == TaskRisk.LOW
+        model_selection = self.model_router.select_for_task(
+            task_type=task.task_type,
+            risk=task.risk.value,
+            needs_repo_edit=task.needs_repo_edit,
+            architecture_level=task.architecture_level,
+            repetitive=task.repetitive,
+        )
         if helper_first and self.ollama.available:
             helper = self._run_adapter(
                 worker=route.selected_worker,
-                adapter_name="ollama_gemma4_local_helper",
+                adapter_name=f"ollama_{model_selection.model.replace(':', '_')}_local_helper",
                 task=task,
                 session_dir=session_dir,
-                command=self.ollama.build_command(task),
+                command=self.ollama.build_command(task, model=model_selection.model),
                 env={},
                 escalation_triggers=route.escalation_triggers,
+                model_selection=model_selection,
             )
             if helper.confidence >= 0.55 and helper.status == "completed":
                 return helper
@@ -420,20 +458,22 @@ class WorkerRuntime:
                 adapter_name=route.adapter_name,
                 task=task,
                 session_dir=session_dir,
-                command=self.goose.build_command(task),
+                command=self.goose.build_command(task, model=model_selection.model),
                 env={},
                 escalation_triggers=route.escalation_triggers,
+                model_selection=model_selection,
             )
 
         if self.ollama.available:
             fallback = self._run_adapter(
                 worker=route.selected_worker,
-                adapter_name="ollama_gemma4_local_helper",
+                adapter_name=f"ollama_{model_selection.model.replace(':', '_')}_local_helper",
                 task=task,
                 session_dir=session_dir,
-                command=self.ollama.build_command(task),
+                command=self.ollama.build_command(task, model=model_selection.model),
                 env={},
                 escalation_triggers=route.escalation_triggers,
+                model_selection=model_selection,
             )
             fallback.summary = "Goose was unavailable, so ForgeOS used the Ollama local helper as the execution path."
             return fallback
@@ -459,6 +499,7 @@ class WorkerRuntime:
         command: list[str],
         env: dict[str, str],
         escalation_triggers: list[str],
+        model_selection: ModelSelection | None = None,
     ) -> WorkerExecution:
         attempts = 0
         outputs: list[str] = []
@@ -530,7 +571,12 @@ class WorkerRuntime:
         return self._write_transcript(
             session_dir,
             execution,
-            {"task": task.summary, "prompt": task.prompt, "context": task.context},
+            {
+                "task": task.summary,
+                "prompt": task.prompt,
+                "context": task.context,
+                "model_selection": model_selection.as_dict() if model_selection else None,
+            },
         )
 
     def _parse_output(self, adapter_name: str, stdout: str, stderr: str) -> dict[str, Any]:
@@ -628,6 +674,7 @@ class WorkerRuntime:
             },
             "structured_output": execution.structured_output,
             "task": extra,
+            "model_selection": extra.get("model_selection"),
         }
         transcript_path.write_text(json.dumps(transcript, indent=2))
         execution.transcript_path = str(transcript_path)
@@ -637,4 +684,8 @@ class WorkerRuntime:
         runtime_dir = session_dir / "runtime"
         runtime_dir.mkdir(parents=True, exist_ok=True)
         health_path = runtime_dir / "adapter-health.json"
-        health_path.write_text(json.dumps(self.capabilities, indent=2))
+        health = {
+            **self.capabilities,
+            "model_routes": self.model_router.configured_routes(),
+        }
+        health_path.write_text(json.dumps(health, indent=2))

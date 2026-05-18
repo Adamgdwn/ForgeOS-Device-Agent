@@ -10,9 +10,12 @@ from typing import Any
 from app.core.codex_handoff import CodexHandoffEngine
 from app.core.codegen_runtime import CodegenRuntime
 from app.core.connection_engine import ConnectionEngine
+from app.core.device_form_factor import apply_form_factor_inference
 from app.core.knowledge import KnowledgeEngine
 from app.core.knowledge_lookup import KnowledgeLookup
+from app.core.deliberation import DeliberationEngine
 from app.core.policy_guard import PolicyGuard
+from app.core.product_memory import ProductMemoryEngine
 from app.core.patch_executor import PatchExecutor
 from app.core.reporting import ReportWriter
 from app.core.policy import PolicyEngine
@@ -20,6 +23,7 @@ from app.core.promotion import DEFAULT_RULES, PromotionEngine
 from app.core.retry_planner import RetryPlanner
 from app.core.self_improvement import SelfImprovementEngine
 from app.core.strategy_memory import StrategyMemoryEngine
+from app.core.starter_troubleshooting import StarterTroubleshootingLoop
 from app.core.runtime_pipelines import PreviewPipeline, VerificationPipeline
 from app.core.runtime_planner import RuntimePlanner
 from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerRuntime, WorkerTask
@@ -66,11 +70,14 @@ class ForgeOrchestrator:
         self.connection_engine = ConnectionEngine(root)
         self.knowledge = KnowledgeEngine(root)
         self.knowledge_lookup = KnowledgeLookup(root)
+        self.deliberation = DeliberationEngine(root)
+        self.product_memory = ProductMemoryEngine(root)
         self.patch_executor = PatchExecutor(root)
         self.promotion = PromotionEngine(root)
         self.retry_planner = RetryPlanner(root)
         self.policy_guard = PolicyGuard(root)
         self.strategy_memory = StrategyMemoryEngine(root)
+        self.starter_troubleshooting = StarterTroubleshootingLoop(root)
         self.self_improvement = SelfImprovementEngine(root, self.retry_planner, self.strategy_memory, self.policy_guard)
         self.device_probe = DeviceProbeTool(root)
         self.assessor = FeasibilityAssessorTool(root)
@@ -123,6 +130,7 @@ class ForgeOrchestrator:
             if probe_result["device"].get("transport"):
                 profile.transport = probe_result["device"]["transport"]
             profile.raw_probe_data |= probe_result["device"]
+            apply_form_factor_inference(profile, probe_result["device"])
             self.sessions.write_device_profile(waiting_session, profile)
             self._safe_transition(waiting_session, "BLOCKER_CLASSIFY", "Device state changed while waiting at QUESTION_GATE — re-entering blocker classification")
             self.recompute_session_runtime(waiting_session)
@@ -132,7 +140,18 @@ class ForgeOrchestrator:
         self._safe_transition(session_dir, "DISCOVER", "Runtime discovery started")
         self._safe_transition(session_dir, "PROFILE_SYNTHESIS", "Device profile synthesis started")
 
-        device_payload = probe_result["device"]
+        session_profile = self.sessions.load_device_profile(session_dir)
+        device_payload = {
+            **probe_result["device"],
+            "form_factor": session_profile.form_factor.value,
+            "form_factor_source": session_profile.form_factor_source,
+            "form_factor_confidence": session_profile.form_factor_confidence,
+            "form_factor_override": (
+                session_profile.form_factor_override.value
+                if session_profile.form_factor_override
+                else None
+            ),
+        }
         self._safe_transition(session_dir, "ASSESS", "Device assessment started")
         assessment = self.assessor.execute({"device": device_payload, "session_dir": str(session_dir)})
         self.sessions.annotate(session_dir, assessment["summary"])
@@ -416,6 +435,7 @@ class ForgeOrchestrator:
                 "recommendation": recommendation,
                 "install_gate": to_dict(install_gate),
                 "runtime_gate": to_dict(runtime_gate),
+                "deliberation": runtime_result["deliberation"],
                 "governance_summary": runtime_result["governance_summary"],
                 "self_improvement_summary": runtime_result["self_improvement_summary"],
                 "preview_execution": to_dict(preview_execution),
@@ -454,6 +474,10 @@ class ForgeOrchestrator:
             "battery": profile.battery or {},
             "transport": profile.transport,
             "device_codename": profile.device_codename,
+            "form_factor": profile.form_factor.value,
+            "form_factor_source": profile.form_factor_source,
+            "form_factor_confidence": profile.form_factor_confidence,
+            "form_factor_override": profile.form_factor_override.value if profile.form_factor_override else None,
             "raw_event": profile.raw_probe_data.get("raw_event", profile.raw_probe_data),
         }
         runtime_result = self._run_runtime_cycle(
@@ -493,6 +517,7 @@ class ForgeOrchestrator:
                 "recommendation": runtime_result["recommendation"],
                 "install_gate": to_dict(runtime_result["install_gate"]),
                 "runtime_gate": to_dict(runtime_result["runtime_gate"]),
+                "deliberation": runtime_result["deliberation"],
                 "governance_summary": runtime_result["governance_summary"],
                 "self_improvement_summary": runtime_result["self_improvement_summary"],
                 "preview_execution": to_dict(runtime_result["preview_execution"]),
@@ -541,6 +566,14 @@ class ForgeOrchestrator:
             "serial": current_profile.serial,
             "hardware_snapshot": hw_snapshot,
             "slot_info": current_profile.slot_info or {},
+            "form_factor": current_profile.form_factor.value,
+            "form_factor_source": current_profile.form_factor_source,
+            "form_factor_confidence": current_profile.form_factor_confidence,
+            "form_factor_override": (
+                current_profile.form_factor_override.value
+                if current_profile.form_factor_override
+                else None
+            ),
         }
         no_master_adapter = not self.adapter_registry.has_master_adapter(
             current_profile.manufacturer, current_profile.model
@@ -652,6 +685,8 @@ class ForgeOrchestrator:
                 "operator_review": operator_review,
             }
         )
+        product_memory_prior = self.product_memory.lookup(current_profile)
+        build_plan["product_memory"] = product_memory_prior
         build_artifacts = self.image_builder.execute(
             {
                 "session_dir": str(session_dir),
@@ -666,14 +701,29 @@ class ForgeOrchestrator:
         )
         source_acquisition: dict[str, Any] = {}
         if build_artifacts.get("status") != "ready":
-            build_artifacts, source_acquisition = self._resolve_missing_source_artifacts(
+            starter_source_gate = self.starter_troubleshooting.run(
                 session_dir=session_dir,
-                current_profile=current_profile,
+                profile=current_profile,
                 build_plan=build_plan,
-                initial_artifacts=build_artifacts,
-                user_profile=user_profile,
-                execute_workers=execute_workers,
+                build_artifacts=build_artifacts,
+                blocker={"blocker_type": "source_blocker"},
+                deliberation={"action_plan": {"execution_policy": {"machine_remediation_allowed": True}}},
             )
+            if not starter_source_gate.get("model_worker_allowed", True):
+                source_acquisition = {
+                    "status": "blocked_by_starter_troubleshooting",
+                    "reason": "Starter troubleshooting found a deterministic blocker before model/web research.",
+                    "starter_troubleshooting": starter_source_gate,
+                }
+            else:
+                build_artifacts, source_acquisition = self._resolve_missing_source_artifacts(
+                    session_dir=session_dir,
+                    current_profile=current_profile,
+                    build_plan=build_plan,
+                    initial_artifacts=build_artifacts,
+                    user_profile=user_profile,
+                    execute_workers=execute_workers,
+                )
         build_plan |= {
             "artifacts_ready": build_artifacts.get("status") == "ready",
             "install_mode": build_artifacts.get("details", {}).get("install_mode", "unavailable"),
@@ -711,16 +761,63 @@ class ForgeOrchestrator:
             build_artifacts=build_artifacts,
         )
         blocker = self._enrich_blocker_with_research(session_dir, blocker)
+        product_memory_summary = self.product_memory.record_observation(
+            session_dir=session_dir,
+            profile=current_profile,
+            state=current_state,
+            assessment=assessment,
+            build_plan=build_plan,
+            build_artifacts=build_artifacts,
+            blocker=blocker,
+            recommendation=recommendation,
+            restore_plan=restore_plan,
+        )
+        build_plan["product_memory"] = product_memory_summary
         current_state = self.sessions.load_session_state(session_dir)
         current_state.current_blocker_type = blocker["blocker_type"]
         current_state.blocker_confidence = blocker["confidence"]
         self.sessions.write_session_state(session_dir, current_state)
+        deliberation = self.deliberation.think(
+            session_dir=session_dir,
+            profile=current_profile,
+            state=current_state,
+            assessment=assessment,
+            engagement=engagement,
+            connection_plan=connection_plan,
+            build_plan=build_plan,
+            build_artifacts=build_artifacts,
+            blocker=blocker,
+            recommendation=recommendation,
+            user_profile=user_profile,
+            product_memory=product_memory_summary,
+        )
+        execution_policy = dict(deliberation.get("action_plan", {}).get("execution_policy", {}))
+        machine_remediation_allowed = bool(execution_policy.get("machine_remediation_allowed", True))
+        starter_loop = self.starter_troubleshooting.run(
+            session_dir=session_dir,
+            profile=current_profile,
+            build_plan=build_plan,
+            build_artifacts=build_artifacts,
+            blocker=blocker,
+            deliberation=deliberation,
+        )
+        build_plan["starter_troubleshooting"] = starter_loop
+        model_worker_allowed = bool(starter_loop.get("model_worker_allowed", True))
+        machine_remediation_allowed = (
+            machine_remediation_allowed and bool(starter_loop.get("machine_worker_allowed", True))
+        )
         end_product_prompt = (
             "End-product brief:\n"
             f"- intended user: {user_profile.intended_user or 'not specified'}\n"
             f"- desired outcome: {user_profile.desired_end_product or 'not specified'}\n"
             f"- success criteria: {user_profile.success_criteria or 'not specified'}\n"
             f"- lawful authorization attested: {user_profile.lawful_use_attested}"
+        )
+        deliberation_prompt = (
+            "Executive deliberation:\n"
+            f"- selected action: {deliberation.get('action_plan', {}).get('selected_action', 'unknown')}\n"
+            f"- rationale: {deliberation.get('action_plan', {}).get('rationale', '')}\n"
+            f"- operator questions: {json_safe(deliberation.get('action_plan', {}).get('operator_questions', []))}"
         )
 
         worker_routes = [
@@ -731,6 +828,7 @@ class ForgeOrchestrator:
                     prompt=(
                         "Summarize the current device transport evidence and the next safest runtime action.\n\n"
                         f"{end_product_prompt}\n\n"
+                        f"{deliberation_prompt}\n\n"
                         f"Assessment: {assessment.get('summary', '')}\n"
                         f"Connection plan: {json_safe(connection_plan)}"
                     ),
@@ -758,6 +856,7 @@ class ForgeOrchestrator:
                 prompt=(
                     "Summarize the current device transport evidence and the next safest runtime action.\n\n"
                     f"{end_product_prompt}\n\n"
+                    f"{deliberation_prompt}\n\n"
                     f"Assessment: {assessment.get('summary', '')}\n"
                     f"Connection plan: {json_safe(connection_plan)}"
                 ),
@@ -779,9 +878,14 @@ class ForgeOrchestrator:
                 context={"recommendation": recommendation},
             ),
         ]
+        if not model_worker_allowed:
+            worker_routes = []
+            worker_tasks = []
         artifact_missing_requirements = list(build_plan.get("artifact_missing_requirements", []))
         should_run_artifact_research = (
-            bool(artifact_missing_requirements) and build_plan.get("os_path") != "research_only_path"
+            model_worker_allowed
+            and bool(artifact_missing_requirements)
+            and build_plan.get("os_path") != "research_only_path"
         )
         if should_run_artifact_research:
             worker_routes.append(
@@ -844,7 +948,7 @@ class ForgeOrchestrator:
         governance_summary: dict[str, Any] = {}
         self_improvement_summary: dict[str, Any] = {}
         blocker_before_remediation = dict(blocker)
-        if execute_workers and blocker.get("blocker_type") == "source_blocker":
+        if execute_workers and model_worker_allowed and blocker.get("blocker_type") == "source_blocker":
             firmware_research_path = session_dir / "research" / "firmware_sources.json"
             if not firmware_research_path.exists():
                 self.research_worker.research_firmware(
@@ -855,7 +959,7 @@ class ForgeOrchestrator:
                     android_version=current_profile.android_version or "",
                     transport=device_context.get("transport", "unknown"),
                 )
-        if blocker.get("machine_solvable") and execute_workers:
+        if blocker.get("machine_solvable") and execute_workers and machine_remediation_allowed:
             worker_routes.append(
                 self.worker_router.route(
                     WorkerTask(
@@ -958,6 +1062,14 @@ class ForgeOrchestrator:
                             "slot_info": current_profile.slot_info or {},
                             "battery": current_profile.battery or {},
                             "device_codename": current_profile.device_codename,
+                            "form_factor": current_profile.form_factor.value,
+                            "form_factor_source": current_profile.form_factor_source,
+                            "form_factor_confidence": current_profile.form_factor_confidence,
+                            "form_factor_override": (
+                                current_profile.form_factor_override.value
+                                if current_profile.form_factor_override
+                                else None
+                            ),
                             "raw_event": current_profile.raw_probe_data.get("raw_event", current_profile.raw_probe_data),
                         },
                         "user_profile": {
@@ -1007,7 +1119,7 @@ class ForgeOrchestrator:
         elif blocker["blocker_type"] != "none":
             # Before pausing for the operator, ask Gemma whether it can resolve this.
             gemma_acted = False
-            if execute_workers and blocker["blocker_type"] not in {"policy_blocker"}:
+            if execute_workers and model_worker_allowed and blocker["blocker_type"] not in {"policy_blocker"}:
                 gemma_acted = self._try_gemma_resolution(
                     blocker=blocker,
                     session_dir=session_dir,
@@ -1016,7 +1128,7 @@ class ForgeOrchestrator:
                 )
             if not gemma_acted:
                 # Fire web research to enrich the guidance we show the operator.
-                if execute_workers:
+                if execute_workers and model_worker_allowed:
                     blocker_type = blocker["blocker_type"]
                     if blocker_type not in {"none", "policy_blocker", "source_blocker"}:
                         blocker_research_path = session_dir / "research" / f"blocker_{blocker_type}.json"
@@ -1043,9 +1155,9 @@ class ForgeOrchestrator:
             self.retry_planner.mark_advanced(session_dir)
         elif experiment_entry.get("advanced") is True:
             self.retry_planner.mark_advanced(session_dir)
-        if execute_workers and blocker.get("blocker_type") == "source_blocker":
+        if execute_workers and model_worker_allowed and blocker.get("blocker_type") == "source_blocker":
             os_source_dir = session_dir / "artifacts" / "os-source"
-            has_staged = os_source_dir.exists() and any(os_source_dir.iterdir())
+            has_staged = self._has_plausible_source_artifact(os_source_dir)
             if not has_staged and current_profile.device_codename:
                 self.logger.info("SOURCE blocker: attempting autonomous firmware download for %s", current_profile.device_codename)
                 try:
@@ -1222,6 +1334,7 @@ class ForgeOrchestrator:
             verification_execution=verification_execution,
             governance_summary=governance_summary,
             self_improvement_summary=self_improvement_summary,
+            deliberation=deliberation,
         )
         return {
             "profile": current_profile,
@@ -1229,6 +1342,7 @@ class ForgeOrchestrator:
             "assessment": assessment,
             "engagement": engagement,
             "knowledge_match": knowledge_match,
+            "product_memory": product_memory_summary,
             "connection_plan": connection_plan,
             "blocker": blocker,
             "build_plan": build_plan,
@@ -1253,7 +1367,27 @@ class ForgeOrchestrator:
             "experiment_entry": experiment_entry,
             "governance_summary": governance_summary,
             "self_improvement_summary": self_improvement_summary,
+            "deliberation": deliberation,
         }
+
+    def _has_plausible_source_artifact(self, source_dir: Path) -> bool:
+        if not source_dir.exists():
+            return False
+        for path in source_dir.iterdir():
+            if not path.is_file() or path.name == "README.md":
+                continue
+            if path.suffix.lower() not in {".zip", ".img", ".gz", ".tar", ".bin"}:
+                continue
+            try:
+                if path.stat().st_size < 1024 * 1024:
+                    continue
+                sample = path.read_bytes()[:256].lower()
+            except OSError:
+                continue
+            if any(marker in sample for marker in [b"mock content", b"simulated firmware content", b"placeholder"]):
+                continue
+            return True
+        return False
 
     def _resolve_missing_source_artifacts(
         self,
@@ -1331,6 +1465,16 @@ class ForgeOrchestrator:
                 acquisition["status"] = "resolved_from_trusted_source"
                 return resolved_artifacts, acquisition
 
+        prior_build_transcript = self._load_json_dict(session_dir / "runtime" / "build-from-source" / "build-transcript.json")
+        if "repo tool is required" in str(prior_build_transcript.get("stderr", "")).lower():
+            acquisition["status"] = "blocked_by_host_prerequisite"
+            acquisition["builder"] = {
+                "status": "blocked",
+                "reason": "Android repo tool is missing; skipping repeated local source build attempt until host setup changes.",
+                "transcript_path": str(session_dir / "runtime" / "build-from-source" / "build-transcript.json"),
+            }
+            return initial_artifacts, acquisition
+
         builder_result = self.source_builder.execute(
             {
                 "session_dir": str(session_dir),
@@ -1351,6 +1495,15 @@ class ForgeOrchestrator:
             return built_artifacts, acquisition
         acquisition["status"] = "build_pending"
         return built_artifacts, acquisition
+
+    def _load_json_dict(self, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            loaded = json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
 
     def _load_source_research(self, session_dir: Path) -> dict[str, Any]:
         research: dict[str, Any] = {}
@@ -1400,6 +1553,7 @@ class ForgeOrchestrator:
         if device_codename:
             updated_profile.device_codename = device_codename
         updated_profile.raw_probe_data |= probe_result["device"]
+        apply_form_factor_inference(updated_profile, probe_result["device"])
         self.sessions.write_device_profile(session_dir, updated_profile)
         return probe_result["device"]
 
@@ -1600,6 +1754,7 @@ class ForgeOrchestrator:
                         profile.transport = profile.transport.__class__(value)
                     else:
                         setattr(profile, key, value)
+            apply_form_factor_inference(profile, profile.raw_probe_data)
             self.sessions.write_device_profile(session_dir, profile)
             self.sessions.annotate(session_dir, inspection.get("summary", "Remediation artifact updated the device profile."))
         if inspection.get("engagement_updates"):
@@ -1738,7 +1893,10 @@ class ForgeOrchestrator:
     ) -> bool:
         """Ask Gemma how to resolve the blocker. Return True if it took an action."""
         try:
-            engine = GemmaEngine()
+            from app.core.model_router import ModelRouter
+
+            model = ModelRouter.discover().select("frontier").model
+            engine = GemmaEngine(model=model)
             prompt = (
                 f"Device: {current_profile.manufacturer} {current_profile.model} "
                 f"({current_profile.device_codename}), Android {current_profile.android_version}, "

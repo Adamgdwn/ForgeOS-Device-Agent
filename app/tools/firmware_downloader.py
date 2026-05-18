@@ -152,8 +152,10 @@ class FirmwareDownloader:
     ) -> str | None:
         try:
             from app.core.gemma_engine import GemmaEngine
+            from app.core.model_router import ModelRouter
 
-            engine = GemmaEngine()
+            model = ModelRouter.discover().select("research").model
+            engine = GemmaEngine(model=model)
             resp = engine.ask(
                 f"Device codename: {codename}, Android version: {android_version}.\n"
                 "Provide the best direct download URL for LineageOS or TWRP firmware "

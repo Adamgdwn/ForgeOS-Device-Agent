@@ -36,6 +36,9 @@ class BuildResolverTool(BaseTool):
         elif assessment.get("support_status") == "blocked":
             os_path = "blocked_path"
             reason = "The device is blocked by support or safety constraints."
+        elif assessment.get("support_status") != "actionable":
+            os_path = "research_only_path"
+            reason = "Support feasibility is not proven enough for destructive build flow."
         elif selected_strategy in {"transport_recovery", "research_only", "blocked_research"}:
             os_path = "research_only_path"
             reason = "A manageable transport and support baseline must exist before a build path can be chosen."
