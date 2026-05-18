@@ -40,6 +40,7 @@ class ImageBuilderTool(BaseTool):
         "BL":       ["bl.img", "bootloader.img"],
         "CP":       ["cp.img", "modem.img"],
     }
+    _MIN_IMAGE_BYTES = 1024 * 1024
 
     def __init__(self, root: Path) -> None:
         super().__init__(root)
@@ -55,6 +56,7 @@ class ImageBuilderTool(BaseTool):
         build_dir.mkdir(parents=True, exist_ok=True)
         staged_dir.mkdir(parents=True, exist_ok=True)
         extracted_dir.mkdir(parents=True, exist_ok=True)
+        self._clear_staged_outputs(staged_dir)
 
         manifest_path = build_dir / "artifact-manifest.json"
         bundle_path = build_dir / "flashable-artifacts.tar.gz"
@@ -79,14 +81,17 @@ class ImageBuilderTool(BaseTool):
 
         sideload_zip = self._find_sideload_zip(source_dir)
         fastboot_images = self._find_fastboot_images(source_dir)
-        heimdall_images = self._find_heimdall_images(source_dir)
+        device = dict(payload.get("device", {}))
+        manufacturer = str(device.get("manufacturer") or "").strip().lower()
+        prefer_heimdall = manufacturer == "samsung"
+        heimdall_images = self._find_heimdall_images(source_dir) if prefer_heimdall else []
         source_artifact = str(sideload_zip) if sideload_zip else ""
         if not sideload_zip and not fastboot_images and not heimdall_images:
             extracted = self._extract_fastboot_archive(source_dir, extracted_dir)
             if extracted:
                 fastboot_images = extracted
                 source_artifact = str(extracted[0][1].parent)
-            if not fastboot_images:
+            if not fastboot_images and prefer_heimdall:
                 heimdall_images = self._extract_samsung_archive(source_dir, extracted_dir)
 
         status = "missing_source"
@@ -145,8 +150,9 @@ class ImageBuilderTool(BaseTool):
         else:
             missing = [
                 f"Stage an Android OTA or recovery ZIP under {source_dir}",
-                f"or stage fastboot images such as `boot.img`, `system.img`, or `vendor.img` under {source_dir}.",
-                f"Fastboot image archives are also supported when they contain recognized `.img` partition files.",
+                f"or stage real fastboot images such as `boot.img`, `system.img`, or `vendor.img` under {source_dir}.",
+                "Tiny placeholders and simulated image files are ignored.",
+                f"Fastboot image archives are also supported when they contain recognized `.img` partition files larger than {self._MIN_IMAGE_BYTES // 1024 // 1024} MiB.",
             ]
 
         if status == "ready":
@@ -211,7 +217,7 @@ class ImageBuilderTool(BaseTool):
         if not source_dir.exists():
             return []
         found: list[tuple[str, Path]] = []
-        all_imgs = list(source_dir.glob("*.img"))
+        all_imgs = [path for path in source_dir.glob("*.img") if self._is_plausible_image(path)]
         for partition, patterns in self._HEIMDALL_PARTITION_PATTERNS.items():
             for pattern in patterns:
                 for img in all_imgs:
@@ -266,9 +272,26 @@ class ImageBuilderTool(BaseTool):
         images: list[tuple[str, Path]] = []
         for filename in self._FASTBOOT_ORDER:
             candidate = source_dir / filename
-            if candidate.exists():
+            if candidate.exists() and self._is_plausible_image(candidate):
                 images.append((filename.removesuffix(".img"), candidate))
         return images
+
+    def _is_plausible_image(self, path: Path) -> bool:
+        try:
+            if path.stat().st_size < self._MIN_IMAGE_BYTES:
+                return False
+            sample = path.read_bytes()[:256]
+        except OSError:
+            return False
+        lowered = sample.lower()
+        if b"simulated firmware content" in lowered or b"placeholder" in lowered:
+            return False
+        return True
+
+    def _clear_staged_outputs(self, staged_dir: Path) -> None:
+        for path in staged_dir.iterdir():
+            if path.is_file():
+                path.unlink()
 
     def _extract_fastboot_archive(self, source_dir: Path, extracted_dir: Path) -> list[tuple[str, Path]]:
         archives = [

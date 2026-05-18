@@ -64,6 +64,25 @@ class BlockerEngine:
             escalation_condition = "Do not proceed without new evidence or a safer alternative path."
             retry_budget = 0
             planned_next_action = "halt_with_evidence"
+        elif (
+            assessment.get("support_status") == "research_only"
+            and transport in {"usb-adb", "usb-fastboot", "usb-fastbootd"}
+        ):
+            blocker_type = BlockerType.SOURCE
+            machine_solvable = True
+            summary = (
+                "The device is connected, but ForgeOS has not proven a safe restore or install path yet. "
+                "Continue bounded autonomous research, source discovery, and restore-path planning without destructive actions."
+            )
+            escalation_condition = (
+                "Pause only after research and source acquisition cannot improve restore or install feasibility."
+            )
+            retry_budget = max(1, 4 - min(session_state.remediation_iteration, 3))
+            planned_next_action = "source_acquisition_and_staging"
+            next_steps = [
+                "Search trusted firmware/source locations and cached research for this exact device.",
+                "Refresh restore-path evidence and keep destructive install gates closed until feasibility is proven.",
+            ]
         elif connection_plan.get("requires_codex_generation"):
             blocker_type = BlockerType.SOURCE
             machine_solvable = True

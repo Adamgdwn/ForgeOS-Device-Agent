@@ -864,6 +864,19 @@ def _candidate_score(path: Path, keywords: list[str]) -> int:
     return score
 
 
+def _plausible_source_candidate(path: Path) -> bool:
+    try:
+        if path.stat().st_size < 1024 * 1024:
+            return False
+        sample = path.read_bytes()[:256]
+    except OSError:
+        return False
+    lowered = sample.lower()
+    if b"simulated firmware content" in lowered or b"placeholder" in lowered:
+        return False
+    return True
+
+
 def _find_local_source_candidates(keywords: list[str]) -> list[dict[str, object]]:
     candidates: list[dict[str, object]] = []
     for root in _source_search_roots():
@@ -877,6 +890,8 @@ def _find_local_source_candidates(keywords: list[str]) -> list[dict[str, object]
             if not entry.is_file():
                 continue
             if entry.name == "README.md" or entry.suffix.lower() not in {".zip", ".img", ".gz", ".tar", ".bin"}:
+                continue
+            if not _plausible_source_candidate(entry):
                 continue
             score = _candidate_score(entry, keywords)
             if score <= 0:

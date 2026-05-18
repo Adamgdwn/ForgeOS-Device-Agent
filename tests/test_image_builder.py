@@ -10,8 +10,8 @@ def test_image_builder_stages_fastboot_images(tmp_path: Path) -> None:
     session_dir = tmp_path / "devices" / "sample"
     source_dir = session_dir / "artifacts" / "os-source"
     source_dir.mkdir(parents=True)
-    (source_dir / "boot.img").write_bytes(b"boot")
-    (source_dir / "system.img").write_bytes(b"system")
+    (source_dir / "boot.img").write_bytes(b"ANDROID!" + (b"\0" * 1024 * 1024))
+    (source_dir / "system.img").write_bytes(b"\0" * (1024 * 1024 + 1))
 
     result = ImageBuilderTool(tmp_path).execute(
         {
@@ -60,8 +60,8 @@ def test_image_builder_extracts_fastboot_archive(tmp_path: Path) -> None:
     source_dir = session_dir / "artifacts" / "os-source"
     source_dir.mkdir(parents=True)
     with zipfile.ZipFile(source_dir / "factory-images.zip", "w") as archive:
-        archive.writestr("images/boot.img", b"boot")
-        archive.writestr("images/vendor.img", b"vendor")
+        archive.writestr("images/boot.img", b"ANDROID!" + (b"\0" * 1024 * 1024))
+        archive.writestr("images/vendor.img", b"\0" * (1024 * 1024 + 1))
 
     result = ImageBuilderTool(tmp_path).execute(
         {

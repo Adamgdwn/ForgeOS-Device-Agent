@@ -2747,7 +2747,7 @@ class ForgeControlApp:
         alert_key = f"{session_dir.name}:{state_name}:{engagement_status}:{blocker_type}:{summary[:120]}"
         self._maybe_show_intervention_alert(
             alert_key=alert_key,
-            title="I need your help",
+            title="Operator Intervention Required",
             summary=summary,
             steps=steps,
         )
@@ -3209,13 +3209,13 @@ class ForgeControlApp:
     def _update_refresh_status(self, reason: str, has_live_device: bool, has_usb_only: bool) -> None:
         timestamp = utc_now().split("T", 1)[1].split(".", 1)[0]
         if has_live_device:
-            state = "phone connected and active"
+            state = "device connected and active"
         elif has_usb_only:
-            state = "I can see the phone over USB — waiting for ADB or fastboot"
+            state = "I can see the device over USB — waiting for ADB or fastboot"
         elif self.current_session_dir:
             state = "showing the last saved session"
         else:
-            state = "waiting for a phone"
+            state = "waiting for a device"
         if self.runtime_recompute_in_flight and self.runtime_recompute_session is not None:
             state += f" | working on {self.runtime_recompute_session.name}"
         elif self.runtime_recompute_error:

@@ -125,7 +125,7 @@ secret_pattern='(AWS_SECRET_ACCESS_KEY|BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY|api
 secret_hits="$(
   git ls-files -z \
     | xargs -0 grep -IEn "${secret_pattern}" 2>/dev/null \
-    | grep -Ev '(^|/)(docs|tests)/|\.env\.example:' \
+    | grep -Ev '(^|/)(docs|tests)/|\.env\.example:|^automation/governance_check\.sh:' \
     || true
 )"
 if [[ -n "${secret_hits}" ]]; then

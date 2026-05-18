@@ -1,4 +1,5 @@
 import json
+import zipfile
 from pathlib import Path
 
 from app.core.codegen_runtime import CodegenRuntime
@@ -43,7 +44,8 @@ def test_codegen_runtime_source_acquisition_stages_local_firmware(monkeypatch, t
     session_dir = tmp_path / "devices" / "sample"
     downloads_dir = tmp_path / "Downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
-    (downloads_dir / "SM-A520W_update.zip").write_bytes(b"zip")
+    with zipfile.ZipFile(downloads_dir / "SM-A520W_update.zip", "w") as archive:
+        archive.writestr("payload.bin", b"\0" * (1024 * 1024 + 1))
     monkeypatch.setenv("HOME", str(tmp_path))
     runtime = CodegenRuntime(Path(__file__).resolve().parents[1])
 
