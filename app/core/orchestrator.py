@@ -685,6 +685,8 @@ class ForgeOrchestrator:
                 "operator_review": operator_review,
             }
         )
+        product_memory_prior = self.product_memory.lookup(current_profile)
+        build_plan["product_memory"] = product_memory_prior
         build_artifacts = self.image_builder.execute(
             {
                 "session_dir": str(session_dir),
@@ -699,14 +701,29 @@ class ForgeOrchestrator:
         )
         source_acquisition: dict[str, Any] = {}
         if build_artifacts.get("status") != "ready":
-            build_artifacts, source_acquisition = self._resolve_missing_source_artifacts(
+            starter_source_gate = self.starter_troubleshooting.run(
                 session_dir=session_dir,
-                current_profile=current_profile,
+                profile=current_profile,
                 build_plan=build_plan,
-                initial_artifacts=build_artifacts,
-                user_profile=user_profile,
-                execute_workers=execute_workers,
+                build_artifacts=build_artifacts,
+                blocker={"blocker_type": "source_blocker"},
+                deliberation={"action_plan": {"execution_policy": {"machine_remediation_allowed": True}}},
             )
+            if not starter_source_gate.get("model_worker_allowed", True):
+                source_acquisition = {
+                    "status": "blocked_by_starter_troubleshooting",
+                    "reason": "Starter troubleshooting found a deterministic blocker before model/web research.",
+                    "starter_troubleshooting": starter_source_gate,
+                }
+            else:
+                build_artifacts, source_acquisition = self._resolve_missing_source_artifacts(
+                    session_dir=session_dir,
+                    current_profile=current_profile,
+                    build_plan=build_plan,
+                    initial_artifacts=build_artifacts,
+                    user_profile=user_profile,
+                    execute_workers=execute_workers,
+                )
         build_plan |= {
             "artifacts_ready": build_artifacts.get("status") == "ready",
             "install_mode": build_artifacts.get("details", {}).get("install_mode", "unavailable"),
@@ -719,8 +736,6 @@ class ForgeOrchestrator:
             "generated_artifacts": build_artifacts.get("artifacts", []),
             "source_acquisition": source_acquisition,
         }
-        product_memory_prior = self.product_memory.lookup(current_profile)
-        build_plan["product_memory"] = product_memory_prior
         self._safe_transition(session_dir, "RECOMMEND", "ForgeOS is converting evidence into a recommended use case and build path")
         flash_plan = self.flash_executor.build_plan(
             session_id=current_state.session_id,
