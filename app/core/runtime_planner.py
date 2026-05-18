@@ -93,7 +93,7 @@ class RuntimePlanner:
             preview_execution=preview_execution,
             verification_execution=verification_execution,
             evidence=self._evidence_paths(session_dir),
-            next_actions=self._next_actions(blocker, install_gate, deliberation or {}),
+            next_actions=self._next_actions(build_plan, blocker, install_gate, deliberation or {}),
             hard_stops=self._hard_stops(blocker, install_gate),
         )
 
@@ -139,6 +139,7 @@ class RuntimePlanner:
                         "governance_summary": governance_summary or {},
                         "self_improvement_summary": self_improvement_summary or {},
                         "product_memory": build_plan.get("product_memory", {}),
+                        "starter_troubleshooting": build_plan.get("starter_troubleshooting", {}),
                         "deliberation": {
                             "selected_action": (deliberation or {}).get("action_plan", {}).get("selected_action"),
                             "rationale": (deliberation or {}).get("action_plan", {}).get("rationale"),
@@ -417,7 +418,17 @@ class RuntimePlanner:
         ]
         return [str(path) for path in candidates if path.exists()]
 
-    def _next_actions(self, blocker: dict[str, Any], install_gate: ApprovalGate, deliberation: dict[str, Any]) -> list[str]:
+    def _next_actions(
+        self,
+        build_plan: dict[str, Any],
+        blocker: dict[str, Any],
+        install_gate: ApprovalGate,
+        deliberation: dict[str, Any],
+    ) -> list[str]:
+        starter_loop = dict(build_plan.get("starter_troubleshooting") or {})
+        starter_actions = list(starter_loop.get("next_actions") or [])
+        if starter_actions and not starter_loop.get("model_worker_allowed", True):
+            return starter_actions[:6]
         operator_questions = list((deliberation.get("action_plan") or {}).get("operator_questions") or [])
         execution_policy = dict((deliberation.get("action_plan") or {}).get("execution_policy") or {})
         if blocker.get("machine_solvable") and execution_policy.get("machine_remediation_allowed", True):

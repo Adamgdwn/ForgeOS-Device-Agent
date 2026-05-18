@@ -142,6 +142,8 @@ The runtime also maintains a local strategy-memory store under `knowledge/strate
 
 ForgeOS also compiles product/version memory under `knowledge/product_memory.json`. This records each touched product family and each observed Android/build/fingerprint version, including source/build outcomes, blockers, restore notes, and reusable lessons, so a later similar phone or tablet does not start from scratch. Weak early identities are folded into stronger later matches when they share a reliable codename, and equally specific related variants remain separate but linked.
 
+Before model workers are asked broad troubleshooting questions, ForgeOS now runs a deterministic starter troubleshooting loop. The loop checks known device facts, staged artifacts, host prerequisites, and product/version lessons first; learned lessons can augment that starter loop through the ignored local overlay at `knowledge/starter_troubleshooting_memory.json`.
+
 ## Next Steps
 
 The next highest-value work is to keep turning ForgeOS into an explicit autonomous research-and-repair loop instead of a smart blocker dashboard.

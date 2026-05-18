@@ -23,6 +23,7 @@ from app.core.promotion import DEFAULT_RULES, PromotionEngine
 from app.core.retry_planner import RetryPlanner
 from app.core.self_improvement import SelfImprovementEngine
 from app.core.strategy_memory import StrategyMemoryEngine
+from app.core.starter_troubleshooting import StarterTroubleshootingLoop
 from app.core.runtime_pipelines import PreviewPipeline, VerificationPipeline
 from app.core.runtime_planner import RuntimePlanner
 from app.core.runtime_workers import WorkerRegistry, WorkerRouter, WorkerRuntime, WorkerTask
@@ -76,6 +77,7 @@ class ForgeOrchestrator:
         self.retry_planner = RetryPlanner(root)
         self.policy_guard = PolicyGuard(root)
         self.strategy_memory = StrategyMemoryEngine(root)
+        self.starter_troubleshooting = StarterTroubleshootingLoop(root)
         self.self_improvement = SelfImprovementEngine(root, self.retry_planner, self.strategy_memory, self.policy_guard)
         self.device_probe = DeviceProbeTool(root)
         self.assessor = FeasibilityAssessorTool(root)
@@ -776,6 +778,19 @@ class ForgeOrchestrator:
         )
         execution_policy = dict(deliberation.get("action_plan", {}).get("execution_policy", {}))
         machine_remediation_allowed = bool(execution_policy.get("machine_remediation_allowed", True))
+        starter_loop = self.starter_troubleshooting.run(
+            session_dir=session_dir,
+            profile=current_profile,
+            build_plan=build_plan,
+            build_artifacts=build_artifacts,
+            blocker=blocker,
+            deliberation=deliberation,
+        )
+        build_plan["starter_troubleshooting"] = starter_loop
+        model_worker_allowed = bool(starter_loop.get("model_worker_allowed", True))
+        machine_remediation_allowed = (
+            machine_remediation_allowed and bool(starter_loop.get("machine_worker_allowed", True))
+        )
         end_product_prompt = (
             "End-product brief:\n"
             f"- intended user: {user_profile.intended_user or 'not specified'}\n"
@@ -848,9 +863,14 @@ class ForgeOrchestrator:
                 context={"recommendation": recommendation},
             ),
         ]
+        if not model_worker_allowed:
+            worker_routes = []
+            worker_tasks = []
         artifact_missing_requirements = list(build_plan.get("artifact_missing_requirements", []))
         should_run_artifact_research = (
-            bool(artifact_missing_requirements) and build_plan.get("os_path") != "research_only_path"
+            model_worker_allowed
+            and bool(artifact_missing_requirements)
+            and build_plan.get("os_path") != "research_only_path"
         )
         if should_run_artifact_research:
             worker_routes.append(
@@ -913,7 +933,7 @@ class ForgeOrchestrator:
         governance_summary: dict[str, Any] = {}
         self_improvement_summary: dict[str, Any] = {}
         blocker_before_remediation = dict(blocker)
-        if execute_workers and blocker.get("blocker_type") == "source_blocker":
+        if execute_workers and model_worker_allowed and blocker.get("blocker_type") == "source_blocker":
             firmware_research_path = session_dir / "research" / "firmware_sources.json"
             if not firmware_research_path.exists():
                 self.research_worker.research_firmware(

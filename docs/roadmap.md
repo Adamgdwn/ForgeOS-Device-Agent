@@ -42,6 +42,7 @@ Implemented runtime capabilities:
 - Produces session reports, recommendations, flash plans, backup/restore planning, and audit artifacts.
 - Maintains durable product/version memory in `knowledge/product_memory.json`.
 - Feeds product/version memory into planning and deliberation so similar devices can reuse prior lessons.
+- Runs a deterministic starter troubleshooting loop before broad model-worker escalation, with learned product/version lessons able to augment the loop.
 
 Current live behavior on the active tablet path:
 
@@ -68,6 +69,14 @@ That file is intentionally ignored by git because it is runtime state. Future co
 
 Important next improvement: expand related-family lineage beyond codename matching, including regional variants, chipset families, and known aftermarket package compatibility.
 
+Starter troubleshooting memory lives at:
+
+```text
+knowledge/starter_troubleshooting_memory.json
+```
+
+That file is intentionally ignored by git. It records which learned rules were applied for a product/version so future sessions can skip repeated broad model research and start from the proven checks.
+
 ## What Is Still Not Good Enough
 
 ForgeOS is closer to the intended shape, but it is not yet the fully autonomous rescue agent.
@@ -77,6 +86,7 @@ Known gaps:
 - It still cannot obtain proprietary firmware, bootloader unlock access, or device-specific aftermarket builds unless those are discoverable or supplied.
 - The runtime can plan around missing Android build tooling, but it does not yet install or fully configure the Android source build environment by itself.
 - Product memory now handles weak alias merging, but related-family lineage and compatibility inheritance are still basic.
+- The starter troubleshooting loop can consume learned lessons, but its learned-rule vocabulary is still intentionally small.
 - The GUI has been improved, but it is still an operator monitor layered on top of an evolving runtime rather than a polished product workflow.
 - Deliberation is useful for planning and escalation, but it is not yet a deep multi-step executive that performs long-running investigation, validates alternate strategies, and tracks second/third-order consequences across days.
 - Runtime learning records lessons, but promotion of reusable logic into `master/` still requires controlled review.
@@ -103,6 +113,7 @@ Known gaps:
    - Expand deliberation into a persistent goal stack with hypotheses, evidence, failed attempts, fallback paths, and consequence tracking.
    - Make repeated failures change strategy rather than simply repeat a blocker.
    - Keep a compact operator-facing explanation of what it is doing and why.
+   - Promote repeated starter-loop lessons into reviewed reusable rules when they prove useful across sessions.
 
 5. Device conversation workflow
    - Ask the owner targeted questions about intended reuse: media kiosk, lightweight browser, smart display, camera monitor, local AI companion, offline notes, child-safe device, lab device, etc.

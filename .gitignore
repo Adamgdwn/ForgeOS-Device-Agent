@@ -19,6 +19,7 @@ devices/
 /reports/engagement.json
 knowledge/session_outcomes.json
 knowledge/product_memory.json
+knowledge/starter_troubleshooting_memory.json
 knowledge/strategy_memory.sqlite3
 knowledge/strategy_memory_snapshot.json
 knowledge/support_matrix.json
