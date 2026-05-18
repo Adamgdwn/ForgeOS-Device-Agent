@@ -15,6 +15,7 @@ from app.core.knowledge import KnowledgeEngine
 from app.core.knowledge_lookup import KnowledgeLookup
 from app.core.deliberation import DeliberationEngine
 from app.core.policy_guard import PolicyGuard
+from app.core.product_memory import ProductMemoryEngine
 from app.core.patch_executor import PatchExecutor
 from app.core.reporting import ReportWriter
 from app.core.policy import PolicyEngine
@@ -69,6 +70,7 @@ class ForgeOrchestrator:
         self.knowledge = KnowledgeEngine(root)
         self.knowledge_lookup = KnowledgeLookup(root)
         self.deliberation = DeliberationEngine(root)
+        self.product_memory = ProductMemoryEngine(root)
         self.patch_executor = PatchExecutor(root)
         self.promotion = PromotionEngine(root)
         self.retry_planner = RetryPlanner(root)
@@ -715,6 +717,8 @@ class ForgeOrchestrator:
             "generated_artifacts": build_artifacts.get("artifacts", []),
             "source_acquisition": source_acquisition,
         }
+        product_memory_prior = self.product_memory.lookup(current_profile)
+        build_plan["product_memory"] = product_memory_prior
         self._safe_transition(session_dir, "RECOMMEND", "ForgeOS is converting evidence into a recommended use case and build path")
         flash_plan = self.flash_executor.build_plan(
             session_id=current_state.session_id,
@@ -740,6 +744,18 @@ class ForgeOrchestrator:
             build_artifacts=build_artifacts,
         )
         blocker = self._enrich_blocker_with_research(session_dir, blocker)
+        product_memory_summary = self.product_memory.record_observation(
+            session_dir=session_dir,
+            profile=current_profile,
+            state=current_state,
+            assessment=assessment,
+            build_plan=build_plan,
+            build_artifacts=build_artifacts,
+            blocker=blocker,
+            recommendation=recommendation,
+            restore_plan=restore_plan,
+        )
+        build_plan["product_memory"] = product_memory_summary
         current_state = self.sessions.load_session_state(session_dir)
         current_state.current_blocker_type = blocker["blocker_type"]
         current_state.blocker_confidence = blocker["confidence"]
@@ -756,6 +772,7 @@ class ForgeOrchestrator:
             blocker=blocker,
             recommendation=recommendation,
             user_profile=user_profile,
+            product_memory=product_memory_summary,
         )
         execution_policy = dict(deliberation.get("action_plan", {}).get("execution_policy", {}))
         machine_remediation_allowed = bool(execution_policy.get("machine_remediation_allowed", True))
@@ -1290,6 +1307,7 @@ class ForgeOrchestrator:
             "assessment": assessment,
             "engagement": engagement,
             "knowledge_match": knowledge_match,
+            "product_memory": product_memory_summary,
             "connection_plan": connection_plan,
             "blocker": blocker,
             "build_plan": build_plan,

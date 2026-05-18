@@ -138,6 +138,7 @@ class RuntimePlanner:
                         "next_actions": plan.next_actions,
                         "governance_summary": governance_summary or {},
                         "self_improvement_summary": self_improvement_summary or {},
+                        "product_memory": build_plan.get("product_memory", {}),
                         "deliberation": {
                             "selected_action": (deliberation or {}).get("action_plan", {}).get("selected_action"),
                             "rationale": (deliberation or {}).get("action_plan", {}).get("rationale"),

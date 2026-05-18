@@ -27,6 +27,7 @@ class DeliberationEngine:
         blocker: dict[str, Any],
         recommendation: dict[str, Any],
         user_profile: Any,
+        product_memory: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         thinking_dir = session_dir / "runtime" / "thinking"
         thinking_dir.mkdir(parents=True, exist_ok=True)
@@ -44,6 +45,7 @@ class DeliberationEngine:
             blocker=blocker,
             recommendation=recommendation,
             user_profile=user_profile,
+            product_memory=product_memory or {},
             lessons=lessons,
             previous=previous,
         )
@@ -87,6 +89,7 @@ class DeliberationEngine:
         blocker: dict[str, Any],
         recommendation: dict[str, Any],
         user_profile: Any,
+        product_memory: dict[str, Any],
         lessons: list[dict[str, Any]],
         previous: dict[str, Any],
     ) -> dict[str, Any]:
@@ -124,6 +127,15 @@ class DeliberationEngine:
             "blocker_machine_solvable": bool(blocker.get("machine_solvable")),
             "repeated_blocker_count": repeated_blocker_count,
             "failed_experiment_count": self._failed_experiment_count(experiments, blocker_type),
+            "product_memory": {
+                "product_key": product_memory.get("product_key"),
+                "version_key": product_memory.get("version_key"),
+                "observations": (product_memory.get("product") or {}).get("observations")
+                or product_memory.get("observations", 0),
+                "reusable_guidance": (product_memory.get("product") or {}).get("reusable_guidance")
+                or product_memory.get("reusable_guidance", []),
+                "version_lessons": (product_memory.get("version") or {}).get("lessons", []),
+            },
         }
         unknowns = []
         if not facts["device"]["model"] or str(facts["device"]["model"]).lower() == "unknown":
@@ -132,6 +144,9 @@ class DeliberationEngine:
             unknowns.append("No real firmware, OTA, or image artifact has been staged.")
         if "repo tool is required" in str(facts["source_build_error"]).lower():
             unknowns.append("Android repo tool is missing, so local Android source builds cannot run.")
+        version_lessons = list(facts.get("product_memory", {}).get("version_lessons") or [])
+        if version_lessons:
+            unknowns.extend(f"Product memory: {lesson}" for lesson in version_lessons[:3])
         if not getattr(user_profile, "desired_end_product", "").strip():
             unknowns.append("The operator has not fully described the desired end product.")
         changes = self._changes(previous.get("facts", {}), facts)
@@ -191,6 +206,8 @@ class DeliberationEngine:
             machine_remediation_allowed = False
             selected_action = "ask_operator"
             rationale = "Repeated source acquisition attempts did not advance; the next useful step needs new evidence or a real artifact."
+        elif facts.get("product_memory", {}).get("version_lessons"):
+            rationale = "Prior product/version memory is available and should constrain the next remediation attempt."
 
         return {
             "generated_at": utc_now(),
