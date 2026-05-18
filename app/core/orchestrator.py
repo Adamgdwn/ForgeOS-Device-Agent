@@ -13,6 +13,7 @@ from app.core.connection_engine import ConnectionEngine
 from app.core.device_form_factor import apply_form_factor_inference
 from app.core.knowledge import KnowledgeEngine
 from app.core.knowledge_lookup import KnowledgeLookup
+from app.core.deliberation import DeliberationEngine
 from app.core.policy_guard import PolicyGuard
 from app.core.patch_executor import PatchExecutor
 from app.core.reporting import ReportWriter
@@ -67,6 +68,7 @@ class ForgeOrchestrator:
         self.connection_engine = ConnectionEngine(root)
         self.knowledge = KnowledgeEngine(root)
         self.knowledge_lookup = KnowledgeLookup(root)
+        self.deliberation = DeliberationEngine(root)
         self.patch_executor = PatchExecutor(root)
         self.promotion = PromotionEngine(root)
         self.retry_planner = RetryPlanner(root)
@@ -429,6 +431,7 @@ class ForgeOrchestrator:
                 "recommendation": recommendation,
                 "install_gate": to_dict(install_gate),
                 "runtime_gate": to_dict(runtime_gate),
+                "deliberation": runtime_result["deliberation"],
                 "governance_summary": runtime_result["governance_summary"],
                 "self_improvement_summary": runtime_result["self_improvement_summary"],
                 "preview_execution": to_dict(preview_execution),
@@ -510,6 +513,7 @@ class ForgeOrchestrator:
                 "recommendation": runtime_result["recommendation"],
                 "install_gate": to_dict(runtime_result["install_gate"]),
                 "runtime_gate": to_dict(runtime_result["runtime_gate"]),
+                "deliberation": runtime_result["deliberation"],
                 "governance_summary": runtime_result["governance_summary"],
                 "self_improvement_summary": runtime_result["self_improvement_summary"],
                 "preview_execution": to_dict(runtime_result["preview_execution"]),
@@ -740,12 +744,33 @@ class ForgeOrchestrator:
         current_state.current_blocker_type = blocker["blocker_type"]
         current_state.blocker_confidence = blocker["confidence"]
         self.sessions.write_session_state(session_dir, current_state)
+        deliberation = self.deliberation.think(
+            session_dir=session_dir,
+            profile=current_profile,
+            state=current_state,
+            assessment=assessment,
+            engagement=engagement,
+            connection_plan=connection_plan,
+            build_plan=build_plan,
+            build_artifacts=build_artifacts,
+            blocker=blocker,
+            recommendation=recommendation,
+            user_profile=user_profile,
+        )
+        execution_policy = dict(deliberation.get("action_plan", {}).get("execution_policy", {}))
+        machine_remediation_allowed = bool(execution_policy.get("machine_remediation_allowed", True))
         end_product_prompt = (
             "End-product brief:\n"
             f"- intended user: {user_profile.intended_user or 'not specified'}\n"
             f"- desired outcome: {user_profile.desired_end_product or 'not specified'}\n"
             f"- success criteria: {user_profile.success_criteria or 'not specified'}\n"
             f"- lawful authorization attested: {user_profile.lawful_use_attested}"
+        )
+        deliberation_prompt = (
+            "Executive deliberation:\n"
+            f"- selected action: {deliberation.get('action_plan', {}).get('selected_action', 'unknown')}\n"
+            f"- rationale: {deliberation.get('action_plan', {}).get('rationale', '')}\n"
+            f"- operator questions: {json_safe(deliberation.get('action_plan', {}).get('operator_questions', []))}"
         )
 
         worker_routes = [
@@ -756,6 +781,7 @@ class ForgeOrchestrator:
                     prompt=(
                         "Summarize the current device transport evidence and the next safest runtime action.\n\n"
                         f"{end_product_prompt}\n\n"
+                        f"{deliberation_prompt}\n\n"
                         f"Assessment: {assessment.get('summary', '')}\n"
                         f"Connection plan: {json_safe(connection_plan)}"
                     ),
@@ -783,6 +809,7 @@ class ForgeOrchestrator:
                 prompt=(
                     "Summarize the current device transport evidence and the next safest runtime action.\n\n"
                     f"{end_product_prompt}\n\n"
+                    f"{deliberation_prompt}\n\n"
                     f"Assessment: {assessment.get('summary', '')}\n"
                     f"Connection plan: {json_safe(connection_plan)}"
                 ),
@@ -880,7 +907,7 @@ class ForgeOrchestrator:
                     android_version=current_profile.android_version or "",
                     transport=device_context.get("transport", "unknown"),
                 )
-        if blocker.get("machine_solvable") and execute_workers:
+        if blocker.get("machine_solvable") and execute_workers and machine_remediation_allowed:
             worker_routes.append(
                 self.worker_router.route(
                     WorkerTask(
@@ -1078,7 +1105,7 @@ class ForgeOrchestrator:
             self.retry_planner.mark_advanced(session_dir)
         if execute_workers and blocker.get("blocker_type") == "source_blocker":
             os_source_dir = session_dir / "artifacts" / "os-source"
-            has_staged = os_source_dir.exists() and any(os_source_dir.iterdir())
+            has_staged = self._has_plausible_source_artifact(os_source_dir)
             if not has_staged and current_profile.device_codename:
                 self.logger.info("SOURCE blocker: attempting autonomous firmware download for %s", current_profile.device_codename)
                 try:
@@ -1255,6 +1282,7 @@ class ForgeOrchestrator:
             verification_execution=verification_execution,
             governance_summary=governance_summary,
             self_improvement_summary=self_improvement_summary,
+            deliberation=deliberation,
         )
         return {
             "profile": current_profile,
@@ -1286,7 +1314,27 @@ class ForgeOrchestrator:
             "experiment_entry": experiment_entry,
             "governance_summary": governance_summary,
             "self_improvement_summary": self_improvement_summary,
+            "deliberation": deliberation,
         }
+
+    def _has_plausible_source_artifact(self, source_dir: Path) -> bool:
+        if not source_dir.exists():
+            return False
+        for path in source_dir.iterdir():
+            if not path.is_file() or path.name == "README.md":
+                continue
+            if path.suffix.lower() not in {".zip", ".img", ".gz", ".tar", ".bin"}:
+                continue
+            try:
+                if path.stat().st_size < 1024 * 1024:
+                    continue
+                sample = path.read_bytes()[:256].lower()
+            except OSError:
+                continue
+            if any(marker in sample for marker in [b"mock content", b"simulated firmware content", b"placeholder"]):
+                continue
+            return True
+        return False
 
     def _resolve_missing_source_artifacts(
         self,
@@ -1364,6 +1412,16 @@ class ForgeOrchestrator:
                 acquisition["status"] = "resolved_from_trusted_source"
                 return resolved_artifacts, acquisition
 
+        prior_build_transcript = self._load_json_dict(session_dir / "runtime" / "build-from-source" / "build-transcript.json")
+        if "repo tool is required" in str(prior_build_transcript.get("stderr", "")).lower():
+            acquisition["status"] = "blocked_by_host_prerequisite"
+            acquisition["builder"] = {
+                "status": "blocked",
+                "reason": "Android repo tool is missing; skipping repeated local source build attempt until host setup changes.",
+                "transcript_path": str(session_dir / "runtime" / "build-from-source" / "build-transcript.json"),
+            }
+            return initial_artifacts, acquisition
+
         builder_result = self.source_builder.execute(
             {
                 "session_dir": str(session_dir),
@@ -1384,6 +1442,15 @@ class ForgeOrchestrator:
             return built_artifacts, acquisition
         acquisition["status"] = "build_pending"
         return built_artifacts, acquisition
+
+    def _load_json_dict(self, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            loaded = json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
 
     def _load_source_research(self, session_dir: Path) -> dict[str, Any]:
         research: dict[str, Any] = {}
