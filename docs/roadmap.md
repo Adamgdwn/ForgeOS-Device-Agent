@@ -136,6 +136,16 @@ Known gaps:
 - Expand local model integration for richer owner interviews and device reuse planning, while keeping safety controls outside model control.
 - Add a release checklist that ties governance level, autonomy level, and destructive capability together.
 
+## Solidification Next Steps
+
+These are the current highest-value next moves after the task-shaped model-routing checkpoint:
+
+1. Add model-quality telemetry so each model route records whether it advanced the session, stalled, hallucinated, or needed escalation.
+2. Add a stronger optional coding model route, such as a local coder model, while keeping `gemma4:latest` as the safe default until the host proves it can run the larger model.
+3. Expand the executive planner into a persistent goal stack that tracks hypotheses, failures, consequences, fallback paths, and next experiments.
+4. Add device-family fixtures so phone/tablet/product-memory behavior can be tested without depending on live hardware every time.
+5. Tighten GUI visibility so the current model route, current blocker, next autonomous action, and relevant memory match are visible at a glance.
+
 ## Resume Checklist
 
 For a new development session:
