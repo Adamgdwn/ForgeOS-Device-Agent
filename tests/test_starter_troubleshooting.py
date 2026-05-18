@@ -49,11 +49,12 @@ def _build_plan() -> dict:
     }
 
 
-def test_starter_loop_rejects_incompatible_staged_generic_image(tmp_path: Path) -> None:
+def test_starter_loop_quarantines_incompatible_staged_generic_image(tmp_path: Path) -> None:
     session_dir = tmp_path / "devices" / "sample"
     source_dir = session_dir / "artifacts" / "os-source"
     source_dir.mkdir(parents=True)
-    (source_dir / "system-squeak-arm64-ab-vanilla.img.xz").write_bytes(b"x" * (2 * 1024 * 1024))
+    bad_artifact = source_dir / "system-squeak-arm64-ab-vanilla.img.xz"
+    bad_artifact.write_bytes(b"x" * (2 * 1024 * 1024))
 
     result = StarterTroubleshootingLoop(tmp_path).run(
         session_dir=session_dir,
@@ -64,10 +65,12 @@ def test_starter_loop_rejects_incompatible_staged_generic_image(tmp_path: Path) 
         deliberation={"action_plan": {"execution_policy": {"machine_remediation_allowed": True}}},
     )
 
-    assert result["status"] == "blocked_incompatible_artifact"
-    assert result["model_worker_allowed"] is False
-    assert result["machine_worker_allowed"] is False
+    assert result["status"] == "quarantined_incompatible_artifact"
+    assert result["model_worker_allowed"] is True
+    assert result["machine_worker_allowed"] is True
     assert "arm64" in result["artifact_review"]["rejected_artifacts"][0]["reason"]
+    assert not bad_artifact.exists()
+    assert Path(result["artifact_review"]["quarantined_artifacts"][0]["quarantine_path"]).exists()
     assert any(rule["rule_id"] == "require_android_repo_before_source_build" for rule in result["learned_augmentations"])
     assert (session_dir / "runtime" / "troubleshooting" / "starter-loop.json").exists()
     assert (tmp_path / "knowledge" / "starter_troubleshooting_memory.json").exists()

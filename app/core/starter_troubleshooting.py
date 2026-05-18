@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import json
+import shutil
 
 from app.core.io_utils import atomic_write_json
 from app.core.models import DeviceProfile, utc_now
@@ -41,6 +42,14 @@ class StarterTroubleshootingLoop:
         learned_repo_prereq = any(rule["rule_id"] == "require_android_repo_before_source_build" for rule in learned_rules)
         has_compatible_artifact = bool(artifact_review["accepted_artifacts"])
         has_rejected_artifact = bool(artifact_review["rejected_artifacts"])
+        quarantined_artifacts: list[dict[str, Any]] = []
+        if blocker_type == "source_blocker" and has_rejected_artifact and not has_compatible_artifact:
+            quarantined_artifacts = self._quarantine_rejected_artifacts(
+                session_dir,
+                artifact_review["rejected_artifacts"],
+            )
+            artifact_review["quarantined_artifacts"] = quarantined_artifacts
+            has_rejected_artifact = False
         deliberation_allows_machine = bool(execution_policy.get("machine_remediation_allowed", True))
 
         status = "ready_for_bounded_model_help"
@@ -49,14 +58,12 @@ class StarterTroubleshootingLoop:
         next_actions: list[str] = []
         notes: list[str] = []
 
-        if blocker_type == "source_blocker" and has_rejected_artifact and not has_compatible_artifact:
-            status = "blocked_incompatible_artifact"
-            model_worker_allowed = False
-            machine_worker_allowed = False
+        if quarantined_artifacts and not has_compatible_artifact:
+            status = "quarantined_incompatible_artifact"
             next_actions.extend(
                 [
-                    "Replace the incompatible staged artifact with an exact Samsung SM-T377W/gteslte OTA, recovery ZIP, or Samsung firmware package.",
-                    "Do not flash generic arm64 A/B system images to this non-Treble 32-bit tablet.",
+                    "Continue bounded source acquisition for an exact Samsung SM-T377W/gteslte OTA, recovery ZIP, or Samsung firmware package.",
+                    "Keep quarantined generic artifacts out of install planning.",
                 ]
             )
         elif blocker_type == "source_blocker" and (repo_missing or learned_repo_prereq or repeated_source_blocker) and not has_compatible_artifact:
@@ -83,7 +90,9 @@ class StarterTroubleshootingLoop:
             notes.append("Product memory already learned that source builds need Android repo setup first.")
         if repeated_source_blocker:
             notes.append("This product/version has repeatedly hit source acquisition blockers.")
-        if has_rejected_artifact:
+        if quarantined_artifacts:
+            notes.append("One or more incompatible staged artifacts were quarantined before source acquisition continued.")
+        elif has_rejected_artifact:
             notes.append("One or more staged artifacts were rejected before model escalation.")
 
         result = {
@@ -111,6 +120,30 @@ class StarterTroubleshootingLoop:
         atomic_write_json(session_dir / "runtime" / "troubleshooting" / "starter-loop.json", result)
         self._record_memory_overlay(result)
         return result
+
+    def _quarantine_rejected_artifacts(
+        self,
+        session_dir: Path,
+        rejected_artifacts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        quarantine_dir = session_dir / "artifacts" / "rejected"
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        quarantined: list[dict[str, Any]] = []
+        for item in rejected_artifacts:
+            source = Path(str(item.get("path") or ""))
+            if not source.exists() or not source.is_file():
+                continue
+            destination = quarantine_dir / source.name
+            if destination.exists():
+                stem = destination.stem
+                suffix = destination.suffix
+                counter = 1
+                while destination.exists():
+                    destination = quarantine_dir / f"{stem}-{counter}{suffix}"
+                    counter += 1
+            shutil.move(str(source), str(destination))
+            quarantined.append({**item, "original_path": str(source), "quarantine_path": str(destination)})
+        return quarantined
 
     def _compile_learned_rules(self, product_memory: dict[str, Any]) -> list[dict[str, Any]]:
         version = dict(product_memory.get("version") or {})
