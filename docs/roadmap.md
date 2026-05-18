@@ -1,6 +1,6 @@
 # ForgeOS Device Agent Roadmap
 
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
 ## Purpose
 
@@ -43,6 +43,7 @@ Implemented runtime capabilities:
 - Maintains durable product/version memory in `knowledge/product_memory.json`.
 - Feeds product/version memory into planning and deliberation so similar devices can reuse prior lessons.
 - Runs a deterministic starter troubleshooting loop before broad model-worker escalation, with learned product/version lessons able to augment the loop.
+- Routes local models by task shape: fast triage prefers the lightweight installed helper model, while research, coding, and frontier-style reasoning use the configured reasoning model unless explicitly overridden.
 
 Current live behavior on the active tablet path:
 
@@ -114,6 +115,7 @@ Known gaps:
    - Make repeated failures change strategy rather than simply repeat a blocker.
    - Keep a compact operator-facing explanation of what it is doing and why.
    - Promote repeated starter-loop lessons into reviewed reusable rules when they prove useful across sessions.
+   - Add model-quality telemetry so model routes can be promoted, demoted, or made device-family-specific based on measured outcomes rather than preference.
 
 5. Device conversation workflow
    - Ask the owner targeted questions about intended reuse: media kiosk, lightweight browser, smart display, camera monitor, local AI companion, offline notes, child-safe device, lab device, etc.
@@ -131,7 +133,7 @@ Known gaps:
 - Add stronger artifact compatibility validation for partitions, boot images, recoveries, and ROM packages.
 - Add device-family test fixtures that simulate common transport and support states.
 - Add rollback drills and restore verification coverage.
-- Add local model integration for richer owner interviews and device reuse planning, while keeping safety controls outside model control.
+- Expand local model integration for richer owner interviews and device reuse planning, while keeping safety controls outside model control.
 - Add a release checklist that ties governance level, autonomy level, and destructive capability together.
 
 ## Resume Checklist

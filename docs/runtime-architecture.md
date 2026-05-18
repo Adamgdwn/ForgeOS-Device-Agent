@@ -142,7 +142,8 @@ docs/
 - Real execution depth still depends on host readiness.
 - Live install execution also depends on staged install inputs under `artifacts/os-source/` for the current device session.
 - On a host without `adb`, `fastboot`, or emulator tooling, ForgeOS now records those capability gaps explicitly instead of pretending those pipelines are fully available.
-- Aider depends on the local model or provider path being reachable. ForgeOS now defaults toward an Ollama-backed path when possible, but that still requires the Ollama service and configured model to be present.
+- Aider depends on the local model or provider path being reachable. ForgeOS now defaults toward an Ollama-backed path selected by the model router when possible, but that still requires the Ollama service and selected model to be present.
+- Local model routing is explicit but still simple: it chooses among installed Ollama models by task route, not by measured quality history yet.
 - ForgeOS currently persists learned runtime knowledge under `knowledge/` and `promotion/`. That is useful for controlled learning, but it also means prior device-family sessions can influence later recommendations unless those learned artifacts are reset, isolated, or ignored for a clean test run.
 
 ## Clean-Run Expectation

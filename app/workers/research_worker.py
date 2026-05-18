@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app.core.model_router import ModelRouter
 from app.core.models import utc_now
 
 logger = logging.getLogger(__name__)
@@ -148,9 +149,9 @@ def _goose_available() -> bool:
     return shutil.which(_goose_executable()) is not None
 
 
-def _run_ollama(prompt: str, timeout: int = 120) -> dict[str, Any]:
+def _run_ollama(prompt: str, timeout: int = 120, model: str | None = None) -> dict[str, Any]:
     """Call ollama and return stdout, stderr, returncode."""
-    cmd = [_ollama_executable(), "run", _ollama_model(), prompt, "--format", "json", "--hidethinking"]
+    cmd = [_ollama_executable(), "run", model or _ollama_model(), prompt, "--format", "json", "--hidethinking"]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=timeout)
         return {"ok": result.returncode == 0, "stdout": result.stdout.strip(), "stderr": result.stderr.strip()}
@@ -160,14 +161,14 @@ def _run_ollama(prompt: str, timeout: int = 120) -> dict[str, Any]:
         return {"ok": False, "stdout": "", "stderr": str(exc)}
 
 
-def _run_goose(prompt: str, cwd: Path, timeout: int = 180) -> dict[str, Any]:
+def _run_goose(prompt: str, cwd: Path, timeout: int = 180, model: str | None = None) -> dict[str, Any]:
     """Call goose and return stdout, stderr, returncode."""
     cmd = [
         _goose_executable(), "run",
         "--text", prompt,
         "--no-session", "--quiet",
         "--provider", _goose_provider(),
-        "--model", _goose_model(),
+        "--model", model or _goose_model(),
     ]
     try:
         result = subprocess.run(
@@ -227,6 +228,7 @@ class ResearchWorker:
 
     def __init__(self, root: Path) -> None:
         self.root = root
+        self.model_router = ModelRouter.discover()
         self.ollama_available = _ollama_available()
         self.goose_available = _goose_available()
         self.available = self.ollama_available or self.goose_available
@@ -500,6 +502,7 @@ Respond with JSON:
         research_dir = session_dir / "research"
         research_dir.mkdir(parents=True, exist_ok=True)
         result_path = research_dir / f"{topic}.json"
+        model_selection = self.model_router.select("research")
 
         if not self.available:
             result = {
@@ -507,6 +510,7 @@ Respond with JSON:
                 "status": "workers_unavailable",
                 "topic": topic,
                 "generated_at": utc_now(),
+                "model_selection": model_selection.as_dict(),
                 "note": "Install ollama or goose to enable autonomous device research.",
             }
             result_path.write_text(json.dumps(result, indent=2))
@@ -517,20 +521,20 @@ Respond with JSON:
 
         # Try Ollama first (fast, local, no network needed for reasoning)
         if self.ollama_available:
-            ollama_result = _run_ollama(ollama_prompt)
+            ollama_result = _run_ollama(ollama_prompt, model=model_selection.model)
             if ollama_result["ok"] and ollama_result["stdout"]:
                 raw_text = ollama_result["stdout"]
                 source = "ollama"
 
         # If Ollama didn't produce usable output, try Goose (can browse the web)
         if not raw_text and self.goose_available:
-            goose_result = _run_goose(goose_prompt, cwd=goose_cwd)
+            goose_result = _run_goose(goose_prompt, cwd=goose_cwd, model=model_selection.model)
             if goose_result["ok"] and goose_result["stdout"]:
                 raw_text = goose_result["stdout"]
                 source = "goose"
         elif self.goose_available and source == "ollama":
             # Ollama answered from training data; have Goose verify/enrich with live web data
-            goose_result = _run_goose(goose_prompt, cwd=goose_cwd)
+            goose_result = _run_goose(goose_prompt, cwd=goose_cwd, model=model_selection.model)
             if goose_result["ok"] and goose_result["stdout"]:
                 # Prefer Goose output if it produced structured JSON; merge otherwise
                 goose_parsed = _try_parse_json_from_text(goose_result["stdout"])
@@ -544,6 +548,7 @@ Respond with JSON:
                 "status": "no_response",
                 "topic": topic,
                 "generated_at": utc_now(),
+                "model_selection": model_selection.as_dict(),
                 "note": "Local workers ran but produced no output.",
             }
             result_path.write_text(json.dumps(result, indent=2))
@@ -560,6 +565,7 @@ Respond with JSON:
             "status": "researched",
             "topic": topic,
             "source": source,
+            "model_selection": model_selection.as_dict(),
             "generated_at": utc_now(),
             "fetched_at": utc_now(),
         }

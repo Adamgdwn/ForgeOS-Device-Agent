@@ -19,10 +19,10 @@ _DEFAULT_TIMEOUT = 120
 class GemmaEngine:
     """Ollama HTTP API wrapper — structured decisions and device-specific codegen."""
 
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         self.logger = logging.getLogger("forgeos.gemma")
         self.base_url = _OLLAMA_API_BASE.rstrip("/")
-        self.model = _OLLAMA_MODEL
+        self.model = model or _OLLAMA_MODEL
 
     # ------------------------------------------------------------------
     # Public API

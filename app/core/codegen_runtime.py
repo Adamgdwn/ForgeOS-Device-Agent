@@ -648,6 +648,7 @@ if __name__ == "__main__":
         if device_context and remediation_family != "source_acquisition_and_staging":
             try:
                 from app.core.gemma_engine import GemmaEngine
+                from app.core.model_router import ModelRouter
                 task_desc = (
                     f"Remediation family: {task.get('remediation_family', 'generic_diagnostic')}\n"
                     f"Objective: {task.get('objective', '')}\n"
@@ -660,7 +661,8 @@ if __name__ == "__main__":
                     "2. Write a JSON result to SESSION_DIR/codegen/remediation-result.json with keys: status, evidence, advanced\n"
                     "3. Exit 0 on success, non-zero on failure"
                 )
-                gemma_code = GemmaEngine().write_code(task_desc, device_context)
+                model = ModelRouter.discover().select("coding").model
+                gemma_code = GemmaEngine(model=model).write_code(task_desc, device_context)
                 if gemma_code:
                     return gemma_code
             except Exception:

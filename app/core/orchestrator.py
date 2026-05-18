@@ -1893,7 +1893,10 @@ class ForgeOrchestrator:
     ) -> bool:
         """Ask Gemma how to resolve the blocker. Return True if it took an action."""
         try:
-            engine = GemmaEngine()
+            from app.core.model_router import ModelRouter
+
+            model = ModelRouter.discover().select("frontier").model
+            engine = GemmaEngine(model=model)
             prompt = (
                 f"Device: {current_profile.manufacturer} {current_profile.model} "
                 f"({current_profile.device_codename}), Android {current_profile.android_version}, "
