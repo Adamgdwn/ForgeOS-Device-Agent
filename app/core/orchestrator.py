@@ -709,7 +709,10 @@ class ForgeOrchestrator:
                 blocker={"blocker_type": "source_blocker"},
                 deliberation={"action_plan": {"execution_policy": {"machine_remediation_allowed": True}}},
             )
-            if not starter_source_gate.get("model_worker_allowed", True):
+            if (
+                not starter_source_gate.get("model_worker_allowed", True)
+                and not starter_source_gate.get("machine_worker_allowed", True)
+            ):
                 source_acquisition = {
                     "status": "blocked_by_starter_troubleshooting",
                     "reason": "Starter troubleshooting found a deterministic blocker before model/web research.",
@@ -1155,7 +1158,7 @@ class ForgeOrchestrator:
             self.retry_planner.mark_advanced(session_dir)
         elif experiment_entry.get("advanced") is True:
             self.retry_planner.mark_advanced(session_dir)
-        if execute_workers and model_worker_allowed and blocker.get("blocker_type") == "source_blocker":
+        if execute_workers and machine_remediation_allowed and blocker.get("blocker_type") == "source_blocker":
             os_source_dir = session_dir / "artifacts" / "os-source"
             has_staged = self._has_plausible_source_artifact(os_source_dir)
             if not has_staged and current_profile.device_codename:
@@ -1177,7 +1180,8 @@ class ForgeOrchestrator:
                 android_version=current_profile.android_version or "",
                 transport=device_context.get("transport", "unknown"),
             )
-        if flash_plan.requires_wipe and execute_workers:
+        install_artifacts_ready = bool(build_plan.get("artifacts_ready")) and flash_plan.status not in {"deferred", "blocked"}
+        if flash_plan.requires_wipe and execute_workers and install_artifacts_ready:
             worker_routes.append(
                 self.worker_router.route(
                     WorkerTask(

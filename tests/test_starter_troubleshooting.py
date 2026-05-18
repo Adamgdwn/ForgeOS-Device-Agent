@@ -76,7 +76,7 @@ def test_starter_loop_quarantines_incompatible_staged_generic_image(tmp_path: Pa
     assert (tmp_path / "knowledge" / "starter_troubleshooting_memory.json").exists()
 
 
-def test_starter_loop_uses_learned_memory_to_skip_repeated_model_research(tmp_path: Path) -> None:
+def test_starter_loop_uses_learned_memory_to_prefer_source_acquisition(tmp_path: Path) -> None:
     session_dir = tmp_path / "devices" / "sample"
     session_dir.mkdir(parents=True)
     plan = _build_plan()
@@ -91,6 +91,7 @@ def test_starter_loop_uses_learned_memory_to_skip_repeated_model_research(tmp_pa
         deliberation={"action_plan": {"execution_policy": {"machine_remediation_allowed": True}}},
     )
 
-    assert result["status"] == "waiting_for_source_or_host_setup"
+    assert result["status"] == "source_acquisition_required"
     assert result["model_worker_allowed"] is False
+    assert result["machine_worker_allowed"] is True
     assert any("repo setup" in note for note in result["notes"])

@@ -67,13 +67,13 @@ class StarterTroubleshootingLoop:
                 ]
             )
         elif blocker_type == "source_blocker" and (repo_missing or learned_repo_prereq or repeated_source_blocker) and not has_compatible_artifact:
-            status = "waiting_for_source_or_host_setup"
+            status = "source_acquisition_required"
             model_worker_allowed = False
-            machine_worker_allowed = False
+            machine_worker_allowed = deliberation_allows_machine
             next_actions.extend(
                 [
-                    "Stage a verified firmware/OTA/recovery package for Samsung SM-T377W/gteslte.",
-                    "Or approve host setup for Android source builds, including the Android repo tool.",
+                    "Run deterministic source acquisition for Samsung SM-T377W/gteslte before asking more broad model questions.",
+                    "Stage a verified firmware/OTA/recovery package, or set up Android source-build prerequisites including the repo tool.",
                 ]
             )
         elif not deliberation_allows_machine:
