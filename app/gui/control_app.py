@@ -353,17 +353,6 @@ class ForgeControlApp:
             color: #b8bfc8;
             border-color: #ddd8d0;
         }
-        QPushButton[role="handy"] {
-            background: #4a8a70;
-            color: #f0fff8;
-            border-radius: 20px;
-            padding: 8px 16px;
-            font-size: 16px;
-            font-weight: 700;
-        }
-        QPushButton[role="handy"]:hover {
-            background: #5aaa88;
-        }
         QFrame[role="wizard_nav"] {
             background: #ede5da;
             border: 1px solid #d8ccc0;
@@ -445,13 +434,6 @@ class ForgeControlApp:
 
         title_row.addWidget(text_frame, 1)
 
-        handy_btn = QPushButton("🎤 Speak")
-        handy_btn.setProperty("role", "handy")
-        handy_btn.setToolTip("Toggle Handy voice input (dictation)")
-        handy_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        handy_btn.clicked.connect(self._toggle_handy)
-        title_row.addWidget(handy_btn, 0, Qt.AlignmentFlag.AlignTop)
-
         layout.addLayout(title_row)
 
         button_frame = QWidget()
@@ -481,8 +463,7 @@ class ForgeControlApp:
         button_col.addStretch(1)
         layout.addWidget(button_frame)
         for button in box.findChildren(QPushButton):
-            if button.property("role") != "handy":
-                self._set_button_state(button, "neutral")
+            self._set_button_state(button, "neutral")
         return box
 
     def _sync_header_height(self) -> None:
@@ -3378,12 +3359,6 @@ class ForgeControlApp:
             subprocess.Popen(["code", str(self.current_session_dir)])
         else:
             self._open_path(self.current_session_dir)
-
-    def _toggle_handy(self) -> None:
-        try:
-            subprocess.Popen(["handy", "--toggle-transcription"])
-        except FileNotFoundError:
-            self.logger.warning("handy not found — install it to use voice input")
 
     def _build_wizard_nav(self) -> QWidget:
         widget = QFrame()

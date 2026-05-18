@@ -16,7 +16,6 @@ _TOOL_MAP: dict[str, dict[str, str | None]] = {
     "e2fsck":   {"apt": "e2fsprogs",             "pip": None,        "snap": None},
     "ollama":   {"apt": None,                    "pip": None,        "snap": "ollama"},
     "goose":    {"apt": None,                    "pip": "goose-ai",  "snap": None},
-    "handy":    {"apt": None,                    "pip": None,        "snap": None},
 }
 
 
