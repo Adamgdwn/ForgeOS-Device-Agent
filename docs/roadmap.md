@@ -56,6 +56,7 @@ ForgeOS now records memory at two levels:
 
 - Product memory: manufacturer, model, codename, form factors, observed sessions, reusable guidance, and support history.
 - Version memory: Android version, build ID, fingerprint digest, blockers, strategies, artifacts, restore attempts, source history, and version-specific lessons.
+- Identity normalization: weak early identities are merged into stronger compatible product records when a reliable codename proves they are the same device family. Equally specific related variants stay separate and are cross-linked.
 
 Generated memory lives at:
 
@@ -65,7 +66,7 @@ knowledge/product_memory.json
 
 That file is intentionally ignored by git because it is runtime state. Future code should treat it as durable local knowledge, not source code.
 
-Important next improvement: merge coarse early identities such as unknown model records into more precise records once a device is confidently identified.
+Important next improvement: expand related-family lineage beyond codename matching, including regional variants, chipset families, and known aftermarket package compatibility.
 
 ## What Is Still Not Good Enough
 
@@ -75,7 +76,7 @@ Known gaps:
 
 - It still cannot obtain proprietary firmware, bootloader unlock access, or device-specific aftermarket builds unless those are discoverable or supplied.
 - The runtime can plan around missing Android build tooling, but it does not yet install or fully configure the Android source build environment by itself.
-- Product memory is additive but not yet smart enough to merge aliases, duplicate identities, or lineage across closely related variants.
+- Product memory now handles weak alias merging, but related-family lineage and compatibility inheritance are still basic.
 - The GUI has been improved, but it is still an operator monitor layered on top of an evolving runtime rather than a polished product workflow.
 - Deliberation is useful for planning and escalation, but it is not yet a deep multi-step executive that performs long-running investigation, validates alternate strategies, and tracks second/third-order consequences across days.
 - Runtime learning records lessons, but promotion of reusable logic into `master/` still requires controlled review.
@@ -84,8 +85,9 @@ Known gaps:
 ## Near-Term Roadmap
 
 1. Product memory normalization
-   - Add alias merging for coarse and precise identities.
-   - Track related models, regional variants, chipset families, and codenames.
+   - Done: merge coarse and precise identities when a stronger compatible product identity is observed.
+   - Done: cross-link equally specific related identities that share a reliable codename.
+   - Next: track related models, regional variants, chipset families, and codenames with stronger evidence.
    - Prefer proven product/version lessons when selecting search terms and strategy paths.
 
 2. Source and artifact acquisition loop

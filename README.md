@@ -140,7 +140,7 @@ The learning layer records session outcomes, builds a support matrix, and genera
 
 The runtime also maintains a local strategy-memory store under `knowledge/strategy_memory.sqlite3` plus a reviewable snapshot in `knowledge/strategy_memory_snapshot.json` so similar device/blocker profiles can reuse successful remediation variants without mutating model weights.
 
-ForgeOS also compiles product/version memory under `knowledge/product_memory.json`. This records each touched product family and each observed Android/build/fingerprint version, including source/build outcomes, blockers, restore notes, and reusable lessons, so a later similar phone or tablet does not start from scratch.
+ForgeOS also compiles product/version memory under `knowledge/product_memory.json`. This records each touched product family and each observed Android/build/fingerprint version, including source/build outcomes, blockers, restore notes, and reusable lessons, so a later similar phone or tablet does not start from scratch. Weak early identities are folded into stronger later matches when they share a reliable codename, and equally specific related variants remain separate but linked.
 
 ## Next Steps
 
