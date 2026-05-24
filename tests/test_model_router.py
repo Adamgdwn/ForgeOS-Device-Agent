@@ -4,6 +4,10 @@ from app.core.model_router import ModelRouter
 OLLAMA_LIST = """NAME              ID              SIZE      MODIFIED
 qwen3:8b          abc123          5.2 GB    2 days ago
 gemma4:latest     def456          9.6 GB    1 day ago
+deepseek-r1:14b   ghi789          9.0 GB    today
+qwen3-vl:8b       jkl012          6.1 GB    today
+gpt-oss:20b       mno345          14 GB     today
+qwen2.5-coder:14b pqr678          9.0 GB    today
 """
 
 
@@ -28,9 +32,18 @@ def test_research_and_frontier_default_to_reasoning_model() -> None:
     frontier = router.select_for_task(task_type="install_planning", risk="high")
 
     assert research.role == "research"
-    assert research.model == "gemma4:latest"
+    assert research.model == "deepseek-r1:14b"
     assert frontier.role == "frontier"
-    assert frontier.model == "gemma4:latest"
+    assert frontier.model == "gpt-oss:20b"
+
+
+def test_visual_tasks_use_vision_model_when_installed() -> None:
+    router = ModelRouter.from_ollama_list(OLLAMA_LIST, {})
+
+    selection = router.select_for_task(task_type="screenshot_ocr", risk="medium")
+
+    assert selection.role == "visual_inspection"
+    assert selection.model == "qwen3-vl:8b"
 
 
 def test_fast_triage_falls_back_when_helper_model_is_missing() -> None:
@@ -46,6 +59,39 @@ gemma4:latest     def456          9.6 GB    1 day ago
     assert selection.model == "gemma4:latest"
     assert selection.available is True
     assert selection.requested_model == "qwen3:8b"
+
+
+def test_research_falls_back_to_gemma_when_reasoning_model_is_missing() -> None:
+    router = ModelRouter.from_ollama_list(
+        """NAME              ID              SIZE      MODIFIED
+qwen3:8b          abc123          5.2 GB    2 days ago
+gemma4:latest     def456          9.6 GB    1 day ago
+""",
+        {},
+    )
+
+    selection = router.select("research")
+
+    assert selection.model == "gemma4:latest"
+    assert selection.available is True
+    assert selection.requested_model == "deepseek-r1:14b"
+
+
+def test_frontier_falls_back_to_deepseek_when_gpt_oss_is_missing() -> None:
+    router = ModelRouter.from_ollama_list(
+        """NAME              ID              SIZE      MODIFIED
+qwen3:8b          abc123          5.2 GB    2 days ago
+gemma4:latest     def456          9.6 GB    1 day ago
+deepseek-r1:14b   ghi789          9.0 GB    today
+""",
+        {},
+    )
+
+    selection = router.select("frontier")
+
+    assert selection.model == "deepseek-r1:14b"
+    assert selection.available is True
+    assert selection.requested_model == "gpt-oss:20b"
 
 
 def test_env_override_wins_when_installed() -> None:
@@ -65,8 +111,8 @@ def test_aider_model_wraps_plain_ollama_model() -> None:
 
     selection = router.select("coding")
 
-    assert selection.model == "gemma4:latest"
-    assert selection.aider_model() == "ollama_chat/gemma4:latest"
+    assert selection.model == "qwen2.5-coder:14b"
+    assert selection.aider_model() == "ollama_chat/qwen2.5-coder:14b"
 
 
 def test_explicit_aider_provider_model_is_preserved() -> None:

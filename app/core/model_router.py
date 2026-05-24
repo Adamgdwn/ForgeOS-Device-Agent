@@ -7,8 +7,13 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
-DEFAULT_REASONING_MODEL = "gemma4:latest"
 DEFAULT_FAST_MODEL = "qwen3:8b"
+DEFAULT_REASONING_MODEL = "gemma4:latest"
+DEFAULT_RESEARCH_MODEL = "deepseek-r1:14b"
+DEFAULT_FRONTIER_MODEL = "gpt-oss:20b"
+DEFAULT_VISION_MODEL = "qwen3-vl:8b"
+DEFAULT_CODING_MODEL = "qwen2.5-coder:14b"
+DEFAULT_LARGE_CODING_MODEL = "qwen3-coder:30b"
 
 
 @dataclass(frozen=True)
@@ -154,7 +159,14 @@ class ModelRouter:
     def configured_routes(self) -> dict[str, dict[str, Any]]:
         return {
             role: self.select(role).as_dict()
-            for role in ["fast_triage", "general_reasoning", "research", "coding", "frontier"]
+            for role in [
+                "fast_triage",
+                "general_reasoning",
+                "research",
+                "coding",
+                "frontier",
+                "visual_inspection",
+            ]
         }
 
     @staticmethod
@@ -170,6 +182,8 @@ class ModelRouter:
         task = task_type.lower()
         if needs_repo_edit:
             return "coding"
+        if any(marker in task for marker in ("vision", "visual", "screenshot", "ocr", "image", "ui_inspection")):
+            return "visual_inspection"
         if architecture_level or risk_value in {"high", "critical"}:
             return "frontier"
         if "research" in task or "source" in task or "firmware" in task or "blocker" in task:
@@ -186,6 +200,7 @@ class ModelRouter:
             "research": "FORGEOS_RESEARCH_MODEL",
             "coding": "FORGEOS_CODING_MODEL",
             "frontier": "FORGEOS_FRONTIER_MODEL",
+            "visual_inspection": "FORGEOS_VISION_MODEL",
         }
         candidates: list[tuple[str, str]] = []
         env_key = role_env.get(role)
@@ -193,9 +208,20 @@ class ModelRouter:
             candidates.append((self.env[env_key], env_key))
         if role == "fast_triage":
             candidates.append((DEFAULT_FAST_MODEL, "default_fast"))
-        elif role == "coding" and self.env.get("FORGEOS_AIDER_MODEL"):
-            candidates.append((self.env["FORGEOS_AIDER_MODEL"], "FORGEOS_AIDER_MODEL"))
-        elif role == "frontier" and self.env.get("FORGEOS_REASONING_MODEL"):
+        elif role == "research":
+            candidates.append((DEFAULT_RESEARCH_MODEL, "default_research"))
+            candidates.append((DEFAULT_FRONTIER_MODEL, "default_frontier"))
+        elif role == "frontier":
+            candidates.append((DEFAULT_FRONTIER_MODEL, "default_frontier"))
+            candidates.append((DEFAULT_RESEARCH_MODEL, "default_research"))
+        elif role == "visual_inspection":
+            candidates.append((DEFAULT_VISION_MODEL, "default_vision"))
+        elif role == "coding":
+            if self.env.get("FORGEOS_AIDER_MODEL"):
+                candidates.append((self.env["FORGEOS_AIDER_MODEL"], "FORGEOS_AIDER_MODEL"))
+            candidates.append((DEFAULT_CODING_MODEL, "default_coding"))
+            candidates.append((DEFAULT_LARGE_CODING_MODEL, "default_large_coding"))
+        if role == "frontier" and self.env.get("FORGEOS_REASONING_MODEL"):
             candidates.append((self.env["FORGEOS_REASONING_MODEL"], "FORGEOS_REASONING_MODEL"))
         candidates.append((base, "FORGEOS_OLLAMA_MODEL" if self.env.get("FORGEOS_OLLAMA_MODEL") else "default_reasoning"))
         return self._dedupe(candidates)

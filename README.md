@@ -145,7 +145,7 @@ ForgeOS also compiles product/version memory under `knowledge/product_memory.jso
 
 Before model workers are asked broad troubleshooting questions, ForgeOS now runs a deterministic starter troubleshooting loop. The loop checks known device facts, staged artifacts, host prerequisites, and product/version lessons first; learned lessons can augment that starter loop through the ignored local overlay at `knowledge/starter_troubleshooting_memory.json`.
 
-Local model selection is now explicit. `app.core.model_router.ModelRouter` chooses between installed Ollama models by route: `fast_triage`, `general_reasoning`, `research`, `coding`, and `frontier`. The current default is `qwen3:8b` for cheap low-risk triage when installed, with `gemma4:latest` as the reasoning/research/fallback model. Worker transcripts and adapter health snapshots include the selected model route so a run can be audited later.
+Local model selection is now explicit. `app.core.model_router.ModelRouter` chooses between installed Ollama models by route: `fast_triage`, `general_reasoning`, `research`, `coding`, `frontier`, and `visual_inspection`. The current default ladder is `qwen3:8b` for cheap low-risk triage, `gemma4:latest` for general reasoning and fallback behavior, `qwen2.5-coder:14b` for coding work, `deepseek-r1:14b` for research escalation, `gpt-oss:20b` for frontier reasoning when installed, and `qwen3-vl:8b` for screenshot/OCR/UI inspection. Worker transcripts and adapter health snapshots include the selected model route so a run can be audited later.
 
 ## Next Steps
 
