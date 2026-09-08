@@ -1,0 +1,110 @@
+#!/sbin/sh
+# Exact gteslte recovery component. Never formats or writes another partition.
+SOURCE_SHA256='b9af705d7c15b09577725f74a8e694705e0d44a0b5f0a639c8cccc4d3e05b15a'
+TARGET_SHA256='83af1087bdc8943f1236d2bc057ecc73b0d42e0e411d979d54cad0f8f6f1770a'
+SYSTEM_BLOCK='/dev/block/platform/13540000.dwmmc0/by-name/SYSTEM'
+EXPECTED_BLOCK='/dev/block/mmcblk0p20'
+BLOCK_SIZE_FILE='/sys/class/block/mmcblk0p20/size'
+MOUNT_POINT='/mnt/forgeos-system'
+MOUNTS='/proc/mounts'
+FSTAB='/etc/recovery.fstab'
+
+abort() {
+  echo "ForgeOS policy: $*" >&2
+  exit 1
+}
+[ "$#" -eq 3 ] || abort 'unsupported recovery invocation'
+case "$2" in ''|*[!0-9]*) abort 'invalid recovery output descriptor';; esac
+OUTFD="$2"
+for tool in getprop sha256sum sed rm stat ls chown chmod chcon mv readlink cat mkdir rmdir mount umount sync; do
+  command -v "$tool" >/dev/null 2>&1 || abort "required tool unavailable: $tool"
+done
+case "$(getprop ro.product.device)" in
+  gteslte|gtesltetmo|gtesltebmc) ;;
+  *) abort 'unsupported or unavailable device identity';;
+esac
+[ -b "$SYSTEM_BLOCK" ] || abort 'SYSTEM block device missing'
+[ "$(readlink -f "$SYSTEM_BLOCK")" = "$EXPECTED_BLOCK" ] || abort 'unexpected SYSTEM block identity'
+[ "$(cat "$BLOCK_SIZE_FILE")" = '6144000' ] || abort 'unexpected SYSTEM partition capacity'
+
+fstab_matches=0
+while read -r source point filesystem rest; do
+  if [ "$point" = /system ]; then
+    [ "$source" = "$SYSTEM_BLOCK" ] && [ "$filesystem" = ext4 ] || abort 'conflicting SYSTEM recovery fstab row'
+    fstab_matches=$((fstab_matches + 1))
+  fi
+done < "$FSTAB"
+[ "$fstab_matches" -eq 1 ] || abort 'recovery fstab does not match the inspected candidate'
+# GApps unmounts SYSTEM on exit. Refuse overlapping mounts or stale mountpoints.
+while read -r source point filesystem options rest; do
+  [ "$point" != "$MOUNT_POINT" ] || abort 'private mountpoint already in use'
+  [ "$(readlink -f "$source" 2>/dev/null)" != "$EXPECTED_BLOCK" ] || abort 'SYSTEM is already mounted; finish prior installer cleanup'
+done < "$MOUNTS"
+
+mounted=0
+directory_created=0
+temporary=''
+cleanup() {
+  result=$?
+  if [ -n "$temporary" ]; then rm -f "$temporary" || result=1; fi
+  if [ "$mounted" -eq 1 ]; then
+    if umount "$MOUNT_POINT"; then mounted=0
+    else echo 'ForgeOS policy: unmount failed; do not reboot yet' >&2; result=1; fi
+  fi
+  if [ "$directory_created" -eq 1 ] && [ "$mounted" -eq 0 ]; then rmdir "$MOUNT_POINT" || result=1; fi
+  trap - EXIT
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+umask 077
+mkdir "$MOUNT_POINT" || abort 'private mountpoint is not available'
+directory_created=1
+mount -t ext4 -o rw "$SYSTEM_BLOCK" "$MOUNT_POINT" || abort 'could not mount exact SYSTEM'
+mounted=1
+mount_matches=0
+while read -r source point filesystem options rest; do
+  if [ "$point" = "$MOUNT_POINT" ]; then
+    [ "$(readlink -f "$source")" = "$EXPECTED_BLOCK" ] || abort 'mounted wrong SYSTEM block'
+    [ "$filesystem" = ext4 ] || abort 'mounted wrong filesystem type'
+    case ",$options," in *,rw,*) ;; *) abort 'SYSTEM mount is not writable';; esac
+    mount_matches=$((mount_matches + 1))
+  fi
+done < "$MOUNTS"
+[ "$mount_matches" -eq 1 ] || abort 'SYSTEM mount verification failed'
+target="$MOUNT_POINT/system/build.prop"
+[ -f "$target" ] && [ ! -L "$target" ] || abort 'exact system-as-root property file missing or symlinked'
+
+hash_of() {
+  value="$(sha256sum "$1")" || return 1
+  echo "${value%% *}"
+}
+current_hash="$(hash_of "$target")" || abort 'could not hash target'
+if [ "$current_hash" = "$TARGET_SHA256" ]; then
+  echo 'ui_print ForgeOS debug policy already installed' >&"$OUTFD"
+  exit 0
+fi
+[ "$current_hash" = "$SOURCE_SHA256" ] || abort 'source hash does not match exact clean candidate'
+owner="$(stat -c '%u:%g' "$target")" || abort 'could not read ownership'
+mode="$(stat -c '%a' "$target")" || abort 'could not read mode'
+label_line="$(ls -Zd "$target")" || abort 'could not read SELinux label'
+label="${label_line%% *}"
+case "$label" in u:object_r:*:s0*) ;; *) abort 'invalid SELinux label';; esac
+
+temporary="${target}.forgeos-policy.$$"
+[ ! -e "$temporary" ] && [ ! -L "$temporary" ] || abort 'temporary file already exists'
+sed -e 's/^ro\.secure=0$/ro.secure=1/' -e 's/^ro\.adb\.secure=0$/ro.adb.secure=1/' "$target" > "$temporary" || abort 'could not apply property policy'
+[ "$(hash_of "$temporary")" = "$TARGET_SHA256" ] || abort 'patched hash mismatch'
+chown "$owner" "$temporary" || abort 'could not preserve ownership'
+chmod "$mode" "$temporary" || abort 'could not preserve mode'
+chcon "$label" "$temporary" || abort 'could not preserve SELinux label'
+[ "$(stat -c '%u:%g' "$temporary")" = "$owner" ] || abort 'ownership verification failed'
+[ "$(stat -c '%a' "$temporary")" = "$mode" ] || abort 'mode verification failed'
+new_label="$(ls -Zd "$temporary")" || abort 'could not verify SELinux label'
+[ "${new_label%% *}" = "$label" ] || abort 'SELinux label verification failed'
+mv -f "$temporary" "$target" || abort 'atomic replacement failed'
+temporary=''
+[ "$(hash_of "$target")" = "$TARGET_SHA256" ] || abort 'final hash verification failed'
+sync || abort 'filesystem sync failed'
+echo 'ui_print ForgeOS debug policy installed and verified' >&"$OUTFD"
+exit 0

@@ -756,8 +756,10 @@ def _adb_partition_probe(serial: str) -> dict[str, object]:
     getprops = {{}}
     for key in keys:
         getprops[key] = adb.getprop(serial, key)
-    by_name = adb.shell(serial, ["sh", "-c", "ls -1 /dev/block/by-name 2>/dev/null | head -n 128"])
-    mounts = adb.shell(serial, ["sh", "-c", "cat /proc/mounts | head -n 64"])
+    # adb shell already invokes the remote shell and joins these arguments.
+    # An extra unquoted sh -c makes cat read stdin instead of /proc/mounts.
+    by_name = adb.shell(serial, ["ls -1 /dev/block/by-name 2>/dev/null | head -n 128"])
+    mounts = adb.shell(serial, ["cat /proc/mounts | head -n 64"])
     return {{
         "getprops": getprops,
         "block_by_name": by_name.get("stdout", "").splitlines() if by_name.get("ok") else [],

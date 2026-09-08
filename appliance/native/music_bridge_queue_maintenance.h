@@ -1,0 +1,46 @@
+#ifndef FORGE_MUSIC_BRIDGE_QUEUE_MAINTENANCE_H
+#define FORGE_MUSIC_BRIDGE_QUEUE_MAINTENANCE_H
+
+/* Preserve the canonical queue and ordinals; yield between finite render batches. */
+static const char MAINTAIN_MUSIC_QUEUE_RENDERING[] =
+    "(()=>{\n"
+    "  if(location.origin!=='https://music.youtube.com')return 'leave';\n"
+    "  const key=Symbol.for('forge.music.bridge.queue-rendering.v1');\n"
+    "  const cancel=s=>{if(s.timer)clearTimeout(s.timer);s.timer=0;s.generation++};\n"
+    "  const restore=s=>{cancel(s);try{if(s.c.computeShowItemsToRender===s.wrapped)s.c.computeShowItemsToRender=s.original}catch(_){}};\n"
+    "  const q=document.querySelector('ytmusic-player-queue'),c=q?.inst,old=globalThis[key];\n"
+    "  if(old&&(old.q!==q||old.c!==c||q?.isConnected!==true)){restore(old);delete globalThis[key]}\n"
+    "  if(!q||!c||q.polymerController!==c||q.isConnected!==true||typeof c.computeShowItemsToRender!=='function'||typeof c.setProperties!=='function')return 'leave';\n"
+    "  if(globalThis[key]?.c===c){const prior=globalThis[key];if(!prior.failed&&c.computeShowItemsToRender!==prior.wrapped){restore(prior);prior.failed=true}return prior.failed?'disabled':'installed'}\n"
+    "  const s={q,c,original:c.computeShowItemsToRender,wrapped:null,timer:0,generation:0,input:null,size:0,failed:false};\n"
+    "  const connected=()=>{try{return q.isConnected===true&&document.querySelector('ytmusic-player-queue')===q&&q.inst===c&&q.polymerController===c}catch(_){return false}};\n"
+    "  const selected=a=>{const n=Number(c.selectedQueueItemIndex);return Number.isInteger(n)&&n>=0&&n<a.length?n:0};\n"
+    "  const fail=()=>{restore(s);s.failed=true;if(connected())try{c.setProperties({itemsToRender:s.original.call(c,q.data,q.visibleItems)},true)}catch(_){}};\n"
+    "  const schedule=(a,g,delay)=>{s.timer=setTimeout(()=>{\n"
+    "    if(g!==s.generation)return;\n"
+    "    s.timer=0;\n"
+    "    if(!connected()){restore(s);if(globalThis[key]===s)delete globalThis[key];return}\n"
+    "    try{\n"
+    "      if(c.computeShowItemsToRender!==s.wrapped){restore(s);s.failed=true;return}\n"
+    "      if(s.input!==a||q.data!==a){cancel(s);return}\n"
+    "      const next=Math.min(a.length,Math.max(selected(a)+3,s.size+4));\n"
+    "      if(next<=s.size)return;\n"
+    "      s.size=next;c.setProperties({itemsToRender:a.slice(0,next)},true);\n"
+    "      if(g===s.generation&&s.input===a&&q.data===a&&next<a.length)schedule(a,g,250);\n"
+    "    }catch(_){fail()}\n"
+    "  },delay)};\n"
+    "  s.wrapped=function(a){\n"
+    "    const full=s.original.apply(this,arguments);\n"
+    "    try{\n"
+    "      if(!Array.isArray(a)||a.length>1000||a!==q.data||full!==a||!connected()){cancel(s);s.input=null;return full}\n"
+    "      if(s.input!==a){cancel(s);s.input=a;s.size=Math.min(a.length,Math.max(4,selected(a)+3));if(s.size<a.length)schedule(a,s.generation,1200)}\n"
+    "      const floor=Math.min(a.length,selected(a)+3);\n"
+    "      if(s.size<floor)s.size=floor;\n"
+    "      if(s.size<a.length&&!s.timer)schedule(a,s.generation,1200);\n"
+    "      return a.slice(0,s.size);\n"
+    "    }catch(_){fail();return full}\n"
+    "  };\n"
+    "  c.computeShowItemsToRender=s.wrapped;globalThis[key]=s;return 'installed';\n"
+    "})()\n";
+
+#endif

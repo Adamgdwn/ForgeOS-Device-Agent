@@ -1,0 +1,2 @@
+ui_print("ForgeOS gteslte debug policy installer");
+ui_print("The update-binary performs all validation.");

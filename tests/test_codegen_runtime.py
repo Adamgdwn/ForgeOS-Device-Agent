@@ -1,8 +1,40 @@
 import json
+import runpy
+import subprocess
 import zipfile
 from pathlib import Path
 
 from app.core.codegen_runtime import CodegenRuntime
+from app.integrations import adb
+
+
+def test_generated_partition_probe_reads_mounts_instead_of_shell_stdin(monkeypatch, tmp_path: Path) -> None:
+    runtime = CodegenRuntime(Path(__file__).resolve().parents[1])
+    generated = runtime.generate(
+        tmp_path / "devices" / "sample",
+        blocker={"blocker_type": "source_blocker", "planned_next_action": "source_acquisition_and_staging"},
+        connection_plan={"recommended_adapter": {"adapter_id": "adb"}},
+        build_plan={"os_path": "maintainable_hardened_path"},
+    )
+    namespace = runpy.run_path(generated["script_path"])
+    monkeypatch.setattr(adb, "getprop", lambda serial, key: "")
+
+    def remote_shell(serial, command):
+        # Reproduce adb's argument joining without touching attached hardware.
+        result = subprocess.run(
+            ["/bin/sh", "-c", " ".join(command)],
+            input="UNEXPECTED_SHELL_STDIN\n",
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        return {"ok": result.returncode == 0, "stdout": result.stdout, "stderr": result.stderr}
+
+    monkeypatch.setattr(adb, "shell", remote_shell)
+    probe = namespace["_adb_partition_probe"]("test-device")
+    assert any(" /proc proc " in line for line in probe["mounts"])
+    assert "UNEXPECTED_SHELL_STDIN" not in probe["mounts"]
 
 
 def test_codegen_runtime_generates_and_executes_remediation_artifact(monkeypatch, tmp_path: Path) -> None:

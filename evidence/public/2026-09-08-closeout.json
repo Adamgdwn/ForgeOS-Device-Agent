@@ -1,0 +1,86 @@
+{
+  "recorded_at": "2026-09-08T17:45:02-06:00",
+  "scope": "Redacted aggregate of local verification artifacts; no new live playback test during closeout.",
+  "device_family": "Samsung SM-T377W / gteslte",
+  "runtime": "Standalone Forge Linux appliance; existing device-specific Linux 3.10.108 kernel",
+  "installed_bridge_sha256": "06bebf15da91c048e204d26d75f4a66a8699ebddc44ca0762509b39ba0413b78",
+  "rollback_before_queue_sha256": "6a51c5eec6555a8ec0dcb67b32aede442f978305929af4c342649c6ebd5ef90e",
+  "measurements": [
+    {
+      "stage": "baseline",
+      "action": "song_selection",
+      "seconds_to_first_matching_receiver_playback": 43.277,
+      "exact_requested_track_confirmed": true,
+      "subsequent_position_advance_ms": 3069,
+      "passed": true
+    },
+    {
+      "stage": "candidate",
+      "action": "song_selection",
+      "seconds_to_first_matching_receiver_playback": 14.139,
+      "exact_requested_track_confirmed": true,
+      "subsequent_position_advance_ms": 3030,
+      "passed": true
+    },
+    {
+      "stage": "candidate",
+      "action": "final_of_two_rapid_selections",
+      "seconds_to_first_matching_receiver_playback": 17.465,
+      "exact_requested_track_confirmed": true,
+      "subsequent_position_advance_ms": 3028,
+      "passed": true
+    },
+    {
+      "stage": "installed",
+      "action": "native_next",
+      "seconds_to_first_matching_receiver_playback": 7.794,
+      "exact_requested_track_confirmed": true,
+      "subsequent_position_advance_ms": 3022,
+      "passed": true
+    },
+    {
+      "stage": "installed",
+      "action": "browse_song_selection",
+      "seconds_to_first_matching_receiver_playback": 18.445,
+      "exact_requested_track_confirmed": true,
+      "subsequent_position_advance_ms": 3035,
+      "passed": true
+    }
+  ],
+  "method": "Native tablet input; independent read-only receiver status; exact title and advancing playback position required.",
+  "limits": [
+    "Individual trials, not a statistical latency guarantee.",
+    "Approximately 14\u201319-second song changes remain a material limitation.",
+    "No fresh reboot or endurance test of final queue revision.",
+    "Historical hardware and dashboard checks predate the final bridge revision."
+  ],
+  "governance_closeout": {
+    "passed": true,
+    "tests_passed": 246,
+    "tests_skipped": 1,
+    "subtests_passed": 2,
+    "seconds": 61.53,
+    "python_compile": "passed",
+    "repository_secret_scan": "passed"
+  },
+  "read_only_closeout": {
+    "music_controls_connected": true,
+    "fault": false,
+    "playing": false,
+    "status": "READY",
+    "notice_empty": true,
+    "local_pcm": "closed",
+    "hotplug": "/bin/mdev",
+    "usb_staging_empty": true,
+    "adb_forwards_empty": true,
+    "installed_and_rollback_hashes_reverified": true
+  },
+  "privacy": "Raw device records, addresses, serials, account data, request payloads, media URLs and listening titles omitted. Raw evidence remains local.",
+  "publication_review": {
+    "independent_quality_verdict": "release recommended",
+    "exact_staged_privacy_scan": "passed",
+    "staged_whitespace_check": "passed",
+    "source_only_generic_usb_identity": "not deployed",
+    "background_engineering_jobs": "none"
+  }
+}

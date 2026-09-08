@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-06T21:19:18-06:00",
+  "target": {
+    "model_claim": "Samsung SM-T377W; identity must be reconfirmed before flash",
+    "codename_family": [
+      "gteslte",
+      "gtesltetmo",
+      "gtesltebmc"
+    ],
+    "hardware": "Exynos 3475, ARMv7/32-bit, 800x1280, Linux 3.10",
+    "platform": {
+      "android_version": "10",
+      "api_level": 29,
+      "abi": "armeabi-v7a"
+    },
+    "source_boardconfig_partitions_bytes": {
+      "boot": 13631488,
+      "recovery": 15728640,
+      "system": 2147483648,
+      "cache": 202211328,
+      "userdata": 4831838208
+    },
+    "observed_live_partitions_bytes": {
+      "boot": 13631488,
+      "recovery": 15728640,
+      "system": 3145728000,
+      "cache": 1073741824,
+      "userdata": 11358175232
+    },
+    "partition_authority": "The live block-device table overrides source BoardConfig constants for this tablet."
+  },
+  "product_order": [
+    "official YouTube Music",
+    "browser dashboard"
+  ],
+  "candidate": {
+    "kind": "flashable_prebuilt_native_proof_bridge_unverified_on_target",
+    "name": "crDroid 6 Android 10 gteslte, June 2026",
+    "url": "https://github.com/Lost-Entrepreneur439/gteslte-releases/releases/tag/2026-06-10",
+    "rom_asset": "crDroid-rev-10.0-20260610-gteslte-v6-JUN26.zip",
+    "rom_bytes": 542405185,
+    "rom_sha256": "be53fe15785561b269323c31f4dc1e9c939fbf87fbebbabc5363b8ed855c32d8",
+    "recovery_asset": "recovery.img",
+    "recovery_bytes": 12621840,
+    "recovery_sha256": "2d9645976b234d13a6f3b452c94cb0324024e3420dca1f12ee4eac5d3734d776",
+    "updater_assert_devices": [
+      "gteslte",
+      "gtesltetmo",
+      "gtesltebmc"
+    ],
+    "updater_writes": [
+      "SYSTEM",
+      "BOOT"
+    ],
+    "metadata": {
+      "post_sdk": 29,
+      "security_patch": "2025-05-05"
+    },
+    "claims_not_proven": [
+      "boot on this physical tablet",
+      "driver reliability",
+      "GMS certification",
+      "Google account authentication",
+      "YouTube Music playback"
+    ],
+    "offline_debug_property_conflict": {
+      "system_build_prop": {
+        "ro.secure": "0",
+        "ro.adb.secure": "0"
+      },
+      "root_default_prop": {
+        "ro.secure": "1",
+        "ro.adb.secure": "1"
+      },
+      "resolution": "Make declarations consistent and verify authenticated debugging before account entry.",
+      "prepared_patch": "appliance/recovery-policy now integrates the patch into a deterministic install component. Actual Android runtime behavior is unverified."
+    }
+  },
+  "dedicated_product_image": {
+    "kind": "future_cleanroom_composition_not_yet_buildable",
+    "purpose": "Minimal Android 10 music appliance using lawful gteslte board support after native proof.",
+    "required_runtime": [
+      "ARMv7 Android 10 system",
+      "gteslte kernel, DTB, init and vendor blobs",
+      "Wi-Fi",
+      "speaker audio",
+      "GMS trial input",
+      "official YouTube Music",
+      "one browser dashboard entry"
+    ],
+    "defer_until_music_gate": [
+      "launcher kiosk policy",
+      "dashboard URL",
+      "removal of unused phone/camera packages"
+    ],
+    "not_claimed": [
+      "a current product-image manifest",
+      "a bootable build",
+      "a safe list of removable packages"
+    ],
+    "source_optimization_policy": "A bounded source probe can start before music when tied to a concrete resource, control, maintenance or runtime benefit. Full builds need justified scope and bounded compute."
+  },
+  "google_services": {
+    "gate_2_trial_input": "MindTheGapps Android 10 ARM in recovery before first system boot",
+    "reason": "The owner rejected further microG/login troubleshooting. This is a clean GMS experiment, not validated architecture or a claim of smallest available package.",
+    "asset": "MindTheGapps-10.0.0-arm-20230922_081033.zip",
+    "asset_bytes": 127329006,
+    "system_payload_bytes_observed": 229316782,
+    "installer_assumption": "system-as-root mount at /system/build.prop",
+    "release_url": "https://github.com/MindTheGapps/10.0.0-arm/releases/tag/MindTheGapps-10.0.0-arm-20230922_081033",
+    "fit_status": "Offline SAR and raw space verified: 860860416 free bytes, 229316782 payload bytes plus 10485760 buffer. Actual recovery installation/boot remains untested.",
+    "fallback": "Do not repeat the abandoned microG repair. Classify a delivery, account or runtime failure before selecting another experiment; failed Play delivery alone does not invalidate every YouTube Music route.",
+    "signature_status": "JAR and Android whole-file detached CMS signature verified against pinned publisher certificate; actual signer SHA256/RSA with absent signed attributes. Independent publisher identity and recovery acceptance are separate.",
+    "asset_sha256": "a60e40633e758683d035eec7a3bc26e3252a83d983f5bdae70cfc7e0d93ef28f",
+    "signer_certificate_sha256": "91370e897e35bd90a262b73e8296661819c13d5467fd30a10df848de14f56776"
+  },
+  "source_route": {
+    "kind": "incomplete_reproducibility_plan_not_build_candidate",
+    "highest_public_android": "10",
+    "device_tree": "Lost-Entrepreneur439/android_device_samsung_gteslte@299683b8c32da59fbbd512d446ac4f66a4df510b",
+    "common_tree": "Exynos3475/android_device_samsung_universal3475-common@2876748ae46fb6af33bb9e2731f2f2b824885610",
+    "kernel_tree": "Exynos3475/android_kernel_samsung_exynos3475@3280d5140d972a331d7d4d496af32fa9ce2d60ba",
+    "tablet_vendor_tree": "Lost-Entrepreneur439/proprietary_vendor_samsung_gteslte@f1c4e0981ccc5f2bb77fa9886cc4d6edad381e86",
+    "blocking_gaps": [
+      "no pinned Android 10 base manifest",
+      "no verified complete dependency manifest",
+      "published device.mk imports on5ltetmo vendor rather than the tablet vendor tree",
+      "selected lineage-gteslte_defconfig was not found in the public kernel tree",
+      "no reproducible build or device boot evidence"
+    ],
+    "new_evidence": "All136 tablet vendor-copy paths exist; import, namespace and metadata corrections remain. Preserved kernel did not yield exact config using pinned upstream extractor; complete dependencies still unpinned.",
+    "next_probe": "Resolve source dependencies and defensible kernel-config provenance without whole-tree build or flash. Permitted before music succeeds; no guaranteed source-build gain."
+  },
+  "hard_gates": [
+    "Gate 0: after owner reports charge above 30%, re-read actual level/health/temperature and confirm stable external power before recovery/firmware writes. The former 80% preference is superseded. Preserve restore evidence proportionate to accepted brick risk.",
+    "Reconfirm the exact device identity, root/write access, RECOVERY by-name mapping/capacity and backup hashes before a recovery-only write. Read back written recovery bytes before reboot. Samsung Download Mode is a fallback transport, not a required detour when rooted ADB works.",
+    "Verify both downloaded release SHA-256 values and record the release archive's own updater device assertions before flash.",
+    "Boot three times; require panel, touch, Wi-Fi association and DHCP after each boot.",
+    "Record Play Protect certification state as a service-risk observation; it is not a substitute for native YouTube Music proof.",
+    "For the first reference trial, use official Play delivery and require60minutes of YouTube Music search and audible Wi-Fi playback, then reboot and repeat.",
+    "Only then qualify the browser dashboard: launch, render its required page, return to YouTube Music, and resume playback.",
+    "Require eight hours of uninterrupted audible YouTube Music Wi-Fi streaming.",
+    "Require 24 hours of screen-off powered idle, followed by a ten-minute audible YouTube Music stream.",
+    "Require tablet-only Wi-Fi interruption during playback, restore connectivity, and require association plus resumed stream within five minutes. Do not disrupt the household AP."
+  ],
+  "stop_rules": [
+    "No dashboard customization or other cosmetic work begins before official YouTube Music proves sign-in and playback.",
+    "A failed GApps install, account failure, audio failure, Wi-Fi regression, or unrecoverable boot failure ends the current candidate experiment and preserves logs plus restore evidence; it does not end the appliance project.",
+    "A native runtime defect or concrete resource/control/maintenance benefit may open a bounded source/kernel packet; it does not require a prior music pass.",
+    "Android11 or newer remains an unproven port option until its exact-device build and runtime have been tested; RAM alone does not rule it out."
+  ],
+  "latest_battery_observation_percent": 13,
+  "latest_battery_evidence": "evidence/tablet-revival/2026-09-06-latest-charge.json",
+  "recovery_policy": {
+    "asset": "forgeos-gteslte-debug-policy.zip",
+    "asset_bytes": 2404,
+    "asset_sha256": "d2b393a4cbee8a1acefac4e2d1333441647708afa33ac1139895bc6168f9247e",
+    "kind": "locally generated recovery component, unsigned",
+    "mount_strategy": "Verify exact SYSTEM by-name mapping to mmcblk0p20, 6144000 sectors and recovery fstab; reject existing mount; mount ext4 rw at private /mnt/forgeos-system; preserve uid/gid/mode/SELinux label during atomic property replacement; sync and unmount.",
+    "changed_properties": {
+      "ro.secure": "1",
+      "ro.adb.secure": "1"
+    },
+    "host_tests_passed": 15,
+    "on_device_verified": false
+  },
+  "charge_handoff": "Owner is charging tablet and will report when above 30%; no background tablet action is running.",
+  "architecture_decision": {
+    "status": "original runtime design requested; Android and connector-stack candidates are unselected references",
+    "owner_requirements": [
+      "music first, YouTube Music preferred",
+      "home dashboard second",
+      "Wi-Fi and external power",
+      "wipe and custom firmware with accepted brick risk",
+      "non-Android and original software explicitly invited; connector assembly alone does not satisfy the invention challenge"
+    ],
+    "default_interpretation": "YouTube Music experience with local tablet audio; OS, native app, browser and server placement are design variables",
+    "chosen_proof_method_not_owner_requirement": [
+      "Google Play delivery",
+      "newest Play-offered build",
+      "standalone operation without another computer"
+    ],
+    "source_probe_allowed_before_music_success": true,
+    "comparison_criteria": [
+      "actual playback and account behavior",
+      "interaction latency",
+      "memory pressure and app reloads during dashboard use",
+      "recovery from failures while respecting intentional pause",
+      "maintainability"
+    ],
+    "decision_record": "docs/research/2026-09-06 - Original Runtime Direction.md"
+  },
+  "contract_scope": "Retained Android reference experiment only. Product direction and experiment selection are superseded by docs/research/2026-09-06 - Original Runtime Direction.md. Hash verification is not architecture selection or instruction to flash."
+}

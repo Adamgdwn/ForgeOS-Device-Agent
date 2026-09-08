@@ -1,0 +1,12 @@
+PASS project-control.yaml present
+PASS required docs present
+PASS agent registry docs present
+PASS python compile check
+........................................................................ [ 29%]
+.........................................s.............................. [ 58%]
+...................................................................... [ 86%]
+.................................                                        [100%]
+246 passed, 1 skipped, 2 subtests passed in 61.53s (0:01:01)
+PASS test suite
+PASS secret scan
+Governance preflight passed.
