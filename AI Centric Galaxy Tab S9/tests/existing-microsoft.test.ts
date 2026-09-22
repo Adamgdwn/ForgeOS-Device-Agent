@@ -130,12 +130,19 @@ test("HTTP host-account import retains provenance, omits download authorization 
   }
   try {
     assert.equal((await call("/api/accounts/4/files")).status, 401);
+    assert.equal((await call("/api/accounts/4/preview?item=item-a&connection=unknown")).status, 401);
     assert.equal((await call("/api/accounts/1/remove", {})).status, 401);
     assert.equal((await call("/api/accounts", {})).status, 401);
     assert.equal((await call("/api/session", { code: readFileSync(PAIR_FILE, "utf8") })).status, 200);
     assert.equal((await call("/api/settings/microsoft", { clientId: "00000000-0000-4000-8000-000000000001" })).status, 404);
     assert.equal(readSettings().microsoftClientId, undefined, "paired tablets cannot change the developer registration");
     assert.equal((await call("/api/accounts/4/files")).data.items[0].name, item.name);
+    const connectionId = (await call("/api/accounts")).data.find((a: any) => a.slot === 4).connectionId;
+    const cloudPreview = await call(`/api/accounts/4/preview?item=item-a&connection=${connectionId}`);
+    assert.equal(cloudPreview.status, 200);
+    assert.match(cloudPreview.data.text, /Test notes/);
+    assert.equal(cloudPreview.data.source.originalName, item.name);
+    assert.equal((await call("/api/accounts/4/preview?item=item-a&connection=stale")).status, 400);
     const result = await call("/api/collections", { name: "Host import", items: [{ slot: 4, itemId: item.id }] });
     assert.equal(result.status, 200);
     const source = store.db.prepare("SELECT * FROM imports WHERE projectId=?").get(result.data.id)!;

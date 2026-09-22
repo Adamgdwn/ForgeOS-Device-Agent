@@ -30,11 +30,13 @@ A saved brief appears as a named workspace. Reopen it and say “Make the openin
 
 **Quick answers** keeps responses brief and document tools read-only. **Brief me** requests a short assessment. **Explain further** expands an answer. **Add to report** appends an answer in the editor for you to review and save.
 
-Imports are snapshots, not continuous synchronization. Re-import if cloud originals change. A batch supports up to 50 source files, 8 MB per file and 25 MB total. Word/PDF text, plain text, Markdown, CSV/TSV, JSON and saved `.eml` messages are supported; OCR, `.msg` and full spreadsheet editing are not.
+Imports are snapshots, not continuous synchronization. Re-import if cloud originals change. A batch supports up to 50 source files: Word/PDF up to 20 MB each, other files up to 8 MB each, and 25 MB total. Word/PDF text, plain text, Markdown, CSV/TSV, JSON and saved `.eml` messages are supported; OCR, `.msg` and full spreadsheet editing are not.
 
 ## Connections and folders
 
-Open **Connections → Browse files**, open a folder, select the material and add it to a workspace. The Personal and linked Guided AI Labs connections both passed live browsing on the tablet. The linked CLI account supports reading/importing and local drafts; it cannot save back to OneDrive in this pilot.
+Open **Connections → Browse files** and open a folder. **Tap a document's name to read its text**. Choose **Select for workspace** in the preview, or use the checkboxes beside filenames to select several documents. Name the collection and tap **Open as a workspace**; when adding to existing work, tap **Add to workspace**. In the workspace, open **Files**, tap a document, and choose **Use in conversation** to discuss it. Word/PDF previews show extracted text; use **Open original** for the original document. Long previews are labelled when shortened.
+
+The Personal and linked Guided AI Labs connections both passed live browsing on the tablet. The linked CLI account supports reading/importing and local drafts; it cannot save back to OneDrive in this pilot.
 
 Each independent account uses **Sign in with Microsoft**, a one-time code and Microsoft's normal sign-in page. You do not need an application ID. Check the displayed email, since a card's label can differ from the signed-in account. **Remove** removes the connection from Galaxy and preserves your OneDrive files and imported work. **Add OneDrive account** restores an available slot. Organizational approval can still be required.
 

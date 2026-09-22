@@ -16,6 +16,11 @@ import { randomUUID } from "node:crypto";
 import { STATE, ROOT, privateWrite } from "./config.ts";
 import { digest, git, readDocument, safePath, visible } from "./files.ts";
 import type { Store, Project } from "./store.ts";
+import {
+  documentByteLimit,
+  MAX_BATCH_BYTES,
+  DOCUMENT_LIMIT_MESSAGE,
+} from "../shared/document-limits.ts";
 
 const execute = promisify(execFile);
 const extensions = new Set([
@@ -58,7 +63,11 @@ export function createCollection(store: Store, name: string) {
     description: "Gathered documents and emails · originals stay in place",
   });
 }
-export function materialReplay(store: Store, id: string, fingerprint: string) {
+export function materialReplay(
+  store: Store,
+  id: string,
+  fingerprint: string,
+) {
   if (!/^[0-9a-f-]{36}$/i.test(id))
     throw new Error("A valid import request ID is required.");
   const row = store.db
@@ -289,15 +298,18 @@ export async function stageUploads(
         /[^A-Za-z0-9+/=]/.test(file.data) ||
         file.data.length % 4 !== 0
       )
-        throw new Error("A selected file could not be read. Select it again.");
+        throw new Error(
+          "A selected file could not be read. Select it again.",
+        );
       const data = Buffer.from(file.data, "base64");
       if (data.toString("base64") !== file.data)
         throw new Error("A selected file is not valid base64.");
       total += data.length;
-      if (data.length > 8_000_000 || total > 25_000_000)
-        throw new Error(
-          "Choose up to 50 files, each under 8 MB and totaling at most 25 MB.",
-        );
+      if (
+        data.length > documentByteLimit(file.name) ||
+        total > MAX_BATCH_BYTES
+      )
+        throw new Error(DOCUMENT_LIMIT_MESSAGE);
       const name = `${String(i + 1).padStart(2, "0")}-${cleanFilename(file.name)}`;
       privateWrite(safePath(stage, name), data);
       notes.push(

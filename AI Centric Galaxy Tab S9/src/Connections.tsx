@@ -11,6 +11,91 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, type Account, type Bootstrap, type Project } from "./api.ts";
+import { Modal } from "./Modal.tsx";
+
+type Selection = {
+  slot: number;
+  itemId: string;
+  name: string;
+  connectionId?: string;
+};
+type DocumentPreview = {
+  text: string;
+  extracted: boolean;
+  truncated: boolean;
+  source: { originalName: string; webUrl: string; label: string };
+};
+
+function CloudPreview({
+  selection,
+  select,
+  close,
+}: {
+  selection: Selection;
+  select: () => void;
+  close: () => void;
+}) {
+  const [document, setDocument] = useState<DocumentPreview | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let current = true;
+    void api<DocumentPreview>(
+      `/accounts/${selection.slot}/preview?item=${encodeURIComponent(selection.itemId)}&connection=${encodeURIComponent(selection.connectionId || "")}`,
+    )
+      .then((result) => {
+        if (current) setDocument(result);
+      })
+      .catch((e) => {
+        if (current) setError(e.message);
+      });
+    return () => {
+      current = false;
+    };
+  }, [selection.slot, selection.itemId, selection.connectionId]);
+  return (
+    <Modal title={selection.name} close={close}>
+      {error ? (
+        <p role="alert">{error}</p>
+      ) : document ? (
+        <>
+          <div className="preview-meta">
+            {document.extracted
+              ? "Extracted document text · Original formatting is preserved in OneDrive"
+              : "Document preview"}
+            {document.truncated
+              ? " · Preview shortened; consult the original for the full document"
+              : ""}
+          </div>
+          <div className="source-reference">
+            <Cloud size={15} />
+            <span>{document.source.label}</span>
+            {document.source.webUrl.startsWith("https://") ? (
+              <a href={document.source.webUrl} target="_blank" rel="noreferrer">
+                Open original <ArrowUpRight size={14} />
+              </a>
+            ) : null}
+          </div>
+          <pre className="document-preview">
+            {document.text ||
+              "No readable text was found. Scanned PDFs need OCR."}
+          </pre>
+        </>
+      ) : (
+        <p role="status">
+          <LoaderCircle size={18} /> Opening document…
+        </p>
+      )}
+      <div className="modal-footer">
+        <button className="secondary" onClick={close}>
+          Close
+        </button>
+        <button className="primary" disabled={!document} onClick={select}>
+          Select for workspace
+        </button>
+      </div>
+    </Modal>
+  );
+}
 
 type Props = {
   target?: { project: Project; conversationId?: string } | null;
@@ -35,6 +120,7 @@ export function Connections({
     {},
   );
   const [connectingSlot, setConnectingSlot] = useState<number | null>(null);
+  const [preview, setPreview] = useState<Selection | null>(null);
   const [removingSlot, setRemovingSlot] = useState<number | null>(null);
   const importRequest = useRef<{ fingerprint: string; id: string } | null>(
     null,
@@ -76,6 +162,17 @@ export function Connections({
       accounts.filter((a) => a.status === "connected").map((a) => a.slot),
     );
     if (slot !== null && !connected.has(slot)) setSlot(null);
+    setPreview((previous) =>
+      previous &&
+      accounts.some(
+        (a) =>
+          a.slot === previous.slot &&
+          a.status === "connected" &&
+          a.connectionId === previous.connectionId,
+      )
+        ? previous
+        : null,
+    );
     setSelected((previous) =>
       previous.filter((item) => connected.has(item.slot)),
     );
@@ -137,7 +234,10 @@ export function Connections({
         });
       },
       (message) =>
-        setAccountErrors((errors) => ({ ...errors, [account.slot]: message })),
+        setAccountErrors((errors) => ({
+          ...errors,
+          [account.slot]: message,
+        })),
     );
     setConnectingSlot(null);
   }
@@ -166,7 +266,10 @@ export function Connections({
         );
       },
       (message) =>
-        setAccountErrors((errors) => ({ ...errors, [account.slot]: message })),
+        setAccountErrors((errors) => ({
+          ...errors,
+          [account.slot]: message,
+        })),
     );
     setRemovingSlot(null);
     requestAnimationFrame(() => addButtonRef.current?.focus());
@@ -232,7 +335,10 @@ export function Connections({
                   "POST",
                   {},
                 );
-                setAccountErrors((errors) => ({ ...errors, [added.slot]: "" }));
+                setAccountErrors((errors) => ({
+                  ...errors,
+                  [added.slot]: "",
+                }));
               })
             }
           >
@@ -268,7 +374,9 @@ export function Connections({
               </div>
               <label className="account-label">
                 {account.source === "host"
-                  ? (data.runtime === "tablet" ? "Linked on this tablet" : "Linked from this host")
+                  ? data.runtime === "tablet"
+                    ? "Linked on this tablet"
+                    : "Linked from this host"
                   : `Connection ${account.slot}`}
                 <input
                   aria-label={`Name for OneDrive ${account.slot}`}
@@ -443,21 +551,14 @@ export function Connections({
                               ...s,
                               { id: item.id, name: item.name },
                             ])
-                          : setSelected((s) =>
-                              picked
-                                ? s
-                                : [
-                                    ...s,
-                                    {
-                                      slot,
-                                      itemId: item.id,
-                                      name: item.name,
-                                      connectionId: accounts.find(
-                                        (a) => a.slot === slot,
-                                      )?.connectionId,
-                                    },
-                                  ],
-                            )
+                          : setPreview({
+                              slot,
+                              itemId: item.id,
+                              name: item.name,
+                              connectionId: accounts.find(
+                                (a) => a.slot === slot,
+                              )?.connectionId,
+                            })
                       }
                     >
                       {item.name}
@@ -528,12 +629,14 @@ export function Connections({
         >
           <div>
             <strong>
-              {selected.length} selection{selected.length === 1 ? "" : "s"} from{" "}
-              {new Set(selected.map((s) => s.slot)).size} account
+              {selected.length} selection{selected.length === 1 ? "" : "s"}{" "}
+              from {new Set(selected.map((s) => s.slot)).size} account
               {new Set(selected.map((s) => s.slot)).size === 1 ? "" : "s"}
             </strong>
             <span>
-              Selected documents will be copied to your host for assessment.
+              Selected documents will be copied to{" "}
+              {data.runtime === "tablet" ? "this tablet" : "your host"} for
+              assessment.
             </span>
           </div>
           {!target ? (
@@ -563,11 +666,30 @@ export function Connections({
       <div className="connection-footnote">
         <Cloud size={19} />
         <p>
-          Each connection keeps its own identity. Imported documents retain
-          their source account and version. Word and PDF text can be assessed;
-          preserving their formatting when saving edits is a later step.
+          Tap a filename to read it. Use the checkboxes to gather documents,
+          then open them as a workspace. Each connection keeps its own
+          identity. Imported documents retain their source account and
+          version. Word and PDF text can be assessed; preserving their
+          formatting when saving edits is a later step.
         </p>
       </div>
+      {preview ? (
+        <CloudPreview
+          key={`${preview.slot}:${preview.itemId}`}
+          selection={preview}
+          close={() => setPreview(null)}
+          select={() => {
+            setSelected((previous) =>
+              previous.some(
+                (s) => s.slot === preview.slot && s.itemId === preview.itemId,
+              )
+                ? previous
+                : [...previous, preview],
+            );
+            setPreview(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

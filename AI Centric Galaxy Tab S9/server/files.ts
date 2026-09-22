@@ -26,6 +26,10 @@ import { createPatch } from "diff";
 import mammoth from "mammoth";
 import { STATE, ROOT, privateWrite } from "./config.ts";
 import type { Project, Conversation } from "./store.ts";
+import {
+  documentByteLimit,
+  DOCUMENT_LIMIT_MESSAGE,
+} from "../shared/document-limits.ts";
 
 const execute = promisify(execFile);
 const excluded = new Set([
@@ -95,8 +99,8 @@ export async function readDocument(root: string, path: string) {
   const full = safePath(root, path),
     stat = lstatSync(full),
     ext = extname(path).toLowerCase();
-  if (!stat.isFile() || stat.size > 8_000_000)
-    throw new Error("Preview supports files up to 8 MB.");
+  if (!stat.isFile() || stat.size > documentByteLimit(path))
+    throw new Error(DOCUMENT_LIMIT_MESSAGE);
   let text: string;
   if (ext === ".eml") {
     const extracted = safePath(root, path + ".extracted.txt");
@@ -148,7 +152,13 @@ export async function git(cwd: string, args: string[]) {
   return (
     await execute(
       "git",
-      ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args],
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
       { cwd, timeout: 20_000, maxBuffer: 3_000_000 },
     )
   ).stdout;

@@ -6,7 +6,13 @@ import {
 import { existsSync, readFileSync, statSync, rmSync } from "node:fs";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ROOT, PORT, ORIGIN, TABLET_RUNTIME, readSettings } from "./config.ts";
+import {
+  ROOT,
+  PORT,
+  ORIGIN,
+  TABLET_RUNTIME,
+  readSettings,
+} from "./config.ts";
 import { Store, redact } from "./store.ts";
 import { Auth } from "./auth.ts";
 import { AgentHost } from "./codex.ts";
@@ -197,7 +203,10 @@ export function application(
             );
           locks.add("tablet-change");
           try {
-            json(res, await host.tablet.decide(tabletAction[1], data.decision));
+            json(
+              res,
+              await host.tablet.decide(tabletAction[1], data.decision),
+            );
           } finally {
             locks.delete("tablet-change");
           }
@@ -310,7 +319,9 @@ export function application(
               json(res, receipt);
             } catch (error) {
               store.db
-                .prepare("UPDATE exports SET cloudState='uncertain' WHERE id=?")
+                .prepare(
+                  "UPDATE exports SET cloudState='uncertain' WHERE id=?",
+                )
                 .run(row.id);
               throw new Error(
                 `${(error as Error).message} This export was not retried. Check the destination before creating another export.`,
@@ -320,11 +331,31 @@ export function application(
           }
         }
         const accountMatch =
-          /^\/api\/accounts\/([1-4])\/(connect|disconnect|remove|files)$/.exec(
+          /^\/api\/accounts\/([1-4])\/(connect|disconnect|remove|files|preview)$/.exec(
             path,
           );
         if (accountMatch) {
           const slot = Number(accountMatch[1]);
+          if (accountMatch[2] === "preview" && method === "GET") {
+            if (locks.has("import"))
+              throw new Error(
+                "Let the current document finish opening first.",
+              );
+            locks.add("import");
+            try {
+              json(
+                res,
+                await drive.preview(
+                  slot,
+                  string(url.searchParams.get("item"), 1000),
+                  string(url.searchParams.get("connection"), 100),
+                ),
+              );
+            } finally {
+              locks.delete("import");
+            }
+            return;
+          }
           if (accountMatch[2] === "connect" && method === "POST") {
             const data = await body(req);
             json(res, await drive.connect(slot, string(data.label, 60)));
@@ -449,7 +480,9 @@ export function application(
         if (path === "/api/conversations" && method === "POST") {
           json(
             res,
-            store.createConversation(string((await body(req)).projectId, 100)),
+            store.createConversation(
+              string((await body(req)).projectId, 100),
+            ),
           );
           return;
         }
@@ -522,8 +555,11 @@ export function application(
             json(
               res,
               project.kind === "system"
-                ? (await host.tablet.files(url.searchParams.get("path") || ""))
-                    .files
+                ? (
+                    await host.tablet.files(
+                      url.searchParams.get("path") || "",
+                    )
+                  ).files
                 : listFiles(c.workspace, url.searchParams.get("path") || ""),
             );
             return;

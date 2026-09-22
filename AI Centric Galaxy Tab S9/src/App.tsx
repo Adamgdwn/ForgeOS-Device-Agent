@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Sparkles,
   PanelsTopLeft,
@@ -41,45 +35,7 @@ import { Materials } from "./Materials.tsx";
 import { Report } from "./Report.tsx";
 import { TabletStatus } from "./Tablet.tsx";
 import { outlookWarnings } from "./outlook-warnings.ts";
-
-function Modal({
-  children,
-  title,
-  close,
-}: {
-  children: ReactNode;
-  title: string;
-  close: () => void;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current!;
-    dialog.showModal();
-    return () => dialog.close();
-  }, []);
-  return (
-    <dialog
-      ref={ref}
-      className="modal"
-      onCancel={(e) => {
-        e.preventDefault();
-        close();
-      }}
-    >
-      <div className="modal-heading">
-        <h2>{title}</h2>
-        <button
-          aria-label="Close preview"
-          className="icon-button"
-          onClick={close}
-        >
-          <X size={20} />
-        </button>
-      </div>
-      {children}
-    </dialog>
-  );
-}
+import { Modal } from "./Modal.tsx";
 function Pair({ done }: { done: () => void }) {
   const [code, setCode] = useState(""),
     [error, setError] = useState(""),
@@ -144,8 +100,8 @@ function Pair({ done }: { done: () => void }) {
         <details>
           <summary>Where do I find my code?</summary>
           <p>
-            On your workstation, open this project folder in a terminal and run{" "}
-            <code>npm run pair</code>. Enter the code here. Your Microsoft
+            On your workstation, open this project folder in a terminal and
+            run <code>npm run pair</code>. Enter the code here. Your Microsoft
             account sign-ins are added separately inside the workspace.
           </p>
         </details>
@@ -891,7 +847,9 @@ export function App() {
                           className="icon-button"
                           aria-label="Parent folder"
                           onClick={() =>
-                            setFolder(folder.split("/").slice(0, -1).join("/"))
+                            setFolder(
+                              folder.split("/").slice(0, -1).join("/"),
+                            )
                           }
                         >
                           <ArrowLeft size={15} />

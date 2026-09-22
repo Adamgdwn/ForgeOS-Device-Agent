@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { Cloud, FilePlus2, Mail, X } from "lucide-react";
 import { api, type Project } from "./api.ts";
+import {
+  documentByteLimit,
+  MAX_BATCH_BYTES,
+  DOCUMENT_LIMIT_MESSAGE,
+} from "../shared/document-limits.ts";
 
 export function Materials({
   project,
@@ -43,12 +48,10 @@ export function Materials({
   async function importFiles() {
     if (
       files.length > 50 ||
-      files.some((f) => f.size > 8_000_000) ||
-      files.reduce((s, f) => s + f.size, 0) > 25_000_000
+      files.some((f) => f.size > documentByteLimit(f.name)) ||
+      files.reduce((s, f) => s + f.size, 0) > MAX_BATCH_BYTES
     )
-      throw new Error(
-        "Choose up to 50 files, each under 8 MB and totaling at most 25 MB.",
-      );
+      throw new Error(DOCUMENT_LIMIT_MESSAGE);
     const uploads = [];
     for (const file of files) {
       const data = await new Promise<string>((resolve, reject) => {

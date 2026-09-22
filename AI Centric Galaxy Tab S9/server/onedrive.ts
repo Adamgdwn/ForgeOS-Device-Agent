@@ -17,7 +17,12 @@ import {
   setExistingMicrosoft,
 } from "./config.ts";
 import { ExistingMicrosoftClient } from "./existing-microsoft.ts";
-import { digest, safePath, visible } from "./files.ts";
+import { digest, readDocument, safePath, visible } from "./files.ts";
+import {
+  documentByteLimit,
+  MAX_BATCH_BYTES,
+  DOCUMENT_LIMIT_MESSAGE,
+} from "../shared/document-limits.ts";
 import {
   newStage,
   installMaterials,
@@ -51,18 +56,20 @@ function cloudUrl(raw: string) {
   const url = new URL(raw);
   if (
     url.protocol !== "https:" ||
+    (url.port !== "" && url.port !== "443") ||
     url.username ||
     url.password ||
-    ![
-      "sharepoint.com",
-      "1drv.com",
-      "onedrive.com",
-      "storage.live.com",
-      "onedrive.live.com",
-    ].some(
-      (domain) =>
-        url.hostname === domain || url.hostname.endsWith(`.${domain}`),
-    )
+    (url.hostname !== "my.microsoftpersonalcontent.com" &&
+      ![
+        "sharepoint.com",
+        "1drv.com",
+        "onedrive.com",
+        "storage.live.com",
+        "onedrive.live.com",
+      ].some(
+        (domain) =>
+          url.hostname === domain || url.hostname.endsWith(`.${domain}`),
+      ))
   )
     throw new Error("Microsoft returned an unsupported file transfer host.");
   return url.toString();
@@ -109,7 +116,9 @@ export class OneDrive {
   }
   accounts() {
     const accounts = this.store.db
-      .prepare("SELECT * FROM accounts WHERE status <> 'removed' ORDER BY slot")
+      .prepare(
+        "SELECT * FROM accounts WHERE status <> 'removed' ORDER BY slot",
+      )
       .all() as unknown as Account[];
     if (readSettings().existingMicrosoft) accounts.push(this.account(4));
     return accounts.map(({ homeId, ...a }) => ({
@@ -176,7 +185,10 @@ export class OneDrive {
       );
     const path = resolve(STATE, `onedrive-${slot}.cache`);
     const app: PublicClientApplication = new PublicClientApplication({
-      auth: { clientId, authority: "https://login.microsoftonline.com/common" },
+      auth: {
+        clientId,
+        authority: "https://login.microsoftonline.com/common",
+      },
       system: {
         loggerOptions: { piiLoggingEnabled: false, loggerCallback: () => {} },
       },
@@ -247,7 +259,9 @@ export class OneDrive {
     };
     this.pending.set(slot, { request });
     this.store.db
-      .prepare("UPDATE accounts SET label=?, status='connecting' WHERE slot=?")
+      .prepare(
+        "UPDATE accounts SET label=?, status='connecting' WHERE slot=?",
+      )
       .run(label.trim().slice(0, 60) || `OneDrive ${slot}`, slot);
     void app
       .acquireTokenByDeviceCode(request)
@@ -373,7 +387,9 @@ export class OneDrive {
         parsed.pathname =
           drivePath + parsed.pathname.slice("/v1.0/me/drive/".length);
       if (!parsed.pathname.startsWith(drivePath))
-        throw new Error("This request does not belong to the linked OneDrive.");
+        throw new Error(
+          "This request does not belong to the linked OneDrive.",
+        );
       url = parsed.toString();
     }
     const token = await this.token(slot);
@@ -437,6 +453,89 @@ export class OneDrive {
       nextCursor,
     };
   }
+  async content(slot: number, item: CloudItem) {
+    const homeId = this.account(slot).homeId;
+    if (!homeId)
+      throw new Error(
+        "Reconnect this OneDrive account before opening files.",
+      );
+    if (item.folder || !visible(item.name))
+      throw new Error("Choose a visible document to open.");
+    if (
+      !Number.isSafeInteger(item.size) ||
+      item.size < 0 ||
+      item.size > documentByteLimit(item.name)
+    )
+      throw new Error(DOCUMENT_LIMIT_MESSAGE);
+    const response = await this.request(
+      slot,
+      `/me/drive/items/${encodeURIComponent(item.id)}/content`,
+    );
+    // Graph supplies a short-lived URL. Never forward its bearer to a transfer host.
+    const data =
+      response.status === 302
+        ? await bytes(
+            await this.fetcher(
+              cloudUrl(response.headers.get("location") || ""),
+              {
+                signal: AbortSignal.timeout(30_000),
+                redirect: "error",
+              },
+            ),
+            documentByteLimit(item.name),
+          )
+        : await bytes(response, documentByteLimit(item.name));
+    const latest: CloudItem = await (
+      await this.request(
+        slot,
+        `/me/drive/items/${encodeURIComponent(item.id)}`,
+      )
+    ).json();
+    if (this.account(slot).homeId !== homeId)
+      throw new Error(
+        "The account connection changed while opening this file. Try again.",
+      );
+    if (!item.eTag || latest.eTag !== item.eTag)
+      throw new Error(`${item.name} changed while opening. Open it again.`);
+    return data;
+  }
+  async preview(slot: number, itemId: string, connectionId: string) {
+    const homeId = this.account(slot).homeId;
+    if (!homeId || digest(homeId) !== connectionId)
+      throw new Error(
+        "The selected account changed. Browse and select the file again.",
+      );
+    const item: CloudItem = await (
+      await this.request(
+        slot,
+        `/me/drive/items/${encodeURIComponent(itemId)}`,
+      )
+    ).json();
+    if (this.account(slot).homeId !== homeId)
+      throw new Error(
+        "The selected account changed. Browse and select the file again.",
+      );
+    const data = await this.content(slot, item);
+    const stage = newStage();
+    try {
+      privateWrite(safePath(stage, item.name), data);
+      const document = await readDocument(stage, item.name);
+      if (this.account(slot).homeId !== homeId)
+        throw new Error(
+          "The selected account changed. Browse and select the file again.",
+        );
+      return {
+        ...document,
+        source: {
+          originalName: item.name,
+          webUrl: item.webUrl,
+          label: this.account(slot).label,
+        },
+      };
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+    }
+  }
   async collect(
     name: string,
     selected: { slot: number; itemId: string; connectionId?: string }[],
@@ -496,15 +595,20 @@ export class OneDrive {
           throw new Error(
             "The selection includes a hidden or credential file. Choose only the documents to assess.",
           );
-        if (pending.length >= 50 || item.size > 8_000_000)
-          throw new Error("Choose up to 50 files, each no larger than 8 MB.");
+        if (
+          pending.length >= 50 ||
+          !Number.isSafeInteger(item.size) ||
+          item.size < 0 ||
+          item.size > documentByteLimit(item.name)
+        )
+          throw new Error(DOCUMENT_LIMIT_MESSAGE);
         pending.push({ slot, item });
       }
     };
     for (const item of selected) await walk(item.slot, item.itemId);
     if (!pending.length)
       throw new Error("No files were found in this selection.");
-    if (pending.reduce((sum, i) => sum + i.item.size, 0) > 25_000_000)
+    if (pending.reduce((sum, i) => sum + i.item.size, 0) > MAX_BATCH_BYTES)
       throw new Error("Choose documents totaling no more than 25 MB.");
     const root = newStage();
     try {
@@ -515,40 +619,18 @@ export class OneDrive {
         driveId: string;
         homeId: string;
       }[] = [];
+      let downloaded = 0;
       for (const { slot, item } of pending) {
         checkIdentity(slot);
         const homeId = this.account(slot).homeId;
         if (!homeId)
-          throw new Error("Reconnect this OneDrive account before importing.");
-        const response = await this.request(
-          slot,
-          `/me/drive/items/${encodeURIComponent(item.id)}/content`,
-        );
-        const data =
-          response.status === 302
-            ? await bytes(
-                await this.fetcher(
-                  cloudUrl(response.headers.get("location") || ""),
-                  { signal: AbortSignal.timeout(30_000), redirect: "error" },
-                ),
-                8_000_000,
-              )
-            : await bytes(response, 8_000_000);
-        // Check metadata again so source versions cannot silently describe different bytes.
-        const latest: CloudItem = await (
-          await this.request(
-            slot,
-            `/me/drive/items/${encodeURIComponent(item.id)}`,
-          )
-        ).json();
-        if (this.account(slot).homeId !== homeId)
           throw new Error(
-            "The account connection changed during import. Try again.",
+            "Reconnect this OneDrive account before importing.",
           );
-        if (latest.eTag !== item.eTag)
-          throw new Error(
-            `${item.name} changed during import. Import it again.`,
-          );
+        const data = await this.content(slot, item);
+        downloaded += data.length;
+        if (downloaded > MAX_BATCH_BYTES)
+          throw new Error("Choose documents totaling no more than 25 MB.");
         const localName = `${slot}-${item.id
           .replace(/[^a-zA-Z0-9_-]/g, "")
           .slice(-12)}-${item.name.replace(/[^\p{L}\p{N} ._-]/gu, "_")}`;
