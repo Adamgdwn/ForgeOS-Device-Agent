@@ -1,0 +1,13 @@
+<resources>
+    <style name="Theme.GalaxyWorkspace" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#47624F</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#F5F4EF</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowSplashScreenBackground">#151D26</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_galaxy_foreground</item>
+    </style>
+</resources>

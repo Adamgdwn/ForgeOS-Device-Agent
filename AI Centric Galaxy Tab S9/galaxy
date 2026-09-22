@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+# nvm's npm is installed on this host but is not always in noninteractive PATH.
+if ! command -v npm >/dev/null 2>&1; then
+  for galaxy_npm in "$HOME"/.nvm/versions/node/v24*/bin/npm /opt/*/runtime/node-v24*/bin/npm; do
+    if [[ -x "$galaxy_npm" ]]; then
+      export PATH="$(dirname -- "$galaxy_npm"):$PATH"
+      break
+    fi
+  done
+fi
+case "${1:-start}" in
+  start) exec node server/main.ts ;;
+  build) exec npm run build ;;
+  test) exec npm test ;;
+  install) exec npm ci --no-fund ;;
+  pair) shift || true; exec node scripts/pair.ts "$@" ;;
+  register) shift; exec node scripts/register.ts "$@" ;;
+  bind-tablet) shift; exec node scripts/bind-tablet.ts "$@" ;;
+  connect-existing) shift; exec node scripts/connect-existing.ts "$@" ;;
+  configure-microsoft) shift; exec node scripts/configure-microsoft.ts "$@" ;;
+  android-build) exec bash scripts/android.sh build ;;
+  android-install) shift; exec bash scripts/android.sh install "$@" ;;
+  *) echo 'Usage: ./galaxy {start|build|test|install|pair [--rotate]|register /folder [name]|bind-tablet DEVICE_SERIAL|connect-existing /cli/path [name]|configure-microsoft APP_ID|android-build|android-install DEVICE_SERIAL}' >&2; exit 2 ;;
+esac

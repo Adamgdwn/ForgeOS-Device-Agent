@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Galaxy Workspace</string>
+    <string name="checking_connection">Checking connection…</string>
+</resources>

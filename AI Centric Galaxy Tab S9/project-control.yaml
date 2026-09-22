@@ -1,0 +1,31 @@
+project_name: AI Centric Galaxy Tab S9
+project_type: application
+risk_tier: medium
+governance_level: 2
+status: local-pilot
+owner: Adam Goodwin
+data_classification:
+  handles_sensitive_data: true
+  handles_money: false
+agent_controls:
+  autonomy_level: A1
+  max_concurrent_turns: 1
+  turn_timeout_seconds: 600
+  source_edits: isolated-drafts
+  external_publication: user-selected-new-report-exports
+  system_workspace: galaxy-tablet-only
+  system_worker_shell: disabled
+  tablet_mutations: reviewed-allowlisted-settings-with-undo
+  tablet_transport: authenticated-loopback-native-helper
+  runtime: on-tablet-termux-with-local-codex-login
+  android_worker_shell: disabled
+  assistant_workspace: meeting-preparation-from-existing-outlook-ui
+  outlook_access: visible-screen-reading-with-bounded-navigation
+  outlook_side_effects: opening-mail-may-mark-read
+  meeting_storage: isolated-local-folders-with-explicit-cloud-export
+exceptions: []
+release_gates:
+  - build-and-integration-tests
+  - android-build-origin-tests-and-lint
+  - real-tablet-check
+  - three-account-sign-in-and-conflict-check
