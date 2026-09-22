@@ -16,7 +16,7 @@ Open **Assistant** and ask something like:
 
 Galaxy brings Outlook forward to read its visible calendar and mail, then returns to your conversation. Keep the tablet unlocked and let it finish before navigating Outlook yourself. It can read and search; it cannot send email, accept invitations or edit events. Opening a message can mark it read.
 
-If it cannot identify the meeting or an account needs sign-in, it should say so. Current calendar access is separate from OneDrive access. During September 22 testing, Outlook still showed **Please sign in to connect@adamgoodwin.ca**. Complete that account's sign-in in Outlook before relying on fresh Council material.
+If it cannot identify the meeting or an account needs sign-in, it should say so. Current calendar access is separate from OneDrive access. The September 22 warning for **connect@adamgoodwin.ca** concerned your unused campaign account, not your Council account. You do not need to sign in to that account to use Galaxy. Ask for the relevant Council calendar and emails, and check that the returned sources match the meeting.
 
 A saved brief appears as a named workspace. Reopen it and say “Make the opening shorter,” “What are we missing?” or “Add these documents to our assessment.” The brief and its dated source snapshots live on this tablet. Cloud export is a separate action.
 

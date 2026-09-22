@@ -39,6 +39,6 @@ The optional workstation mode still uses `./galaxy start`, `./galaxy register /a
 
 ## Practical limits
 
-Outlook access reads its visible UI, not a complete mailbox/calendar export. Account synchronization, cached events, screen lock and organizational restrictions can limit it. The current Council account still displayed a sign-in warning during September 22 verification; complete that in Outlook before relying on current Council information.
+Outlook access reads its visible UI, not a complete mailbox/calendar export. Account synchronization, cached events, screen lock and organizational restrictions can limit it. The September 22 sign-in warning concerned an unused campaign account, not the Council account, as Adam clarified. That account is not required for field testing. Current meeting details still need confirmation from the relevant calendar and emails.
 
 Actual OneDrive publication/conflict behavior, a full day of battery/network switching, stylus/DeX use and speech recognition remain field tests. Offline AI, arbitrary terminal control, spreadsheet editing, OCR and formatting-preserving Office edits are not implemented. The repository contains source and synthetic fixtures; all credentials, real documents, databases, APKs and private verification evidence are ignored.
