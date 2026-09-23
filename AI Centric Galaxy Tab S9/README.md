@@ -1,6 +1,6 @@
 # Galaxy Workspace
 
-Last Updated: 2026-09-22
+Last Updated: 2026-09-23
 
 Galaxy Workspace is an independent tablet workspace for document assessment, meeting preparation and interactive reports. Its native Android launcher opens a React workspace backed by Node, SQLite and Codex **on the Galaxy Tab S9+ itself**. The tablet needs internet for AI and cloud services; it does not need a laptop, USB tether or Tailscale.
 
@@ -17,7 +17,9 @@ Open **Galaxy Workspace → Open workspace**. The launcher starts its local Term
 - **System:** inspect tablet health, installed applications and shared-storage files. Four supported settings use proposal, Apply, read-back and conditional Undo.
 - **Connections:** independent Microsoft sign-ins plus the migrated existing CLI connection. Both current connected accounts passed live root browsing on the tablet. The reused CLI connection supports reads/imports and local drafts; cloud writes remain disabled for it.
 
-The installed packages are Galaxy Workspace **0.4.0**, Galaxy Device Tools **0.2.0**, and Termux. Keep Termux installed: it holds the runtime, saved work and local Codex sign-in. Voice typing uses the tablet keyboard; Google voice typing is enabled, but actual spoken accuracy needs the user's test.
+The installed packages are Galaxy Workspace **0.4.0**, Galaxy Device Tools **0.2.0**, and Termux. Keep Termux installed: it holds the runtime, saved work and local Codex sign-in. Voice currently relies on the tablet keyboard. September 23 checks confirm Samsung Keyboard and Google voice typing are enabled, but Adam reports no usable microphone when tapping the composer. This remains unresolved; Galaxy has no dedicated Talk control yet.
+
+**Continue development on Windows:** start with the [September 23 voice-first Assistant plan and Windows handoff](docs/2026-09-23%20-%20Voice%20First%20Assistant%20and%20Windows%20Handoff.md). It prioritizes visible voice input, clearer work folders/chats, and a natural meeting-preparation conversation through verified OneDrive filing. It includes current gaps, implementation order, acceptance checks and Windows setup/signing considerations. Git transfers source and instructions, not the tablet's private work or sign-ins. Native Windows runtime parity remains unverified.
 
 Read the [user guide](docs/2026-09-22%20-%20User%20Guide.md), [deployment runbook](docs/2026-09-22%20-%20Runbook.md), [Android implementation](docs/2026-09-22%20-%20Android%20App.md), [design and boundaries](docs/2026-09-22%20-%20Design%20and%20Boundaries.md), and [verification record](docs/2026-09-22%20-%20Verification.md).
 
