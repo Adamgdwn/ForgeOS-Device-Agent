@@ -26,42 +26,46 @@ A saved brief appears as a named workspace. Reopen it and say “Make the openin
 2. Choose **OneDrive files**, **files on this device**, or **Paste an email**. Select documents from the folders/accounts you need. Subject, sender and date help identify pasted correspondence.
 3. Ask for an assessment: “Summarize the issues, compare the numbers, and flag gaps before we write the report.” Tap source links to check the original material.
 4. Use **Draft report**, or choose **Full conversation** and ask to create a report. Galaxy saves an isolated draft. Continue discussing improvements, or edit directly beside chat and tap **Save draft text**.
-5. Use **Export a copy** for Word, PDF or Markdown. Android's save picker chooses where to put a downloaded copy. Choose a OneDrive destination explicitly when uploading.
+5. Use **Export a copy** for Word, PDF or Markdown, then **Prepare export → Open / save / share copy**. Choose **Open in app**, **Save a copy**, or **Share a copy**. Android's save picker chooses the destination. OneDrive upload remains a separate, explicit action.
 
 **Quick answers** keeps responses brief and document tools read-only. **Brief me** requests a short assessment. **Explain further** expands an answer. **Add to report** appends an answer in the editor for you to review and save.
 
-Imports are snapshots, not continuous synchronization. Re-import if cloud originals change. A batch supports up to 50 source files: Word/PDF up to 20 MB each, other files up to 8 MB each, and 25 MB total. Word/PDF text, plain text, Markdown, CSV/TSV, JSON and saved `.eml` messages are supported; OCR, `.msg` and full spreadsheet editing are not.
+Imports are snapshots, not continuous synchronization. Re-import if originals change. A batch supports up to 50 source files: DOCX, XLSX, PPTX and PDF up to 20 MB each, other supported files up to 8 MB each, and 25 MB total. Plain text, Markdown, CSV/TSV, JSON and saved `.eml` messages are also supported. Convert old `.doc`, `.xls` or `.ppt` files to modern formats first; `.msg`, macros and OCR are not supported.
 
-## Work with Word, PDFs and the file manager
+## Word, Excel, PowerPoint and PDFs
 
-Word, Excel, PowerPoint, OneDrive, Outlook, Samsung My Files and Xodo are already installed. Galaxy's preview is for reading extracted text. Use the existing document apps for formatting, spreadsheet work and PDF layout. Their editing/sign-in state has not been verified by this workflow review. Word editing on a large tablet depends on the signed-in account's [Microsoft 365 entitlement](https://support.microsoft.com/en-us/microsoft-365-activation-licensing/mobile/what-you-can-do-in-the-microsoft-365-apps-on-mobile-devices-with-a-microsoft-365-subscription).
+1. In a workspace, open **Files** and tap the document. Friendly names identify the original; **Document details** contains its workspace path and extracted-text copy.
+2. Choose **Open / save a copy**. **Open in app** shows Android's app chooser: use Word for DOCX, Excel for XLSX, PowerPoint for PPTX or your PDF app. **Save a copy** stores the exact original bytes wherever you choose. **Share a copy** opens Android's Sharesheet.
+3. For edits, use the Office app's **Save a copy/Save As** into a known local or OneDrive folder. Galaxy hands out a separate, read-only source copy; Office changes must be saved separately. Editing availability depends on the signed-in account's [Microsoft 365 entitlement](https://support.microsoft.com/en-us/microsoft-365-activation-licensing/mobile/what-you-can-do-in-the-microsoft-365-apps-on-mobile-devices-with-a-microsoft-365-subscription).
+4. Return to Galaxy → **Add material → Files on this device** (or OneDrive) and select the revised file. Tell the conversation which version to use. Re-importing is explicit; changes in Office do not silently update Galaxy's earlier snapshot.
 
-For an existing OneDrive document:
+After **Save a copy**, the confirmation offers **Open** and **Share**. The launcher remembers **Last saved file** for reopening later. This records the chosen provider's filename; it is not proof that a cloud provider has finished synchronizing. If a grant expires or the file moves, select the file again through My Files or OneDrive.
 
-1. Use **Open original**, or find the same account and file in the OneDrive app. The link may open a browser; it does not guarantee Word will launch.
-2. To keep a device copy, use OneDrive's file menu **More → Save** and choose a folder. Find it in **My Files** and open it with Word or your PDF app. This is Microsoft's documented [download flow](https://support.microsoft.com/en-us/onedrive/how-to-download-onedrive-files-to-your-mobile); app wording or organizational restrictions may differ.
-3. If making a separate assessment, save a working copy before changing the original. Finish the edit and confirm where the document was saved.
-4. Back in Galaxy, use **Add material** to import the revised file. Say which version to use. Galaxy does not automatically receive changes made in Word or OneDrive.
+Excel previews identify sheets and cell addresses, including hidden sheets. They show stored values and formula text; cached formula results can be absent or stale. Dates/currency may appear as raw numbers. Open Excel to calculate and check charts, formatting, external data or important totals.
 
-For a Galaxy report, first **Save draft text**, then **Export a copy → Word → Prepare export → Download to this device**. Choose a memorable destination in Android's save picker, then open the file through My Files. Galaxy currently shows a save notification; it has no direct **Open in Word** or **Share** button after download.
+PowerPoint previews identify slides and extract text, tables and speaker notes. They do not interpret pictures, charts, animations or layout. Open PowerPoint to inspect or present the actual deck. All extracted previews are limited to 100,000 characters and visibly flag truncation. Scanned PDFs and image-only slides require the original app; Galaxy does not perform OCR.
 
-The exported Word document and Galaxy's report draft are separate copies. Bringing a revised DOCX back adds a source document; it does not replace the text in the report editor. Ask for proposed changes or a new report revision explicitly. Word formatting is not preserved by Galaxy's text editor.
+For a Galaxy report, **Save draft text**, choose an export format and **Prepare export**. **Previous exports** reopens older prepared versions even after restarting; it shows the creation time and any confirmed device/OneDrive save. Preparing an export does not itself publish it. A pending or uncertain OneDrive upload must be checked at its destination before trying a new export.
+
+An exported Word document and Galaxy's report draft are separate copies. Bringing a revised DOCX back adds a source document; it does not replace the report editor. Ask for proposed changes or a new report revision explicitly. Galaxy's text editor does not preserve Office layout. Galaxy currently generates DOCX/PDF/Markdown reports; creating formatted XLSX workbooks and PPTX decks is still done in the Office apps.
 
 ## File, share and continue on Windows
 
 Use OneDrive for cloud folders and My Files for device folders. Keep using your existing filing structure. Galaxy does not currently provide folder bookmarks, cloud filename search, moving/renaming originals or automatic folder synchronization.
 
-To send a finished report, download it and attach it in Outlook, or use the OneDrive app's sharing controls. Choose the sender account, recipients and permissions there, then send from that app. Galaxy does not send mail or create follow-up calendar events/tasks.
+To send a finished report, choose **Share a copy**, then Outlook or another destination app; alternatively use OneDrive sharing. Choose the sender account, recipients and permissions there, then send from that app. Galaxy does not send mail or create follow-up calendar events/tasks.
 
 For Windows, save the finished file into the intended OneDrive account/folder, or transfer the downloaded copy normally. Open it on Windows to confirm it arrived. After further edits, re-import the new version on the tablet. Galaxy's conversations and private workspaces do not synchronize to Windows, and pushing the app's Git repository does not back them up.
 
-Before changing conversations or closing the app, save report edits and copy any important unsent text elsewhere: automatic recovery of unsaved text is not implemented. Before going offline, export and open the brief and original documents you need. Local saved work remains on the tablet, but offline cold-start and a full meeting without network are still acceptance tests; AI replies need internet. A long or scanned agenda may not be fully readable by Galaxy even when its original opens in a PDF app.
+Unsent chat, selected attachments, answer style and unfinished report text recover per conversation. Wait for **recovery saved** before closing the app. Recovery keeps unfinished work; **Save draft text** still publishes your edits into the workspace report. **Finish later** keeps the editor copy, **Resume edits** returns to it, and **Discard edits** asks before removing it. A warning means recovery is unconfirmed: keep the screen open and save/copy important text. If the saved report changed meanwhile, Galaxy preserves your edits and blocks overwriting it until you compare the latest version.
 
-The [executive workflow plan](2026-09-22%20-%20Executive%20Workflow%20Plan.md) records the gaps and the intended app handoffs. Its proposed buttons and features are not installed yet.
+An interrupted send is never repeated automatically. Use **Check previous send** to look up its recorded status; this does not submit another AI request.
+
+Before going offline, save and open the brief and originals you need. Local documents and recovery stay on the tablet; AI replies need internet. A full meeting in airplane mode remains a field test. The [executive workflow plan](2026-09-22%20-%20Executive%20Workflow%20Plan.md) separates delivered features from later work, including full agenda reading and portable workspaces.
 
 ## Connections and folders
 
-Open **Connections → Browse files** and open a folder. **Tap a document's name to read its text**. Choose **Select for workspace** in the preview, or use the checkboxes beside filenames to select several documents. Name the collection and tap **Open as a workspace**; when adding to existing work, tap **Add to workspace**. In the workspace, open **Files**, tap a document, and choose **Use in conversation** to discuss it. Word/PDF previews show extracted text; use **Open original** for the original document. Long previews are labelled when shortened.
+Open **Connections → Browse files** and open a folder. **Tap a document's name to read its text**. Choose **Select for workspace** in the preview, or use the checkboxes beside filenames to select several documents. Name the collection and tap **Open as a workspace**; when adding to existing work, tap **Add to workspace**. In the workspace, open **Files**, tap a document, and choose **Use in conversation** to discuss it. Office/PDF previews show extracted text; **Open original** visits the cloud document, while a workspace preview’s **Open / save a copy** hands the imported snapshot to Android. Long previews are labelled when shortened.
 
 The Personal and linked Guided AI Labs connections both passed live browsing on the tablet. The linked CLI account supports reading/importing and local drafts; it cannot save back to OneDrive in this pilot.
 
@@ -85,13 +89,6 @@ Tap the message box, open the keyboard and use its microphone (bottom left on th
 
 After a tablet restart, unlock it and open Galaxy. If needed, choose **Connection → Use this tablet**, wait a few seconds, then **Check connection**. If Android stopped Termux, open Termux once and return to Galaxy. A missing device connection usually means Galaxy Device Tools needs re-enabling in Accessibility settings.
 
-If pairing expires after seven days, open Termux and run:
-
-```sh
-cd ~/galaxy-workspace
-node scripts/pair.ts
-```
-
-Enter that code in Galaxy. This local pairing is separate from your Codex sign-in. Saved conversations and reports persist; reconnecting never resubmits a message automatically.
+If local pairing expires after seven days, use the native **Home → Connection → Reconnect this tablet** button. It reconnects to this tablet's engine without copying a code or opening a terminal. This is separate from Microsoft and Codex account sign-in. A slow/unavailable engine shows a retry state rather than pretending your pairing expired. Saved conversations, unfinished text and reports remain; reconnecting never resubmits an AI message.
 
 The transfer preserved existing history and documents but started fresh internal Codex threads. In an older conversation, mention the report or topic again if the follow-up needs earlier context. New conversations retain their normal thread continuity.

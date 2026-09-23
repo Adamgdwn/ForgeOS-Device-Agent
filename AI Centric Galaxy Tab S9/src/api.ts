@@ -17,7 +17,7 @@ export async function api<T = any>(
     window.dispatchEvent(new Event("galaxy-unpaired"));
   if (!response.ok)
     throw new Error(
-      result.error || "The workstation could not complete this request.",
+      result.error || "The workspace could not complete this request.",
     );
   return result;
 }
@@ -45,6 +45,9 @@ export type Activity = {
   createdAt: string;
 };
 export type FileEntry = {
+  displayName?: string;
+  role?: string;
+  extractionPath?: string;
   name: string;
   path: string;
   directory: boolean;
@@ -62,6 +65,7 @@ export type Account = {
   login?: { code?: string; url?: string; expires?: number };
 };
 export type Bootstrap = {
+  instanceId: string;
   runtime?: "tablet" | "workstation";
   projects: Project[];
   conversations: Conversation[];

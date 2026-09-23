@@ -18,9 +18,21 @@ import {
 import { api, type Activity, type Conversation, type Project } from "./api.ts";
 import { documentLink } from "./document-links.ts";
 import { TabletActions } from "./Tablet.tsx";
+import { useRecovery } from "./use-recovery.ts";
+import {
+  emptyChat,
+  recoverySnapshot,
+  writeRecovery,
+  flushRecovery,
+  type ChatDraft,
+  type Submission,
+} from "./recovery-store.ts";
 
 const busyStates = new Set(["running", "starting", "waiting", "stopping"]);
 type Props = {
+  recoveryKey: string;
+  recoveryScope: string;
+  consumeRequest: () => void;
   request?: { id: string; text: string } | null;
   project: Project;
   conversation: Conversation | null;
@@ -29,8 +41,6 @@ type Props = {
   onNew: () => Promise<Conversation>;
   refresh: () => Promise<void>;
   onPreview: (path: string) => void;
-  attachments: string[];
-  setAttachments: (files: string[]) => void;
   notify: (message: string) => void;
   onAddToReport: (text: string) => void;
 };
@@ -91,6 +101,9 @@ function Question({
   );
 }
 export function Chat({
+  recoveryKey,
+  recoveryScope,
+  consumeRequest,
   project,
   request,
   conversation,
@@ -99,22 +112,27 @@ export function Chat({
   onNew,
   refresh,
   onPreview,
-  attachments,
-  setAttachments,
   notify,
   onAddToReport,
 }: Props) {
   const system = project.kind === "system";
   const assistant = project.kind === "assistant" || project.kind === "meeting";
-  const [text, setText] = useState(""),
-    [sending, setSending] = useState(false),
+  const recovery = useRecovery<ChatDraft>(recoveryKey);
+  const draft = recovery.value || emptyChat;
+  const { text, attachments, replyStyle } = draft;
+  function updateDraft(patch: Partial<ChatDraft>, key = recoveryKey) {
+    const latest =
+      (recoverySnapshot(key).value as ChatDraft | null) || emptyChat;
+    return writeRecovery(key, { ...latest, ...patch });
+  }
+  const setText = (text: string) => updateDraft({ text });
+  const setAttachments = (attachments: string[]) =>
+    updateDraft({ attachments });
+  const setReplyStyle = (replyStyle: ChatDraft["replyStyle"]) =>
+    updateDraft({ replyStyle });
+  const [sending, setSending] = useState(false),
     [showActivity, setShowActivity] = useState(false);
-  const [replyStyle, setReplyStyle] = useState<"quick" | "standard">("quick");
   const sendingRef = useRef(false);
-  const previousContext = useRef({
-    project: project.id,
-    conversation: conversation?.id,
-  });
   const textarea = useRef<HTMLTextAreaElement>(null),
     bottom = useRef<HTMLDivElement>(null),
     keepFollowing = useRef(true);
@@ -122,12 +140,6 @@ export function Chat({
     if (keepFollowing.current)
       bottom.current?.scrollIntoView({ behavior: "instant", block: "end" });
   }, []);
-  const pending = useRef<{
-    id: string;
-    text: string;
-    conversationId?: string;
-    replyStyle: string;
-  } | null>(null);
   const busy = busyStates.has(conversation?.status || "");
   const { messages, activity, questions } = useMemo(() => {
     const messages: {
@@ -177,41 +189,40 @@ export function Chat({
       bottom.current?.scrollIntoView({ behavior: "instant", block: "end" });
   }, [events.length]);
   useEffect(() => {
-    const previous = previousContext.current;
-    if (
-      !(
-        sendingRef.current &&
-        previous.project === project.id &&
-        !previous.conversation
-      )
-    )
-      setText("");
-    previousContext.current = {
-      project: project.id,
-      conversation: conversation?.id,
-    };
-    pending.current = null;
     keepFollowing.current = true;
   }, [conversation?.id, project.id]);
+  const handledRequest = useRef("");
   useEffect(() => {
-    if (request) {
-      setText(request.text);
-      setReplyStyle("standard");
+    if (recovery.ready && request && handledRequest.current !== request.id) {
+      handledRequest.current = request.id;
+      const current = recoverySnapshot(recoveryKey).value as ChatDraft | null;
+      updateDraft({
+        text: [current?.text, request.text].filter(Boolean).join("\n\n"),
+        replyStyle: "standard",
+      });
+      consumeRequest();
       textarea.current?.focus();
     }
-  }, [request?.id]);
+  }, [request?.id, recovery.ready, recoveryKey]);
   async function send(
     value = text,
     style: string = replyStyle,
     keepText = false,
   ) {
     if (
+      !recovery.ready ||
       !value.trim() ||
       sendingRef.current ||
       !connected ||
       (busy && style !== "standard")
     )
       return;
+    if (draft.pending) {
+      notify(
+        "Check the previous send before sending another request. Your text is kept here.",
+      );
+      return;
+    }
     sendingRef.current = true;
     setSending(true);
     const composed = attachments.length
@@ -219,23 +230,28 @@ export function Chat({
           .map((f) => `- ${f}`)
           .join("\n")}`
       : value.trim();
-    if (
-      !pending.current ||
-      pending.current.text !== composed ||
-      pending.current.replyStyle !== style ||
-      (pending.current.conversationId &&
-        pending.current.conversationId !== conversation?.id)
-    )
-      pending.current = {
-        id: crypto.randomUUID(),
-        text: composed,
-        replyStyle: style,
-      };
-    const submission = pending.current;
+    const submission: Submission = {
+      id: crypto.randomUUID(),
+      text: composed,
+      replyStyle: style,
+      composerText: text,
+      keepText,
+    };
+    let targetKey = recoveryKey;
     try {
+      if (!updateDraft({ pending: submission }))
+        throw new Error(
+          "Save or copy your text first; recovery storage is unavailable.",
+        );
+      await flushRecovery(recoveryKey);
       const c = conversation || (await onNew());
       submission.conversationId = c.id;
-      pending.current = submission;
+      targetKey = recoveryScope + c.id;
+      if (!updateDraft({ pending: submission }, targetKey))
+        throw new Error(
+          "The request was not sent because recovery storage is unavailable.",
+        );
+      await flushRecovery(targetKey);
       const response = await api(
         `/conversations/${c.id}/messages`,
         "POST",
@@ -248,17 +264,55 @@ export function Chat({
         notify(
           "This message was already submitted and its outcome is uncertain. Review the activity before sending a new request.",
         );
-      pending.current = null;
-      if (!keepText) {
-        setText("");
-        setAttachments([]);
-      }
+      const latest = recoverySnapshot(targetKey).value as ChatDraft | null;
+      updateDraft(
+        {
+          pending: undefined,
+          ...(!keepText && latest?.text === submission.composerText
+            ? { text: "", attachments: [] }
+            : {}),
+        },
+        targetKey,
+      );
       keepFollowing.current = true;
       await refresh();
     } catch (error) {
       notify((error as Error).message);
     } finally {
       sendingRef.current = false;
+      setSending(false);
+    }
+  }
+  async function checkSubmission() {
+    const pending = draft.pending;
+    if (!pending || sendingRef.current) return;
+    setSending(true);
+    try {
+      const result = await api(
+        `/submissions/${encodeURIComponent(pending.id)}`,
+      );
+      const latest = recoverySnapshot(recoveryKey).value as ChatDraft | null;
+      if (latest?.pending?.id !== pending.id) return;
+      if (result.submission) {
+        updateDraft({
+          pending: undefined,
+          ...(!pending.keepText && latest.text === pending.composerText
+            ? { text: "", attachments: [] }
+            : {}),
+        });
+        notify(
+          `The previous request is recorded (${result.submission.state}). It has not been sent again. Review the conversation before continuing.`,
+        );
+        await refresh();
+      } else {
+        updateDraft({ pending: undefined });
+        notify(
+          "No submission was recorded. Your text is ready; tap Send when you want to continue.",
+        );
+      }
+    } catch (error) {
+      notify((error as Error).message);
+    } finally {
       setSending(false);
     }
   }
@@ -400,6 +454,7 @@ export function Chat({
               {prompts.map((p) => (
                 <button
                   className="prompt-card"
+                  disabled={!recovery.ready}
                   key={p.title}
                   onClick={() => {
                     setText(p.prompt);
@@ -602,6 +657,34 @@ export function Chat({
         <div ref={bottom} />
       </div>
       <div className="composer-area">
+        {recovery.error ? (
+          <p className="inline-error" role="alert">
+            {recovery.error}
+          </p>
+        ) : null}
+        {draft.pending ? (
+          <div className="connection-warning" role="status">
+            Previous send awaiting confirmation. It will not be sent
+            automatically.{" "}
+            <button
+              className="secondary compact"
+              disabled={sending}
+              onClick={() => void checkSubmission()}
+            >
+              Check previous send
+            </button>
+          </div>
+        ) : text || attachments.length ? (
+          <p className="recovery-status" role="status">
+            {!recovery.ready
+              ? "Checking recovery…"
+              : recovery.saving
+                ? "Saving recovery copy…"
+                : recovery.error
+                  ? "Unsent draft · recovery unconfirmed"
+                  : "Unsent draft · recovery saved"}
+          </p>
+        ) : null}
         <div className="composer-heading">
           <label htmlFor="galaxy-question">
             {assistant
@@ -631,8 +714,7 @@ export function Chat({
         </div>
         {!connected ? (
           <div className="connection-warning">
-            Reconnecting to your workstation. Your submitted work continues
-            there.
+            Reconnecting to your workspace. Unsent text stays on this device.
           </div>
         ) : null}
         <form
@@ -660,6 +742,7 @@ export function Chat({
           ) : null}
           <textarea
             id="galaxy-question"
+            disabled={!recovery.ready}
             ref={textarea}
             aria-label="Message Galaxy"
             value={text}
@@ -684,7 +767,7 @@ export function Chat({
               <select
                 aria-label="Answer style"
                 value={replyStyle}
-                disabled={busy || sending}
+                disabled={busy || sending || !recovery.ready}
                 onChange={(e) =>
                   setReplyStyle(e.target.value as "quick" | "standard")
                 }

@@ -30,6 +30,8 @@ const extensions = new Set([
   ".tsv",
   ".json",
   ".docx",
+  ".xlsx",
+  ".pptx",
   ".pdf",
   ".eml",
 ]);
@@ -63,11 +65,7 @@ export function createCollection(store: Store, name: string) {
     description: "Gathered documents and emails · originals stay in place",
   });
 }
-export function materialReplay(
-  store: Store,
-  id: string,
-  fingerprint: string,
-) {
+export function materialReplay(store: Store, id: string, fingerprint: string) {
   if (!/^[0-9a-f-]{36}$/i.test(id))
     throw new Error("A valid import request ID is required.");
   const row = store.db
@@ -202,7 +200,7 @@ export async function extractMaterial(
   name: string,
 ): Promise<string[]> {
   const warnings: string[] = [];
-  if (/\.(docx|pdf)$/i.test(name)) {
+  if (/\.(docx|xlsx|pptx|pdf)$/i.test(name)) {
     try {
       const result = await readDocument(root, name);
       if (!result.text.trim())
@@ -291,24 +289,19 @@ export async function stageUploads(
         !extensions.has(extname(file.name).toLowerCase())
       )
         throw new Error(
-          "Use Word (.docx), PDF, text, Markdown, CSV, JSON, or saved email (.eml) files. For Outlook .msg files, paste the message or save it as .eml.",
+          "Use Word (.docx), Excel (.xlsx), PowerPoint (.pptx), PDF, text, Markdown, CSV, JSON, or saved email (.eml) files. For older Office formats, save a modern-format copy in the Office app first.",
         );
       if (
         typeof file.data !== "string" ||
         /[^A-Za-z0-9+/=]/.test(file.data) ||
         file.data.length % 4 !== 0
       )
-        throw new Error(
-          "A selected file could not be read. Select it again.",
-        );
+        throw new Error("A selected file could not be read. Select it again.");
       const data = Buffer.from(file.data, "base64");
       if (data.toString("base64") !== file.data)
         throw new Error("A selected file is not valid base64.");
       total += data.length;
-      if (
-        data.length > documentByteLimit(file.name) ||
-        total > MAX_BATCH_BYTES
-      )
+      if (data.length > documentByteLimit(file.name) || total > MAX_BATCH_BYTES)
         throw new Error(DOCUMENT_LIMIT_MESSAGE);
       const name = `${String(i + 1).padStart(2, "0")}-${cleanFilename(file.name)}`;
       privateWrite(safePath(stage, name), data);

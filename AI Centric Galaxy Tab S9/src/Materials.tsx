@@ -134,7 +134,7 @@ export function Materials({
             <input
               type="file"
               multiple
-              accept=".docx,.pdf,.txt,.md,.csv,.tsv,.json,.eml"
+              accept=".docx,.xlsx,.pptx,.pdf,.txt,.md,.csv,.tsv,.json,.eml"
               disabled={busy}
               onChange={(e) => {
                 const chosen = Array.from(e.target.files || []);
@@ -144,9 +144,9 @@ export function Materials({
             />
           </label>
           <p>
-            Word, PDF, text, Markdown, CSV, JSON and .eml emails. Supported
-            email attachments are included. For Outlook .msg messages, paste the
-            email instead.
+            Word, Excel, PowerPoint, PDF, text, Markdown, CSV, JSON and .eml
+            emails. Supported email attachments are included. For Outlook .msg
+            messages, paste the email instead.
           </p>
         </div>
       ) : (
@@ -248,7 +248,7 @@ export function Materials({
         >
           {busy
             ? "Adding material…"
-            : hasMaterial
+            : project || hasMaterial
               ? "Add to workspace"
               : "Create workspace"}
         </button>

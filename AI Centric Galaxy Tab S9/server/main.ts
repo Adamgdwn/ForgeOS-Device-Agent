@@ -6,19 +6,15 @@ import {
 import { existsSync, readFileSync, statSync, rmSync } from "node:fs";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  ROOT,
-  PORT,
-  ORIGIN,
-  TABLET_RUNTIME,
-  readSettings,
-} from "./config.ts";
+import { ROOT, PORT, ORIGIN, TABLET_RUNTIME, readSettings } from "./config.ts";
 import { Store, redact } from "./store.ts";
 import { Auth } from "./auth.ts";
 import { AgentHost } from "./codex.ts";
 import { ensureTabletWorkspace } from "./tablet.ts";
 import { ensureAssistantWorkspace, assistantKind } from "./assistant.ts";
 import { OneDrive } from "./onedrive.ts";
+import { documentEntries, documentDownload } from "./documents.ts";
+import { recovery, saveRecovery } from "./recovery.ts";
 import {
   createCollection,
   stageUploads,
@@ -36,7 +32,6 @@ import {
   formats,
 } from "./reports.ts";
 import {
-  listFiles,
   readDocument,
   createDraft,
   changes,
@@ -150,11 +145,16 @@ export function application(
         json(res, { authenticated: true });
         return;
       }
+      if (path === "/api/session/native" && method === "POST") {
+        auth.loginNative(string((await body(req)).ticket, 100), res);
+        json(res, { authenticated: true });
+        return;
+      }
       if (path.startsWith("/api/")) {
         if (!auth.valid(req)) {
           json(
             res,
-            { error: "Pair this browser with your workstation to continue." },
+            { error: "Reconnect this browser to your workspace to continue." },
             401,
           );
           return;
@@ -167,12 +167,32 @@ export function application(
         if (path === "/api/bootstrap" && method === "GET") {
           json(res, {
             runtime: TABLET_RUNTIME ? "tablet" : "workstation",
+            instanceId: store.db
+              .prepare("SELECT value FROM metadata WHERE key='instanceId'")
+              .get()!.value,
             projects: store.projects(),
             conversations: store.conversations(),
             accounts: drive.accounts(),
             host: await host.status(),
             microsoftConfigured: !!readSettings().microsoftClientId,
           });
+          return;
+        }
+        const submissionMatch = /^\/api\/submissions\/([\w-]+)$/.exec(path);
+        if (path === "/api/recovery" && method === "GET") {
+          json(res, recovery(store, url.searchParams.get("key")));
+          return;
+        }
+        if (path === "/api/recovery" && method === "POST") {
+          const data = await body(req, 2_000_000);
+          json(res, saveRecovery(store, data.key, data.value, data.revision));
+          return;
+        }
+        if (submissionMatch && method === "GET") {
+          const submission = store.db
+            .prepare("SELECT conversationId, state FROM submissions WHERE id=?")
+            .get(submissionMatch[1]);
+          json(res, { submission: submission || null });
           return;
         }
         if (path === "/api/tablet/status" && method === "GET") {
@@ -203,10 +223,7 @@ export function application(
             );
           locks.add("tablet-change");
           try {
-            json(
-              res,
-              await host.tablet.decide(tabletAction[1], data.decision),
-            );
+            json(res, await host.tablet.decide(tabletAction[1], data.decision));
           } finally {
             locks.delete("tablet-change");
           }
@@ -266,11 +283,25 @@ export function application(
           return;
         }
         const exportMatch =
-          /^\/api\/exports\/([0-9a-f-]{36})(?:\/(download|onedrive))?$/.exec(
+          /^\/api\/exports\/([0-9a-f-]{36})(?:\/(download|onedrive|device-receipt))?$/.exec(
             path,
           );
         if (exportMatch) {
           const row = exportRecord(store, exportMatch[1]);
+          if (method === "POST" && exportMatch[2] === "device-receipt") {
+            const data = await body(req);
+            store.db
+              .prepare(
+                "UPDATE exports SET deviceDestination=?, deviceSavedAt=? WHERE id=?",
+              )
+              .run(
+                string(data.destination, 2000),
+                new Date().toISOString(),
+                row.id,
+              );
+            json(res, { recorded: true });
+            return;
+          }
           if (method === "GET" && exportMatch[2] === "download") {
             res.setHeader("Content-Type", formats[row.format]);
             res.setHeader(
@@ -297,9 +328,13 @@ export function application(
               throw new Error(`Keep the .${row.format} filename extension.`);
             const parentId = string(data.parentId, 200),
               connectionId = string(data.connectionId, 100);
+            const account = drive.accounts().find((a) => a.slot === data.slot);
+            const destination = `${account?.username || account?.label || "Selected account"} / ${data.folderLabel ? string(data.folderLabel, 2000) : parentId} / ${name}`;
             store.db
-              .prepare("UPDATE exports SET cloudState='pending' WHERE id=?")
-              .run(row.id);
+              .prepare(
+                "UPDATE exports SET cloudState='pending', destination=? WHERE id=?",
+              )
+              .run(destination, row.id);
             try {
               const receipt = await drive.publishNew(
                 data.slot,
@@ -319,9 +354,7 @@ export function application(
               json(res, receipt);
             } catch (error) {
               store.db
-                .prepare(
-                  "UPDATE exports SET cloudState='uncertain' WHERE id=?",
-                )
+                .prepare("UPDATE exports SET cloudState='uncertain' WHERE id=?")
                 .run(row.id);
               throw new Error(
                 `${(error as Error).message} This export was not retried. Check the destination before creating another export.`,
@@ -338,9 +371,7 @@ export function application(
           const slot = Number(accountMatch[1]);
           if (accountMatch[2] === "preview" && method === "GET") {
             if (locks.has("import"))
-              throw new Error(
-                "Let the current document finish opening first.",
-              );
+              throw new Error("Let the current document finish opening first.");
             locks.add("import");
             try {
               json(
@@ -442,16 +473,33 @@ export function application(
           return;
         }
         const projectMatch =
-          /^\/api\/projects\/([^/]+)\/(files|preview|sources)$/.exec(path);
+          /^\/api\/projects\/([^/]+)\/(files|preview|sources|download)$/.exec(
+            path,
+          );
         if (projectMatch && method === "GET") {
           const project = store.project(projectMatch[1]),
             relative = url.searchParams.get("path") || "";
+          if (projectMatch[2] === "download") {
+            const file = documentDownload(
+              store,
+              project,
+              project.path,
+              relative,
+            );
+            res.setHeader("Content-Type", file.type);
+            res.setHeader(
+              "Content-Disposition",
+              `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+            );
+            res.end(file.bytes);
+            return;
+          }
           if (projectMatch[2] === "files")
             json(
               res,
               project.kind === "system"
                 ? (await host.tablet.files(relative)).files
-                : listFiles(project.path, relative),
+                : documentEntries(store, project, project.path, relative),
             );
           else if (projectMatch[2] === "sources")
             json(
@@ -480,14 +528,12 @@ export function application(
         if (path === "/api/conversations" && method === "POST") {
           json(
             res,
-            store.createConversation(
-              string((await body(req)).projectId, 100),
-            ),
+            store.createConversation(string((await body(req)).projectId, 100)),
           );
           return;
         }
         const conversationMatch =
-          /^\/api\/conversations\/([^/]+)(?:\/(events|messages|stop|draft|changes|apply|save|answer|preview|files|report|export))?$/.exec(
+          /^\/api\/conversations\/([^/]+)(?:\/(events|messages|stop|draft|changes|apply|save|answer|preview|files|download|report|export|exports))?$/.exec(
             path,
           );
         if (conversationMatch) {
@@ -495,12 +541,38 @@ export function application(
             action = conversationMatch[2],
             c = store.conversation(id),
             project = store.project(c.projectId);
+          if (action === "download" && method === "GET") {
+            const file = documentDownload(
+              store,
+              project,
+              c.workspace,
+              url.searchParams.get("path") || "",
+            );
+            res.setHeader("Content-Type", file.type);
+            res.setHeader(
+              "Content-Disposition",
+              `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+            );
+            res.end(file.bytes);
+            return;
+          }
           if (!action && method === "GET") {
             json(res, { conversation: c, events: store.events(id) });
             return;
           }
           if (action === "report" && method === "GET") {
             json(res, report(store, id));
+            return;
+          }
+          if (action === "exports" && method === "GET") {
+            json(
+              res,
+              store.db
+                .prepare(
+                  "SELECT * FROM exports WHERE conversationId=? ORDER BY rowid DESC LIMIT 100",
+                )
+                .all(id),
+            );
             return;
           }
           if (action === "events" && method === "GET") {
@@ -555,12 +627,14 @@ export function application(
             json(
               res,
               project.kind === "system"
-                ? (
-                    await host.tablet.files(
-                      url.searchParams.get("path") || "",
-                    )
-                  ).files
-                : listFiles(c.workspace, url.searchParams.get("path") || ""),
+                ? (await host.tablet.files(url.searchParams.get("path") || ""))
+                    .files
+                : documentEntries(
+                    store,
+                    project,
+                    c.workspace,
+                    url.searchParams.get("path") || "",
+                  ),
             );
             return;
           }
@@ -683,7 +757,7 @@ export function application(
                   json(
                     res,
                     data.text !== undefined
-                      ? saveReport(store, id, data.text, data.hash)
+                      ? saveReport(store, id, data.text, data.hash, data.path)
                       : await prepareReport(
                           store,
                           id,

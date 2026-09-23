@@ -30,6 +30,8 @@ export type ExportRecord = {
   hash: string;
   cloudState: string;
   webUrl: string;
+  createdAt: string;
+  destination: string;
 };
 export function reportPath(store: Store, id: string) {
   return (
@@ -87,6 +89,7 @@ export function saveReport(
   id: string,
   text: unknown,
   hash: unknown,
+  expectedPath?: unknown,
 ) {
   const c = store.conversation(id),
     current = report(store, id);
@@ -99,7 +102,10 @@ export function saveReport(
     text.includes("\0")
   )
     throw new Error("A report needs text and must be under 500 KB.");
-  if (hash !== current.hash)
+  if (
+    hash !== current.hash ||
+    (expectedPath !== undefined && expectedPath !== current.path)
+  )
     throw new Error(
       "The report changed while you were editing. Your text is kept here; reload the latest version before saving.",
     );
@@ -138,8 +144,7 @@ function cleanAst(node: any): any {
 }
 export function exportRecord(store: Store, id: string) {
   const row = store.db.prepare("SELECT * FROM exports WHERE id=?").get(id) as
-    | ExportRecord
-    | undefined;
+    ExportRecord | undefined;
   if (!row)
     throw new Error("Export not found. Create a fresh export from the report.");
   return row;
@@ -256,9 +261,16 @@ export async function makeExport(
       basename(current.path, extname(current.path)) + `.${format}`;
     store.db
       .prepare(
-        "INSERT INTO exports(id,conversationId,filename,format,hash) VALUES (?,?,?,?,?)",
+        "INSERT INTO exports(id,conversationId,filename,format,hash,createdAt) VALUES (?,?,?,?,?,?)",
       )
-      .run(exportId, id, filename, format, current.hash);
+      .run(
+        exportId,
+        id,
+        filename,
+        format,
+        current.hash,
+        new Date().toISOString(),
+      );
     return exportRecord(store, exportId);
   } catch {
     rmSync(output, { force: true });

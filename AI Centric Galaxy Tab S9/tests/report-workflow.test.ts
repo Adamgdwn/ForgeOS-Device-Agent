@@ -188,6 +188,17 @@ test("adding material after drafting retains report edits and source baselines; 
       /changed while/,
     );
     assert.equal(report(store, c.id).text, "# Revised");
+    assert.throws(
+      () =>
+        saveReport(
+          store,
+          c.id,
+          "Wrong document",
+          report(store, c.id).hash,
+          "Reports/Other.md",
+        ),
+      /changed while/,
+    );
     await assert.rejects(prepareReport(store, c.id, "../outside.md"), /path/);
   } finally {
     store.close();
@@ -381,6 +392,50 @@ test("HTTP gather → draft → export is authenticated, repeat imports are idem
     ).data;
     const c = (await call("/api/conversations", "POST", { projectId: p.id }))
       .data;
+    const instance = (await call("/api/bootstrap")).data.instanceId;
+    const recoveryKey = `${instance}:report:${c.id}`;
+    assert.equal(
+      (
+        await call(
+          `/api/recovery?key=${encodeURIComponent(recoveryKey)}`,
+          "GET",
+          undefined,
+          false,
+        )
+      ).status,
+      401,
+    );
+    const recovered = {
+      kind: "report",
+      text: "Unfinished note",
+      hash: "",
+      path: "Reports/Summary report.md",
+    };
+    assert.equal(
+      (
+        await call("/api/recovery", "POST", {
+          key: recoveryKey,
+          value: recovered,
+          revision: 0,
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await call(`/api/recovery?key=${encodeURIComponent(recoveryKey)}`)).data
+        .value.text,
+      recovered.text,
+    );
+    assert.equal(
+      (
+        await call("/api/recovery", "POST", {
+          key: recoveryKey,
+          value: null,
+          revision: 0,
+        })
+      ).status,
+      400,
+    );
     const payload = {
       id: randomUUID(),
       projectId: p.id,
@@ -427,6 +482,81 @@ test("HTTP gather → draft → export is authenticated, repeat imports are idem
       401,
     );
     assert.match((await call(url + "/download")).data, /Approved timeline/);
+    const exportedHistory = await call(`/api/conversations/${c.id}/exports`);
+    assert.equal(exportedHistory.data[0].id, exported.data.id);
+    assert.ok(exportedHistory.data[0].createdAt);
+    assert.equal(
+      (
+        await call(
+          `/api/conversations/${c.id}/exports`,
+          "GET",
+          undefined,
+          false,
+        )
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await call(
+          url + "/device-receipt",
+          "POST",
+          { destination: "Downloads / Summary.md" },
+          false,
+        )
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await call(url + "/device-receipt", "POST", {
+          destination: "Downloads / Summary.md",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await call(`/api/conversations/${c.id}/exports`)).data[0]
+        .deviceDestination,
+      "Downloads / Summary.md",
+    );
+    const files = await call(`/api/conversations/${c.id}/files?path=Sources`);
+    const batchPath = files.data[0].path;
+    const batchFiles = (
+      await call(
+        `/api/conversations/${c.id}/files?path=${encodeURIComponent(batchPath)}`,
+      )
+    ).data;
+    const sourceFile = batchFiles.find((f: any) => f.name === "01-minutes.txt");
+    assert.equal(sourceFile.displayName, "minutes.txt");
+    const download = `/api/conversations/${c.id}/download?path=${encodeURIComponent(sourceFile.path)}`;
+    assert.equal((await call(download, "GET", undefined, false)).status, 401);
+    assert.equal(
+      (await call(download)).bytes.toString(),
+      "Decision: approve timeline",
+    );
+    assert.equal(
+      (await call(`/api/projects/${p.id}/download?path=..%2Fsecret.txt`))
+        .status,
+      400,
+    );
+    const submissionId = randomUUID();
+    store.db
+      .prepare("INSERT INTO submissions VALUES (?,?,?,?)")
+      .run(submissionId, c.id, "Already sent", "uncertain");
+    assert.equal(
+      (await call(`/api/submissions/${submissionId}`, "GET", undefined, false))
+        .status,
+      401,
+    );
+    assert.equal(
+      (await call(`/api/submissions/${submissionId}`)).data.submission.state,
+      "uncertain",
+    );
+    assert.equal(
+      (await call(`/api/submissions/${randomUUID()}`)).data.submission,
+      null,
+    );
     const destination = {
       slot: 1,
       parentId: "root",
@@ -442,6 +572,10 @@ test("HTTP gather → draft → export is authenticated, repeat imports are idem
       /already submitted/,
     );
     assert.equal(publications, 1);
+    const uncertain = (await call(`/api/conversations/${c.id}/exports`))
+      .data[0];
+    assert.equal(uncertain.cloudState, "uncertain");
+    assert.match(uncertain.destination, /Summary.md/);
   } finally {
     host.active = null;
     await app.close();

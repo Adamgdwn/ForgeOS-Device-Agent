@@ -102,7 +102,26 @@ export async function readDocument(root: string, path: string) {
   if (!stat.isFile() || stat.size > documentByteLimit(path))
     throw new Error(DOCUMENT_LIMIT_MESSAGE);
   let text: string;
-  if (ext === ".eml") {
+  let officeTruncated = false;
+  if ([".xlsx", ".pptx"].includes(ext)) {
+    try {
+      const result = JSON.parse(
+        (
+          await execute(
+            "python3",
+            [resolve(ROOT, "server/office-text.py"), full],
+            { timeout: 15_000, maxBuffer: 1_000_000 },
+          )
+        ).stdout,
+      );
+      text = result.text;
+      officeTruncated = result.truncated;
+    } catch {
+      throw new Error(
+        "Office text could not be read. Open the original in Excel or PowerPoint; encrypted, malformed or oversized content is unsupported.",
+      );
+    }
+  } else if (ext === ".eml") {
     const extracted = safePath(root, path + ".extracted.txt");
     text =
       existsSync(extracted) && lstatSync(extracted).size <= 500_000
@@ -142,8 +161,8 @@ export async function readDocument(root: string, path: string) {
   return {
     path,
     text: text.slice(0, 100_000),
-    truncated: text.length > 100_000,
-    extracted: [".docx", ".pdf", ".eml"].includes(ext),
+    truncated: officeTruncated || text.length > 100_000,
+    extracted: [".docx", ".xlsx", ".pptx", ".pdf", ".eml"].includes(ext),
   };
 }
 export const digest = (data: string | Buffer) =>
@@ -152,13 +171,7 @@ export async function git(cwd: string, args: string[]) {
   return (
     await execute(
       "git",
-      [
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        "commit.gpgsign=false",
-        ...args,
-      ],
+      ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args],
       { cwd, timeout: 20_000, maxBuffer: 3_000_000 },
     )
   ).stdout;

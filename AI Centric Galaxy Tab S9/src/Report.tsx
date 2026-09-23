@@ -13,6 +13,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api, type Account, type Conversation } from "./api.ts";
+import { useRecovery } from "./use-recovery.ts";
+import { recoverySnapshot, type ReportDraft } from "./recovery-store.ts";
 
 type ReportData = {
   path: string;
@@ -26,8 +28,15 @@ type ExportData = {
   filename: string;
   format: string;
   hash: string;
+  createdAt: string;
+  cloudState: string;
+  webUrl: string;
+  destination: string;
+  deviceDestination: string;
+  deviceSavedAt: string;
 };
 export function Report({
+  recoveryKey,
   meeting = false,
   conversation,
   accounts,
@@ -38,6 +47,7 @@ export function Report({
   addition,
   consumeAddition,
 }: {
+  recoveryKey: string;
   meeting?: boolean;
   conversation: Conversation | null;
   accounts: Account[];
@@ -50,9 +60,34 @@ export function Report({
 }) {
   const [report, setReport] = useState<ReportData | null>(null),
     [error, setError] = useState("");
-  const [editing, setEditing] = useState(false),
-    [text, setText] = useState(""),
-    [editHash, setEditHash] = useState("");
+  const recovery = useRecovery<ReportDraft>(recoveryKey);
+  const [editChoice, setEditing] = useState<boolean | null>(null);
+  const editing = editChoice ?? !!recovery.value;
+  const text = recovery.value?.text || "";
+  const editHash = recovery.value?.hash || "";
+  const conflict =
+    !!recovery.value &&
+    !!report &&
+    (editHash !== report.hash || recovery.value.path !== report.path);
+  const [outputs, setOutputs] = useState<ExportData[]>([]);
+  const setText = (value: string | ((text: string) => string)) => {
+    const previous = recoverySnapshot(recoveryKey).value as ReportDraft | null;
+    recovery.write({
+      kind: "report",
+      hash: previous?.hash ?? report?.hash ?? "",
+      path: previous?.path || report?.path || "",
+      text: typeof value === "function" ? value(previous?.text || "") : value,
+    });
+  };
+  function startEditing(value: ReportData, text = value.text) {
+    recovery.write({
+      kind: "report",
+      text,
+      hash: value.hash,
+      path: value.path,
+    });
+    setEditing(true);
+  }
   const [busy, setBusy] = useState(false),
     [format, setFormat] = useState("docx"),
     [exported, setExported] = useState<ExportData | null>(null);
@@ -78,14 +113,13 @@ export function Report({
   const currentConversation = useRef(conversation?.id);
   currentConversation.current = conversation?.id;
   useEffect(() => {
-    setEditing(false);
-    setText("");
     setError("");
     setExported(null);
     setDestination(false);
   }, [conversation?.id]);
   useEffect(() => {
     if (
+      !recovery.ready ||
       !addition ||
       addition.id === handledAddition.current ||
       addition.conversationId !== conversation?.id
@@ -95,8 +129,9 @@ export function Report({
     consumeAddition();
     const section =
       "\n\n## From the conversation\n\n" + answerForReport(addition.text);
-    if (editing) {
+    if (recovery.value) {
       setText((old) => old.trimEnd() + section);
+      setEditing(true);
       return;
     }
     void run(async () => {
@@ -108,13 +143,14 @@ export function Report({
       );
       if (currentConversation.current !== id) return;
       setReport(latest);
-      setText((latest.text || "# Summary report").trimEnd() + section);
-      setEditHash(latest.hash);
-      setEditing(true);
+      startEditing(
+        latest,
+        (latest.text || "# Summary report").trimEnd() + section,
+      );
       setExported(null);
       await refresh();
     });
-  }, [addition?.id]);
+  }, [addition?.id, recovery.ready, recoveryKey]);
   useEffect(() => {
     let cancelled = false;
     if (!conversation) {
@@ -132,6 +168,27 @@ export function Report({
       cancelled = true;
     };
   }, [conversation?.id, conversation?.status, revision]);
+  useEffect(() => {
+    let cancelled = false;
+    if (conversation)
+      void api<ExportData[]>(`/conversations/${conversation.id}/exports`)
+        .then((rows) => {
+          if (!cancelled) setOutputs(rows);
+        })
+        .catch((e) => {
+          if (!cancelled) setError(e.message);
+        });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation?.id, revision, exported?.id, receipt]);
+  function selectOutput(row: ExportData) {
+    setExported(row);
+    setFilename(row.filename);
+    setReceipt(row.cloudState === "saved" ? row.webUrl : "");
+    setSubmitted(!!row.cloudState);
+    setDestination(false);
+  }
   useEffect(() => {
     let cancelled = false;
     setFolders([]);
@@ -192,7 +249,25 @@ export function Report({
           <RefreshCw size={17} />
         </button>
       </div>
-      {!report?.exists && !editing ? (
+      {recovery.error ? (
+        <p role="alert" className="inline-error">
+          {recovery.error}
+        </p>
+      ) : null}
+      {recovery.value ? (
+        <p className="recovery-status" role="status">
+          {!recovery.ready
+            ? "Checking recovery…"
+            : recovery.saving
+              ? "Saving recovery copy…"
+              : recovery.error
+                ? "Unsaved edits · recovery unconfirmed"
+                : "Unsaved edits · recovery saved"}
+        </p>
+      ) : report?.exists ? (
+        <p className="recovery-status">Saved report</p>
+      ) : null}
+      {!report?.exists && !editing && !recovery.value ? (
         <div className="report-empty">
           <FileText size={30} />
           <h3>Turn the material into a report.</h3>
@@ -202,7 +277,7 @@ export function Report({
           </p>
           <button
             className="primary"
-            disabled={busy || running}
+            disabled={busy || running || !recovery.ready}
             onClick={() => void run(prepare)}
           >
             <PencilLine size={16} />{" "}
@@ -224,52 +299,99 @@ export function Report({
             </span>
             <button
               className="secondary compact"
-              disabled={busy || running}
+              disabled={busy || running || !recovery.ready}
               onClick={() => {
                 if (editing) {
                   setEditing(false);
                   return;
                 }
+                if (recovery.value) {
+                  setEditing(true);
+                  return;
+                }
                 void run(async () => {
                   if (!report?.configured || conversation?.mode !== "draft")
                     await prepare(report!.path);
-                  setText(report!.text);
-                  setEditHash(report!.hash);
-                  setEditing(true);
+                  startEditing(report!);
                 });
               }}
             >
-              {editing ? "Cancel editing" : "Edit text"}
+              {editing
+                ? "Finish later"
+                : recovery.value
+                  ? "Resume edits"
+                  : "Edit text"}
             </button>
           </div>
           {editing ? (
             <div className="report-editor">
+              {conflict ? (
+                <div className="connection-warning" role="alert">
+                  The saved report changed after these edits began. Your
+                  recovery copy is preserved; saving it over the newer report is
+                  blocked.
+                  <details>
+                    <summary>View latest saved text</summary>
+                    <pre className="document-preview">{report?.text}</pre>
+                  </details>
+                  <button
+                    className="secondary compact"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Discard your unsaved edits and start from the latest saved report?",
+                        )
+                      )
+                        startEditing(report!);
+                    }}
+                  >
+                    Use latest saved version
+                  </button>
+                </div>
+              ) : null}
               <label>
                 Edit report (Markdown)
                 <textarea
                   aria-label="Report text"
+                  disabled={busy || !recovery.ready}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                 />
               </label>
               <button
                 className="primary"
-                disabled={busy || running}
+                disabled={busy || running || conflict || !recovery.ready}
                 onClick={() =>
                   void run(async () => {
                     const r = await api<ReportData>(
                       `/conversations/${conversation!.id}/report`,
                       "POST",
-                      { text, hash: editHash },
+                      { text, hash: editHash, path: recovery.value?.path },
                     );
                     setReport(r);
+                    recovery.write(null);
                     setEditing(false);
-                    setExported(null);
                     await refresh();
                   })
                 }
               >
                 {meeting ? "Save brief" : "Save draft text"}
+              </button>
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Discard the unsaved edits? The saved report stays unchanged.",
+                    )
+                  ) {
+                    recovery.write(null);
+                    setEditing(false);
+                  }
+                }}
+              >
+                Discard unsaved edits
               </button>
             </div>
           ) : (
@@ -325,7 +447,9 @@ export function Report({
               </label>
               <button
                 className="primary"
-                disabled={busy || running || editing}
+                disabled={
+                  busy || running || !!recovery.value || !recovery.ready
+                }
                 onClick={() =>
                   void run(async () => {
                     const r = await api<ExportData>(
@@ -333,20 +457,61 @@ export function Report({
                       "POST",
                       { format, hash: report!.hash },
                     );
-                    setExported(r);
-                    setFilename(r.filename);
-                    setReceipt("");
-                    setSubmitted(false);
-                    setDestination(false);
+                    selectOutput(r);
                   })
                 }
               >
                 {busy ? "Working…" : "Prepare export"}
               </button>
             </div>
+            {outputs.length ? (
+              <details className="output-history">
+                <summary>Previous exports ({outputs.length})</summary>
+                {outputs.map((row) => (
+                  <button
+                    key={row.id}
+                    className="output-row"
+                    onClick={() => selectOutput(row)}
+                  >
+                    <strong>{row.filename}</strong>
+                    <span>
+                      {row.createdAt
+                        ? new Date(row.createdAt).toLocaleString()
+                        : "Earlier export"}{" "}
+                      ·{" "}
+                      {row.hash === report?.hash
+                        ? "Current saved version"
+                        : "Earlier report version"}
+                    </span>
+                    <span>
+                      {row.cloudState === "saved"
+                        ? "Saved to OneDrive"
+                        : row.cloudState
+                          ? "Cloud save unconfirmed — check destination"
+                          : row.deviceSavedAt
+                            ? "Android confirmed a saved copy"
+                            : "Prepared copy · device save not confirmed"}
+                    </span>
+                    {row.destination ? <span>{row.destination}</span> : null}
+                    {row.deviceSavedAt ? (
+                      <span>
+                        {row.deviceDestination} ·{" "}
+                        {new Date(row.deviceSavedAt).toLocaleString()}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </details>
+            ) : null}
             {exported ? (
               <div className="export-ready">
                 <strong>{exported.filename}</strong>
+                {exported.cloudState && exported.cloudState !== "saved" ? (
+                  <p role="status">
+                    The earlier cloud save is unconfirmed. Check its
+                    destination; Galaxy will not retry it automatically.
+                  </p>
+                ) : null}
                 {exported.hash !== report?.hash ? (
                   <p>
                     The draft has changed. This copy contains the earlier
@@ -358,7 +523,10 @@ export function Report({
                   href={`/api/exports/${exported.id}/download`}
                   download={exported.filename}
                 >
-                  <Download size={17} /> Download to this device
+                  <Download size={17} />{" "}
+                  {/GalaxyWorkspace\//.test(navigator.userAgent)
+                    ? "Open / save / share copy"
+                    : "Download to this device"}
                 </a>
                 <button
                   className="secondary"
@@ -502,6 +670,9 @@ export function Report({
                               connectionId: identity,
                               parentId: stack.at(-1)?.id || "root",
                               name: filename,
+                              folderLabel:
+                                stack.map((s) => s.name).join(" / ") ||
+                                "OneDrive root",
                             },
                           );
                           setReceipt(result.webUrl);

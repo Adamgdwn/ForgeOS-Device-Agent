@@ -36,7 +36,16 @@ import { Report } from "./Report.tsx";
 import { TabletStatus } from "./Tablet.tsx";
 import { outlookWarnings } from "./outlook-warnings.ts";
 import { Modal } from "./Modal.tsx";
-function Pair({ done }: { done: () => void }) {
+import {
+  emptyChat,
+  recoverySnapshot,
+  writeRecovery,
+  flushRecovery,
+  type ChatDraft,
+} from "./recovery-store.ts";
+import { useRecovery } from "./use-recovery.ts";
+import { documentType } from "../shared/document-types.ts";
+function Pair({ done, tablet }: { done: () => void; tablet: boolean }) {
   const [code, setCode] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -49,7 +58,11 @@ function Pair({ done }: { done: () => void }) {
         Galaxy<span>WORKSPACE</span>
       </div>
       <div className="pair-card">
-        <div className="eyebrow">YOUR WORKSTATION, WITH YOU</div>
+        <div className="eyebrow">
+          {tablet
+            ? "YOUR WORKSPACE, ON THIS TABLET"
+            : "YOUR WORKSTATION, WITH YOU"}
+        </div>
         <h1>
           Make room
           <br />
@@ -59,6 +72,12 @@ function Pair({ done }: { done: () => void }) {
           Pair this browser to explore your files, continue a conversation, and
           review changes from wherever you work.
         </p>
+        {tablet ? (
+          <p role="status">
+            Tap Home above, then Connection → Reconnect this tablet. Your saved
+            work stays here; no terminal or pairing code is needed.
+          </p>
+        ) : null}
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -76,9 +95,9 @@ function Pair({ done }: { done: () => void }) {
           }}
         >
           <label>
-            Workstation pairing code
+            Workspace pairing code
             <input
-              autoFocus
+              autoFocus={!tablet}
               type="password"
               autoComplete="off"
               value={code}
@@ -100,13 +119,20 @@ function Pair({ done }: { done: () => void }) {
         <details>
           <summary>Where do I find my code?</summary>
           <p>
-            On your workstation, open this project folder in a terminal and
-            run <code>npm run pair</code>. Enter the code here. Your Microsoft
-            account sign-ins are added separately inside the workspace.
+            {tablet ? (
+              "In the Galaxy launcher, open Connection and choose Reconnect this tablet. "
+            ) : (
+              <>
+                On your workstation, open this project folder in a terminal and
+                run <code>npm run pair</code>. Enter the code here.{" "}
+              </>
+            )}
+            Your Microsoft account sign-ins are added separately inside the
+            workspace.
           </p>
         </details>
         <div className="pair-security">
-          <ShieldCheck size={16} /> A private connection to your host
+          <ShieldCheck size={16} /> A private connection to your workspace
         </div>
       </div>
       <div className="pair-orbit" aria-hidden="true">
@@ -118,8 +144,13 @@ function Pair({ done }: { done: () => void }) {
 export function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null),
     [data, setData] = useState<Bootstrap | null>(null);
+  const [sessionError, setSessionError] = useState(""),
+    [sessionAttempt, setSessionAttempt] = useState(0),
+    [tabletRuntime, setTabletRuntime] = useState(false);
   const [page, setPage] = useState<"workspace" | "connections">("workspace"),
-    [projectId, setProjectId] = useState(""),
+    [projectId, setProjectId] = useState(
+      () => new URLSearchParams(location.hash.slice(1)).get("project") || "",
+    ),
     [conversationId, setConversationId] = useState(
       () =>
         new URLSearchParams(location.hash.slice(1)).get("conversation") || "",
@@ -132,13 +163,15 @@ export function App() {
     [tab, setTab] = useState<"files" | "review" | "report">("files");
   const [folder, setFolder] = useState(""),
     [files, setFiles] = useState<FileEntry[]>([]),
-    [filesLoading, setFilesLoading] = useState(false),
-    [attachments, setAttachments] = useState<string[]>([]);
+    [filesLoading, setFilesLoading] = useState(false);
   const [preview, setPreview] = useState<{
       path: string;
       text: string;
       extracted: boolean;
       truncated: boolean;
+      displayName?: string;
+      extractionPath?: string;
+      error?: string;
       source?: { originalName: string; webUrl: string; label: string };
     } | null>(null),
     [review, setReview] = useState<any[]>([]),
@@ -166,6 +199,22 @@ export function App() {
   const system = project?.kind === "system";
   const assistant =
     project?.kind === "assistant" || project?.kind === "meeting";
+  const chatScope = `${data?.instanceId || "opening"}:chat:${project?.id || ""}:`;
+  const chatKey = chatScope + (conversation?.id || "new");
+  const chatRecovery = useRecovery<ChatDraft>(chatKey);
+  const chatDraft = chatRecovery.value || emptyChat;
+  const attachments = chatDraft.attachments;
+  function setAttachments(
+    value: string[] | ((previous: string[]) => string[]),
+  ) {
+    const latest =
+      (recoverySnapshot(chatKey).value as ChatDraft | null) || emptyChat;
+    writeRecovery(chatKey, {
+      ...latest,
+      attachments:
+        typeof value === "function" ? value(latest.attachments) : value,
+    });
+  }
   const notify = useCallback((message: string) => setError(message), []);
   const refresh = useCallback(async () => {
     const next = await api<Bootstrap>("/bootstrap");
@@ -180,13 +229,43 @@ export function App() {
     return () => window.removeEventListener("galaxy-unpaired", unpair);
   }, []);
   useEffect(() => {
-    void api<{ authenticated: boolean }>("/session")
-      .then((s) => setAuthenticated(s.authenticated))
-      .catch((e) => {
-        setError(e.message);
-        setAuthenticated(false);
-      });
-  }, []);
+    let cancelled = false;
+    const controller = new AbortController();
+    setSessionError("");
+    void (async () => {
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          const response = await fetch("/api/session", {
+            credentials: "same-origin",
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(6000),
+            ]),
+          });
+          if (!response.ok) throw new Error("Workspace is still starting.");
+          const session = await response.json();
+          if (typeof session.authenticated !== "boolean")
+            throw new Error("Workspace is still starting.");
+          if (!cancelled) {
+            setTabletRuntime(session.runtime === "tablet");
+            setAuthenticated(session.authenticated);
+          }
+          return;
+        } catch {
+          if (cancelled) return;
+          if (attempt < 2) await new Promise((done) => setTimeout(done, 1000));
+        }
+      }
+      if (!cancelled)
+        setSessionError(
+          "The workspace engine has not responded yet. Your saved work is still here. Retry once it is running.",
+        );
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [sessionAttempt]);
   useEffect(() => {
     if (authenticated) void refresh().catch((e) => setError(e.message));
   }, [authenticated, refresh]);
@@ -194,11 +273,9 @@ export function App() {
     history.replaceState(
       null,
       "",
-      conversationId
-        ? `#conversation=${encodeURIComponent(conversationId)}`
-        : location.pathname,
+      `#${new URLSearchParams({ ...(projectId ? { project: projectId } : {}), ...(conversationId ? { conversation: conversationId } : {}) })}`,
     );
-  }, [conversationId]);
+  }, [conversationId, projectId]);
   useEffect(() => {
     if (conversation && conversation.projectId !== projectId)
       setProjectId(conversation.projectId);
@@ -288,7 +365,6 @@ export function App() {
   }, [conversationId, refresh, notify]);
   useEffect(() => {
     setFolder("");
-    setAttachments([]);
     setTab("files");
   }, [projectId]);
   useEffect(() => {
@@ -350,26 +426,44 @@ export function App() {
           path = path.slice(root.length + 1);
       path = path.split("#")[0];
       try {
-        setPreview(
-          await api(
-            `/${
-              conversationId
-                ? `conversations/${conversationId}`
-                : `projects/${project.id}`
-            }/preview?path=${encodeURIComponent(path)}`,
-          ),
+        const result = await api(
+          `/${
+            conversationId
+              ? `conversations/${conversationId}`
+              : `projects/${project.id}`
+          }/preview?path=${encodeURIComponent(path)}`,
         );
+        const entry = files.find((file) => file.path === path);
+        setPreview({
+          ...result,
+          displayName: entry?.displayName,
+          extractionPath: entry?.extractionPath,
+        });
       } catch (e) {
-        notify((e as Error).message);
+        setPreview({
+          path,
+          text: "",
+          extracted: false,
+          truncated: false,
+          error: (e as Error).message,
+        });
       }
     },
-    [project, conversationId, conversation?.workspace, notify],
+    [project, conversationId, conversation?.workspace, notify, files],
   );
   async function newConversation() {
     if (!project) throw new Error("Choose a workspace first.");
     const created = await api<Conversation>("/conversations", "POST", {
       projectId: project.id,
     });
+    if (!conversation) {
+      const draft = recoverySnapshot(chatKey).value;
+      if (draft) {
+        writeRecovery(chatScope + created.id, draft);
+        await flushRecovery(chatScope + created.id);
+        writeRecovery(chatKey, null);
+      }
+    }
     setConversationId(created.id);
     setPage("workspace");
     await refresh();
@@ -425,15 +519,24 @@ export function App() {
     return (
       <main className="loading-page">
         <Sparkles size={30} />
-        <p>Opening Galaxy Workspace…</p>
+        <p role="status">{sessionError || "Opening Galaxy Workspace…"}</p>
+        {sessionError ? (
+          <button
+            className="secondary"
+            onClick={() => setSessionAttempt((n) => n + 1)}
+          >
+            Retry connection
+          </button>
+        ) : null}
       </main>
     );
-  if (!authenticated) return <Pair done={() => setAuthenticated(true)} />;
+  if (!authenticated)
+    return <Pair tablet={tabletRuntime} done={() => setAuthenticated(true)} />;
   if (!data || !project)
     return (
       <main className="loading-page">
         <Sparkles size={30} />
-        <p>{error || "Connecting to your workstation…"}</p>
+        <p>{error || "Opening your saved workspace…"}</p>
         {error ? (
           <button
             className="secondary"
@@ -761,6 +864,9 @@ export function App() {
               className={`workspace-body ${tab === "report" ? "with-report" : ""}`}
             >
               <Chat
+                recoveryKey={chatKey}
+                recoveryScope={chatScope}
+                consumeRequest={() => setChatRequest(null)}
                 project={project}
                 conversation={conversation}
                 events={events}
@@ -768,8 +874,6 @@ export function App() {
                 onNew={newConversation}
                 refresh={refresh}
                 onPreview={(path) => void openPreview(path)}
-                attachments={attachments}
-                setAttachments={setAttachments}
                 notify={notify}
                 request={chatRequest}
                 onAddToReport={(text) => {
@@ -819,6 +923,7 @@ export function App() {
                 {!system && (
                   <div className="report-container" hidden={tab !== "report"}>
                     <Report
+                      recoveryKey={`${data.instanceId}:report:${conversationId || project.id}`}
                       meeting={assistant}
                       addition={reportAddition}
                       consumeAddition={() => setReportAddition(null)}
@@ -847,9 +952,7 @@ export function App() {
                           className="icon-button"
                           aria-label="Parent folder"
                           onClick={() =>
-                            setFolder(
-                              folder.split("/").slice(0, -1).join("/"),
-                            )
+                            setFolder(folder.split("/").slice(0, -1).join("/"))
                           }
                         >
                           <ArrowLeft size={15} />
@@ -884,11 +987,11 @@ export function App() {
                               )}
                             </span>
                             <span>
-                              <strong>{file.name}</strong>
+                              <strong>{file.displayName || file.name}</strong>
                               <small>
                                 {file.directory
                                   ? "Folder"
-                                  : `${Math.max(
+                                  : `${file.role ? file.role + " · " : ""}${Math.max(
                                       1,
                                       Math.round(file.size / 1024),
                                     )} KB · ${file.name
@@ -1070,7 +1173,12 @@ export function App() {
       ) : null}
       {preview ? (
         <Modal
-          title={preview.path.split("/").at(-1) || "File preview"}
+          title={
+            preview.source?.originalName ||
+            preview.displayName ||
+            preview.path.split("/").at(-1) ||
+            "File preview"
+          }
           close={() => setPreview(null)}
         >
           <div className="preview-meta">
@@ -1079,6 +1187,18 @@ export function App() {
               : "Document preview"}
             {preview.truncated ? " · Preview truncated" : ""}
           </div>
+          <details className="document-details">
+            <summary>Document details</summary>
+            <p>Workspace path: {preview.path}</p>
+            {preview.extractionPath ? (
+              <button
+                className="secondary compact"
+                onClick={() => void openPreview(preview.extractionPath!)}
+              >
+                View extracted text copy
+              </button>
+            ) : null}
+          </details>
           {preview.source ? (
             <div className="source-reference">
               <Cloud size={15} />
@@ -1097,7 +1217,23 @@ export function App() {
             </div>
           ) : null}
           <pre className="document-preview">{preview.text}</pre>
+          {preview.error ? (
+            <p className="inline-error" role="alert">
+              {preview.error}
+            </p>
+          ) : null}
           <div className="modal-footer">
+            {!system && documentType(preview.path) ? (
+              <a
+                className="secondary"
+                download
+                href={`/api/${conversationId ? `conversations/${conversationId}` : `projects/${project.id}`}/download?path=${encodeURIComponent(preview.path)}`}
+              >
+                {/GalaxyWorkspace\//.test(navigator.userAgent)
+                  ? "Open / save a copy"
+                  : "Download file"}
+              </a>
+            ) : null}
             {!system && /\.(md|txt)$/i.test(preview.path) ? (
               <button
                 className="secondary"

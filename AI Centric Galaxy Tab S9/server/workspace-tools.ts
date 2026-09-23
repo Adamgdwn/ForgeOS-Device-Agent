@@ -27,7 +27,7 @@ export const workspaceTools = [
   ),
   tool(
     "workspace_read",
-    "Read a workspace-relative document, including Word/PDF/email text. Includes an exact hash for plain-text draft edits.",
+    "Read workspace-relative Word/PDF/email text, Excel cells or PowerPoint slide text. Read coverage warnings: Excel formulas are not recalculated and charts/layout are not assessed. Includes an exact hash for plain-text draft edits.",
     { path: { type: "string" } },
     ["path"],
   ),
@@ -74,7 +74,9 @@ export class WorkspaceTools {
     if (["assistant", "meeting", "system"].includes(project.kind))
       throw new Error("Use the tools for this workspace.");
     if (!allowWrites && !["workspace_files", "workspace_read"].includes(name))
-      throw new Error("Quick answers and briefings are read-only. Use Full conversation to request changes.");
+      throw new Error(
+        "Quick answers and briefings are read-only. Use Full conversation to request changes.",
+      );
     this.busy = true;
     try {
       if (name === "workspace_files")

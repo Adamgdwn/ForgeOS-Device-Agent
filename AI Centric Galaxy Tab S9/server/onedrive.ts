@@ -116,9 +116,7 @@ export class OneDrive {
   }
   accounts() {
     const accounts = this.store.db
-      .prepare(
-        "SELECT * FROM accounts WHERE status <> 'removed' ORDER BY slot",
-      )
+      .prepare("SELECT * FROM accounts WHERE status <> 'removed' ORDER BY slot")
       .all() as unknown as Account[];
     if (readSettings().existingMicrosoft) accounts.push(this.account(4));
     return accounts.map(({ homeId, ...a }) => ({
@@ -259,9 +257,7 @@ export class OneDrive {
     };
     this.pending.set(slot, { request });
     this.store.db
-      .prepare(
-        "UPDATE accounts SET label=?, status='connecting' WHERE slot=?",
-      )
+      .prepare("UPDATE accounts SET label=?, status='connecting' WHERE slot=?")
       .run(label.trim().slice(0, 60) || `OneDrive ${slot}`, slot);
     void app
       .acquireTokenByDeviceCode(request)
@@ -387,9 +383,7 @@ export class OneDrive {
         parsed.pathname =
           drivePath + parsed.pathname.slice("/v1.0/me/drive/".length);
       if (!parsed.pathname.startsWith(drivePath))
-        throw new Error(
-          "This request does not belong to the linked OneDrive.",
-        );
+        throw new Error("This request does not belong to the linked OneDrive.");
       url = parsed.toString();
     }
     const token = await this.token(slot);
@@ -456,9 +450,7 @@ export class OneDrive {
   async content(slot: number, item: CloudItem) {
     const homeId = this.account(slot).homeId;
     if (!homeId)
-      throw new Error(
-        "Reconnect this OneDrive account before opening files.",
-      );
+      throw new Error("Reconnect this OneDrive account before opening files.");
     if (item.folder || !visible(item.name))
       throw new Error("Choose a visible document to open.");
     if (
@@ -486,10 +478,7 @@ export class OneDrive {
           )
         : await bytes(response, documentByteLimit(item.name));
     const latest: CloudItem = await (
-      await this.request(
-        slot,
-        `/me/drive/items/${encodeURIComponent(item.id)}`,
-      )
+      await this.request(slot, `/me/drive/items/${encodeURIComponent(item.id)}`)
     ).json();
     if (this.account(slot).homeId !== homeId)
       throw new Error(
@@ -506,10 +495,7 @@ export class OneDrive {
         "The selected account changed. Browse and select the file again.",
       );
     const item: CloudItem = await (
-      await this.request(
-        slot,
-        `/me/drive/items/${encodeURIComponent(itemId)}`,
-      )
+      await this.request(slot, `/me/drive/items/${encodeURIComponent(itemId)}`)
     ).json();
     if (this.account(slot).homeId !== homeId)
       throw new Error(
@@ -624,9 +610,7 @@ export class OneDrive {
         checkIdentity(slot);
         const homeId = this.account(slot).homeId;
         if (!homeId)
-          throw new Error(
-            "Reconnect this OneDrive account before importing.",
-          );
+          throw new Error("Reconnect this OneDrive account before importing.");
         const data = await this.content(slot, item);
         downloaded += data.length;
         if (downloaded > MAX_BATCH_BYTES)
@@ -706,9 +690,9 @@ export class OneDrive {
       throw new Error(
         "This host connection supports browsing and importing only. Your edits remain in the local draft.",
       );
-    if (/\.(?:docx|pdf)$/i.test(source.originalName))
+    if (/\.(?:docx|xlsx|pptx|pdf)$/i.test(source.originalName))
       throw new Error(
-        "Word and PDF write-back needs format-preserving editing and is not enabled in this pilot.",
+        "Office and PDF originals must be edited in their document apps. Export a copy and explicitly import the revision.",
       );
     const content = readFileSync(safePath(workspace, localName));
     if (content.includes(0) || content.length === 0 || content.length > 500_000)

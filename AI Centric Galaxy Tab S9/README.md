@@ -12,15 +12,16 @@ Open **Galaxy Workspace → Open workspace**. The launcher starts its local Term
 
 - **Assistant:** discuss an upcoming meeting, read the existing Outlook calendar and relevant mail, gather dated source snapshots, and save a named meeting brief. Outlook comes forward during reading; keep the tablet unlocked. Sign-in and partial-coverage warnings remain visible. Opening mail may mark it read.
 - **Workspaces:** gather selected OneDrive files, Android documents and pasted/saved emails. Ask for a summary, compare sources, discuss findings and refine an isolated report. Quick answers and briefings are read-only; Full conversation supports requested draft changes.
-- **Reports:** edit beside chat; preserve source links; export Word, PDF or Markdown. Cloud publication requires an explicit destination and action.
+- **Reports:** edit beside chat, recover unfinished edits, and export Word, PDF or Markdown. Previous exports retain their version and save receipts. Cloud publication requires an explicit destination and action.
+- **Office files:** import and discuss Word, Excel and PowerPoint; open originals/copies in the installed Android apps. Open, Save a copy and Share a copy are available from document previews and report exports. Re-import Office edits explicitly with Add material.
 - **System:** inspect tablet health, installed applications and shared-storage files. Four supported settings use proposal, Apply, read-back and conditional Undo.
 - **Connections:** independent Microsoft sign-ins plus the migrated existing CLI connection. Both current connected accounts passed live root browsing on the tablet. The reused CLI connection supports reads/imports and local drafts; cloud writes remain disabled for it.
 
-The installed packages are Galaxy Workspace **0.3.0**, Galaxy Device Tools **0.2.0**, and Termux. Keep Termux installed: it holds the runtime, saved work and local Codex sign-in. Voice typing uses the tablet keyboard; Google voice typing is enabled, but actual spoken accuracy needs the user's test.
+The installed packages are Galaxy Workspace **0.4.0**, Galaxy Device Tools **0.2.0**, and Termux. Keep Termux installed: it holds the runtime, saved work and local Codex sign-in. Voice typing uses the tablet keyboard; Google voice typing is enabled, but actual spoken accuracy needs the user's test.
 
 Read the [user guide](docs/2026-09-22%20-%20User%20Guide.md), [deployment runbook](docs/2026-09-22%20-%20Runbook.md), [Android implementation](docs/2026-09-22%20-%20Android%20App.md), [design and boundaries](docs/2026-09-22%20-%20Design%20and%20Boundaries.md), and [verification record](docs/2026-09-22%20-%20Verification.md).
 
-The [executive workflow plan](docs/2026-09-22%20-%20Executive%20Workflow%20Plan.md) maps meeting preparation, document editing, filing, sharing and Windows handoff against the current implementation. It prioritizes unsaved-text recovery, native document handoffs, complete document reading and portable workspaces. These are planned increments, not installed capabilities; use the guide's existing-app fallbacks meanwhile.
+The [executive workflow plan](docs/2026-09-22%20-%20Executive%20Workflow%20Plan.md) maps meeting preparation, document editing, filing, sharing and Windows handoff against the current implementation. It prioritizes unsaved-text recovery, native document handoffs, complete document reading and portable workspaces. Recovery, local re-pairing, original-file downloads, native Open/Save/Share, export history and Excel/PowerPoint text previews are delivered in 0.4.0. Full long-document reading, revision association, folder shortcuts and portable workspaces remain planned.
 
 ## Develop and verify
 
@@ -33,7 +34,7 @@ npm ci
 ./galaxy android-build
 ```
 
-The Android build runs APK assembly, seven launcher/transfer-policy tests and lint, with a ten-minute timeout and one Gradle worker. The parent `bash scripts/governance-preflight.sh` is required before substantial changes.
+The Android build runs APK assembly, eight launcher/transfer-policy tests and lint, with a ten-minute timeout and one Gradle worker. The parent `bash scripts/governance-preflight.sh` is required before substantial changes.
 
 The standalone runtime is under Termux's `~/galaxy-workspace`. `scripts/tablet-engine.sh` starts the local service; `scripts/tablet-codex.sh` supplies Android compatibility for the pinned official Codex client, `codex-cli 0.154.0-alpha.6.2`. PRoot supplies a resolver-file binding, not a security sandbox. Every Android worker has shell tools disabled and receives only its typed workspace, Assistant or System tools. Each turn is bounded to ten minutes; only one turn runs at a time.
 
@@ -43,4 +44,4 @@ The optional workstation mode still uses `./galaxy start`, `./galaxy register /a
 
 Outlook access reads its visible UI, not a complete mailbox/calendar export. Account synchronization, cached events, screen lock and organizational restrictions can limit it. The September 22 sign-in warning concerned an unused campaign account, not the Council account, as Adam clarified. That account is not required for field testing. Current meeting details still need confirmation from the relevant calendar and emails.
 
-Actual OneDrive publication/conflict behavior, a full day of battery/network switching, stylus/DeX use and speech recognition remain field tests. Offline AI, arbitrary terminal control, spreadsheet editing, OCR and formatting-preserving Office edits are not implemented. The repository contains source and synthetic fixtures; all credentials, real documents, databases, APKs and private verification evidence are ignored.
+Actual OneDrive publication/conflict behavior, a full day of battery/network switching, stylus/DeX use and speech recognition remain field tests. Offline AI, arbitrary terminal control, OCR and Office editing inside Galaxy are not implemented. XLSX previews show stored cells/formulas, not recalculated values; PPTX previews show text/notes, not visual slide analysis. Extracted text remains capped at 100,000 characters. Use Excel, PowerPoint and Word for editing and save a copy before re-importing. Office editing depends on the account’s entitlement. The repository contains source and synthetic fixtures; all credentials, real documents, databases, APKs and private verification evidence are ignored.

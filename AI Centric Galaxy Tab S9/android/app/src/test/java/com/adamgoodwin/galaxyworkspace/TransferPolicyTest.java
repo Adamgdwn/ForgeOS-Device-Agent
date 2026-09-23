@@ -4,6 +4,20 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class TransferPolicyTest {
+    @Test public void officeCopiesStayOnExactAuthenticatedDocumentRoutes() {
+        String origin = "http://localhost:4318";
+        String path = "/api/conversations/11111111-1111-4111-8111-111111111111/download?path=Sources%2FBudget.xlsx";
+        assertTrue(TransferPolicy.documentUrl(origin, origin + path));
+        assertTrue(TransferPolicy.documentUrl(origin, origin + path.replace("conversations", "projects")));
+        for (String url : new String[]{"https://elsewhere.example" + path, origin + path + "&redirect=x", origin + path + "#x", origin + "/api/session", origin + path.replace("path=", "token=")})
+            assertFalse(url, TransferPolicy.documentUrl(origin, url));
+        String excel = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        String slides = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        assertEquals(excel, TransferPolicy.mime(excel));
+        assertEquals("Budget.xlsx", TransferPolicy.filename("attachment; filename*=UTF-8''Budget.xlsx", excel));
+        assertEquals("Council slides.pptx", TransferPolicy.filename("attachment; filename*=UTF-8''Council%20slides.pptx", slides));
+        assertNull(TransferPolicy.mime("application/javascript"));
+    }
     @Test public void onlyExactOriginExportEndpointsCanDownload() {
         String origin = "http://localhost:4318";
         String path = "/api/exports/11111111-1111-4111-8111-111111111111/download";

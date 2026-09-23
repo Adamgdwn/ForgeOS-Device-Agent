@@ -2,6 +2,14 @@
 
 Last Updated: 2026-09-22
 
+## 0.4.0 recovery and Office handoffs
+
+Acknowledged draft recovery is private SQLite state, keyed by engine instance, workspace/conversation and editor kind. The browser's synchronous localStorage copy is a fallback. Compare-and-swap revisions reject stale concurrent views; explicit clears retain tombstones. Editors wait for initial hydration, and an AI submission's unique identity must be durably acknowledged before POST. Reconnection checks recorded submissions with GET and never automatically sends them again. Report recovery includes the base content hash and path; stale edits cannot overwrite a different saved report.
+
+Exports retain immutable snapshots, timestamps and publication/save receipts across reloads. Authenticated, same-origin downloads serve supported original files through validated workspace paths and size bounds. Extraction sidecars are grouped beneath original document details. XLSX/PPTX readers have ZIP entry/uncompressed-size/XML limits, reject entities and unsafe relationship paths, ignore external relationships and never evaluate formulas or fetch resources. Stored values, missing caches, hidden content, slide/image limits and truncation are labelled. This is text access, not complete visual understanding or Office editing.
+
+The Android user explicitly chooses Open, Save or Share. A narrow private FileProvider supplies read-only temporary copies to the chosen app; edits require a separate Office copy and Add material to return. The launcher tracks the last selected saved URI and displays success only after output closes. The main app gains no broad storage grant or JS/native bridge. A one-use native pairing ticket connects only the existing localhost Termux engine; no model tool can request it or launch another app. See the Android implementation and runbook for lifetime and rollback details.
+
 ## Current standalone architecture
 
 The September 22 user instruction supersedes the original host dependency. Galaxy's native launcher and WebView connect to Node/SQLite/files in Termux on the same tablet. A local Codex login supplies AI access over the internet. The optional workstation mode below remains for development; it is not required in meetings.

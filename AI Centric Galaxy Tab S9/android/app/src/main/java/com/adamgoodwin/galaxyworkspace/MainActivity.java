@@ -3,6 +3,10 @@ package com.adamgoodwin.galaxyworkspace;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.ClipData;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -54,6 +58,9 @@ import java.io.ByteArrayOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.io.File;
+import java.io.FileOutputStream;
+import androidx.core.content.FileProvider;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -91,9 +98,15 @@ public final class MainActivity extends Activity {
     private String selectionOrigin;
     private byte[] reportDownload;
     private boolean downloading;
+    private String downloadName, downloadType, downloadUrl;
+    private AlertDialog connectionDialog;
+    private PendingIntent pairingResult;
+    private String pairingAction;
+    private static java.lang.ref.WeakReference<MainActivity> active = new java.lang.ref.WeakReference<>(null);
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        active = new java.lang.ref.WeakReference<>(this);
         preferences = getSharedPreferences("workspace", MODE_PRIVATE);
         try { origin = WorkspaceAddress.normalize(preferences.getString("origin", WorkspaceAddress.USB)); }
         catch (IllegalArgumentException ignored) { origin = WorkspaceAddress.USB; }
@@ -253,6 +266,13 @@ public final class MainActivity extends Activity {
         checkButton = button("Check connection", false, v -> checkConnection());
         actions.addView(checkButton, new LinearLayout.LayoutParams(wide ? -2 : -1, -2));
         connection.addView(actions);
+        if (preferences.contains("savedDocument")) {
+            gap(connection, 10);
+            connection.addView(button("Last saved file: " + preferences.getString("savedName", "Document"), false, v -> {
+                Uri saved = Uri.parse(preferences.getString("savedDocument", ""));
+                showSavedFile(saved, preferences.getString("savedType", "application/octet-stream"), preferences.getString("savedName", "Document"));
+            }));
+        }
         content.addView(connection);
         gap(content, 17);
         LinearLayout footer = wide ? row() : column();
@@ -286,6 +306,75 @@ public final class MainActivity extends Activity {
         } catch (Exception ignored) {
             Toast.makeText(this, "Install and set up the Galaxy local engine first.", Toast.LENGTH_LONG).show();
         }
+    }
+    private void reconnectTablet() {
+        if (!origin.equals(WorkspaceAddress.USB) || !preferences.getBoolean("localEngine", false) || pairingResult != null) return;
+        if (connectionDialog != null) connectionDialog.dismiss();
+        startLocalEngine();
+        if (checkSelfPermission("com.termux.permission.RUN_COMMAND") != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+        pairingAction = getPackageName() + ".PAIR." + java.util.UUID.randomUUID();
+        Intent result = new Intent(this, PairResultReceiver.class).setAction(pairingAction);
+        pairingResult = PendingIntent.getBroadcast(this, 0, result, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_MUTABLE);
+        Intent command = new Intent("com.termux.RUN_COMMAND").setClassName("com.termux", "com.termux.app.RunCommandService");
+        command.putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash");
+        command.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{"/data/data/com.termux/files/home/galaxy-workspace/scripts/tablet-engine.sh", "--pair"});
+        command.putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home/galaxy-workspace");
+        command.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
+        command.putExtra("com.termux.RUN_COMMAND_BACKGROUND_CUSTOM_LOG_LEVEL", "0");
+        command.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pairingResult);
+        try {
+            startService(command);
+            Toast.makeText(this, "Reconnecting this tablet…", Toast.LENGTH_SHORT).show();
+            ui.postDelayed(() -> {
+                if (pairingResult != null) {
+                    pairingResult.cancel(); pairingResult = null; pairingAction = null;
+                    Toast.makeText(this, "Recovery timed out. Try Reconnect this tablet again.", Toast.LENGTH_LONG).show();
+                }
+            }, 60000);
+        } catch (Exception ignored) {
+            pairingResult.cancel(); pairingResult = null; pairingAction = null;
+            Toast.makeText(this, "The local engine could not reconnect. Check its Termux permission.", Toast.LENGTH_LONG).show();
+        }
+    }
+    public static final class PairResultReceiver extends BroadcastReceiver {
+        @Override public void onReceive(Context context, Intent intent) {
+            MainActivity activity = active.get();
+            if (activity == null || activity.isDestroyed() || activity.pairingAction == null || !activity.pairingAction.equals(intent.getAction())) return;
+            activity.pairingResult = null; activity.pairingAction = null;
+            Bundle result = intent.getBundleExtra("result");
+            String ticket = result == null ? "" : result.getString("stdout", "").trim();
+            if (result == null || result.getInt("exitCode", -1) != 0 || !ticket.matches("[A-Za-z0-9_-]{43}")) {
+                Toast.makeText(activity, "Local recovery could not finish. Try again from Connection.", Toast.LENGTH_LONG).show(); return;
+            }
+            activity.finishPairing(ticket);
+        }
+    }
+    private void finishPairing(String ticket) {
+        if (!origin.equals(WorkspaceAddress.USB) || !preferences.getBoolean("localEngine", false)) return;
+        network.execute(() -> {
+            String cookie = null;
+            HttpURLConnection request = null;
+            try {
+                if (!waitForLocalEngine()) throw new java.io.IOException();
+                request = (HttpURLConnection) new URL(WorkspaceAddress.USB + "/api/session/native").openConnection();
+                request.setConnectTimeout(5000); request.setReadTimeout(5000); request.setInstanceFollowRedirects(false);
+                request.setRequestMethod("POST"); request.setDoOutput(true);
+                request.setRequestProperty("Content-Type", "application/json"); request.setRequestProperty("Origin", WorkspaceAddress.USB); request.setRequestProperty("X-Galaxy-Request", "1");
+                try (java.io.OutputStream output = request.getOutputStream()) { output.write(new JSONObject().put("ticket", ticket).toString().getBytes(StandardCharsets.UTF_8)); }
+                if (request.getResponseCode() == 200) cookie = request.getHeaderField("Set-Cookie");
+            } catch (Exception ignored) { }
+            finally { if (request != null) request.disconnect(); }
+            String sessionCookie = cookie;
+            ui.post(() -> {
+                if (isDestroyed() || !origin.equals(WorkspaceAddress.USB) || !preferences.getBoolean("localEngine", false)) return;
+                if (sessionCookie == null) { Toast.makeText(this, "The engine is not ready yet. Try Reconnect this tablet again.", Toast.LENGTH_LONG).show(); return; }
+                CookieManager.getInstance().setCookie(origin, sessionCookie, ok -> {
+                    CookieManager.getInstance().flush();
+                    if (browser != null) browser.reload();
+                    openWorkspace();
+                });
+            });
+        });
     }
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
@@ -326,7 +415,7 @@ public final class MainActivity extends Activity {
                 connectionState.setTextColor(connected ? GREEN : INK);
                 boolean usb = origin.equals(WorkspaceAddress.USB);
                 connectionHint.setText(preferences.getBoolean("localEngine", false)
-                    ? (connected && onTablet ? "Running on this tablet · No computer needed." : "Open the local engine in Termux, then check again. Internet is needed for AI replies.")
+                    ? (connected && onTablet ? "Running on this tablet · No computer needed." : "Tap Open workspace to start the engine on this tablet. Internet is needed for AI replies.")
                     : connected
                     ? (usb ? "Connected through USB · Keep your computer awake." : "Your workstation is reachable · Ready to open.")
                     : (usb ? "Keep the USB cable connected and the workspace running on your computer." : "Check your private network and make sure your computer is awake."));
@@ -349,8 +438,13 @@ public final class MainActivity extends Activity {
         form.addView(address, new LinearLayout.LayoutParams(-1, -2));
         gap(form, 16);
         form.addView(text("Use this tablet starts its installed local engine. No computer or VPN is needed. An HTTPS address can connect to a separately configured workstation.", 14, MUTED, "sans-serif"));
+        if (preferences.getBoolean("localEngine", false) && origin.equals(WorkspaceAddress.USB)) {
+            gap(form, 12);
+            form.addView(button("Reconnect this tablet", false, v -> reconnectTablet()));
+        }
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Your connection").setView(form)
             .setNegativeButton("Cancel", null).setNeutralButton("Use this tablet", null).setPositiveButton("Save", null).create();
+        connectionDialog = dialog;
         dialog.setOnShowListener(ignored -> {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
                 origin = WorkspaceAddress.USB;
@@ -394,6 +488,7 @@ public final class MainActivity extends Activity {
         showingWorkspace = true;
         home.setVisibility(View.GONE);
         if (workspace == null) createWorkspace();
+        else if (loadFailed) loadWorkspaceUrl(preferences.getString("lastUrl", origin));
         workspace.setVisibility(View.VISIBLE);
     }
 
@@ -508,7 +603,39 @@ public final class MainActivity extends Activity {
         webArea.addView(browser, new FrameLayout.LayoutParams(-1, -1));
         root.addView(workspace, new LinearLayout.LayoutParams(-1, 0, 1));
         String saved = preferences.getString("lastUrl", origin);
-        browser.loadUrl(WorkspaceAddress.contains(origin, saved) ? saved : origin);
+        loadWorkspaceUrl(saved);
+    }
+
+    private boolean waitForLocalEngine() {
+        for (int attempt = 0; attempt < 12 && !Thread.currentThread().isInterrupted(); attempt++) {
+            HttpURLConnection request = null;
+            try {
+                request = (HttpURLConnection) new URL(WorkspaceAddress.USB + "/api/session").openConnection();
+                request.setConnectTimeout(700); request.setReadTimeout(700); request.setInstanceFollowRedirects(false); request.setUseCaches(false);
+                if (request.getResponseCode() == 200) {
+                    JSONObject result = new JSONObject(new String(request.getInputStream().readNBytes(2048), StandardCharsets.UTF_8));
+                    if ("tablet".equals(result.optString("runtime")) && result.opt("authenticated") instanceof Boolean) return true;
+                }
+            } catch (Exception ignored) { }
+            finally { if (request != null) request.disconnect(); }
+            try { Thread.sleep(250); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return false; }
+        }
+        return false;
+    }
+    private void loadWorkspaceUrl(String saved) {
+        String target = WorkspaceAddress.contains(origin, saved) ? saved : origin;
+        if (!preferences.getBoolean("localEngine", false) || !origin.equals(WorkspaceAddress.USB)) { browser.loadUrl(target); return; }
+        WebView expected = browser;
+        progress.setIndeterminate(true); progress.setVisibility(View.VISIBLE);
+        network.execute(() -> {
+            boolean ready = waitForLocalEngine();
+            ui.post(() -> {
+                if (isDestroyed() || browser != expected) return;
+                progress.setIndeterminate(false);
+                if (ready) browser.loadUrl(target);
+                else showConnectionError("The local engine is still starting", "Tap Reconnect to try again. Your saved work and unsent drafts remain on this tablet.");
+            });
+        });
     }
 
     private void rememberUrl(String url) {
@@ -520,15 +647,15 @@ public final class MainActivity extends Activity {
     }
     private void downloadReport(String url, String disposition, String mime) {
         String type = TransferPolicy.mime(mime);
-        if (downloading || reportDownload != null || type == null || !TransferPolicy.exportUrl(origin, url)) {
-            Toast.makeText(this, "Prepare a report export, then download it from the workspace.", Toast.LENGTH_LONG).show();
+        if (downloading || reportDownload != null || type == null || !TransferPolicy.documentUrl(origin, url)) {
+            Toast.makeText(this, "Choose a supported document or report export in the workspace.", Toast.LENGTH_LONG).show();
             return;
         }
         String cookie = CookieManager.getInstance().getCookie(origin);
         String downloadOrigin = origin;
         String filename = TransferPolicy.filename(disposition, type);
         downloading = true;
-        Toast.makeText(this, "Preparing report download…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Preparing document…", Toast.LENGTH_SHORT).show();
         network.execute(() -> {
             HttpURLConnection request = null;
             byte[] result = null;
@@ -542,7 +669,7 @@ public final class MainActivity extends Activity {
                     byte[] buffer = new byte[8192]; int count;
                     long deadline = android.os.SystemClock.elapsedRealtime() + 30_000;
                     while ((count = input.read(buffer)) != -1) {
-                        if (output.size() + count > 8_000_000 || android.os.SystemClock.elapsedRealtime() > deadline) throw new java.io.IOException();
+                        if (output.size() + count > 20_000_000 || android.os.SystemClock.elapsedRealtime() > deadline) throw new java.io.IOException();
                         output.write(buffer, 0, count);
                     }
                     result = output.toByteArray();
@@ -554,10 +681,96 @@ public final class MainActivity extends Activity {
                 downloading = false;
                 if (isDestroyed() || !origin.equals(downloadOrigin)) return;
                 if (bytes == null || bytes.length == 0) { Toast.makeText(this, "Download failed. Reconnect and try the saved export again.", Toast.LENGTH_LONG).show(); return; }
-                reportDownload = bytes;
-                Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type).putExtra(Intent.EXTRA_TITLE, filename);
-                try { startActivityForResult(save, SAVE_REPORT); }
-                catch (ActivityNotFoundException ignored) { reportDownload = null; Toast.makeText(this, "No file picker is available.", Toast.LENGTH_LONG).show(); }
+                reportDownload = bytes; downloadName = filename; downloadType = type; downloadUrl = url;
+                new AlertDialog.Builder(this).setTitle(filename)
+                    .setItems(new String[]{"Open in app", "Save a copy", "Share a copy"}, (dialog, which) -> {
+                        if (which == 1) saveDocument(); else prepareAppCopy(which == 2);
+                    }).setOnCancelListener(dialog -> reportDownload = null).show();
+            });
+        });
+    }
+    private void saveDocument() {
+        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(downloadType).putExtra(Intent.EXTRA_TITLE, downloadName);
+        save.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try { startActivityForResult(save, SAVE_REPORT); }
+        catch (ActivityNotFoundException ignored) { reportDownload = null; Toast.makeText(this, "No file picker is available.", Toast.LENGTH_LONG).show(); }
+    }
+    private void prepareAppCopy(boolean share) {
+        byte[] bytes = reportDownload; reportDownload = null;
+        String name = downloadName, type = downloadType;
+        if (bytes == null) return;
+        network.execute(() -> {
+            Uri uri = null;
+            try {
+                File parent = new File(getFilesDir(), "transfers");
+                parent.mkdirs();
+                File[] old = parent.listFiles();
+                if (old != null) for (File directory : old) {
+                    if (directory.lastModified() < System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000) {
+                        File[] files = directory.listFiles(); if (files != null) for (File file : files) file.delete();
+                        directory.delete();
+                    }
+                }
+                old = parent.listFiles();
+                if (old != null && old.length >= 20) throw new java.io.IOException("Transfer limit");
+                File folder = new File(parent, java.util.UUID.randomUUID().toString());
+                if (!folder.mkdir()) throw new java.io.IOException();
+                File file = new File(folder, name);
+                try (FileOutputStream output = new FileOutputStream(file)) { output.write(bytes); }
+                uri = FileProvider.getUriForFile(this, getPackageName() + ".transfers", file);
+            } catch (Exception ignored) { }
+            Uri copy = uri;
+            ui.post(() -> {
+                if (isDestroyed()) return;
+                if (copy == null) { Toast.makeText(this, "Could not prepare an app copy. Use Save a copy instead.", Toast.LENGTH_LONG).show(); return; }
+                handoff(copy, type, name, share);
+            });
+        });
+    }
+    private void handoff(Uri uri, String type, String name, boolean share) {
+        Intent intent = new Intent(share ? Intent.ACTION_SEND : Intent.ACTION_VIEW);
+        if (share) { intent.setType(type); intent.putExtra(Intent.EXTRA_STREAM, uri); intent.putExtra(Intent.EXTRA_SUBJECT, name); }
+        else intent.setDataAndType(uri, type);
+        intent.setClipData(ClipData.newRawUri(name, uri));
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(intent, share ? "Share a copy" : "Open document"));
+            if (!share) Toast.makeText(this, "To edit, save your own copy in the Office app. Bring it back with Add material.", Toast.LENGTH_LONG).show();
+        } catch (ActivityNotFoundException | SecurityException ignored) { Toast.makeText(this, "No app could open this file. Save a copy and open it from My Files.", Toast.LENGTH_LONG).show(); }
+    }
+    private void showSavedFile(Uri uri, String type, String name) {
+        new AlertDialog.Builder(this).setTitle("Saved: " + name).setMessage("The file was written to your selected location. Open it or share a copy; sharing does not send automatically.")
+            .setPositiveButton("Open", (d, w) -> handoff(uri, type, name, false))
+            .setNeutralButton("Share", (d, w) -> handoff(uri, type, name, true))
+            .setNegativeButton("Done", null).show();
+    }
+    private void recordDeviceSave(String url, String savedOrigin, Uri destination, String name) {
+        if (!origin.equals(savedOrigin) || !TransferPolicy.exportUrl(savedOrigin, url)) return;
+        String cookie = CookieManager.getInstance().getCookie(savedOrigin);
+        String location = destination.getAuthority();
+        try {
+            String id = android.provider.DocumentsContract.getDocumentId(destination);
+            if (id.startsWith("primary:")) location = id.substring(8);
+        } catch (Exception ignored) { }
+        String receiptLocation = location + " / " + name;
+        network.execute(() -> {
+            HttpURLConnection request = null;
+            boolean recorded = false;
+            try {
+                request = (HttpURLConnection) new URL(url.substring(0, url.length() - "download".length()) + "device-receipt").openConnection();
+                request.setConnectTimeout(5000); request.setReadTimeout(5000); request.setInstanceFollowRedirects(false);
+                request.setRequestMethod("POST"); request.setDoOutput(true);
+                request.setRequestProperty("Content-Type", "application/json"); request.setRequestProperty("Origin", savedOrigin); request.setRequestProperty("X-Galaxy-Request", "1");
+                if (cookie != null) request.setRequestProperty("Cookie", cookie);
+                try (java.io.OutputStream output = request.getOutputStream()) { output.write(new JSONObject().put("destination", receiptLocation).toString().getBytes(StandardCharsets.UTF_8)); }
+                recorded = request.getResponseCode() == 200;
+            } catch (Exception ignored) { }
+            finally { if (request != null) request.disconnect(); }
+            boolean complete = recorded;
+            ui.post(() -> {
+                if (isDestroyed()) return;
+                if (complete && browser != null && origin.equals(savedOrigin)) browser.reload();
+                else if (!complete) Toast.makeText(this, "File saved. Its export-history receipt could not be recorded; Last saved file remains available from Home.", Toast.LENGTH_LONG).show();
             });
         });
     }
@@ -576,15 +789,31 @@ public final class MainActivity extends Activity {
             callback.onReceiveValue(selected.isEmpty() ? null : selected.toArray(new Uri[0]));
         } else if (requestCode == SAVE_REPORT) {
             byte[] bytes = reportDownload; reportDownload = null;
+            String type = downloadType, savedUrl = downloadUrl, savedOrigin = origin;
             Uri destination = data == null ? null : data.getData();
             if (resultCode != RESULT_OK || bytes == null || destination == null || !TransferPolicy.selectedContent(destination.toString(), getPackageName())) return;
+            String selectedName = downloadName;
+            try (android.database.Cursor cursor = getContentResolver().query(destination, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) selectedName = cursor.getString(0).substring(0, Math.min(240, cursor.getString(0).length()));
+            } catch (Exception ignored) { }
+            String name = selectedName;
+            try {
+                if ((data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0)
+                    getContentResolver().takePersistableUriPermission(destination, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (SecurityException ignored) { }
             network.execute(() -> {
                 boolean saved = false;
                 try (java.io.OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
-                    if (output != null) { output.write(bytes); saved = true; }
-                } catch (Exception ignored) { }
+                    if (output != null) { output.write(bytes); output.flush(); saved = true; }
+                } catch (Exception ignored) { saved = false; }
                 boolean success = saved;
-                ui.post(() -> { if (!isDestroyed()) Toast.makeText(this, success ? "Report saved." : "Could not save the report. Download the export again.", Toast.LENGTH_LONG).show(); });
+                if (success) preferences.edit().putString("savedDocument", destination.toString()).putString("savedName", name).putString("savedType", type).apply();
+                ui.post(() -> {
+                    if (!isDestroyed()) {
+                        if (success) { recordDeviceSave(savedUrl, savedOrigin, destination, name); showSavedFile(destination, type, name); }
+                        else Toast.makeText(this, "Could not confirm the save. Check the selected folder before saving again.", Toast.LENGTH_LONG).show();
+                    }
+                });
             });
         }
     }
@@ -616,9 +845,10 @@ public final class MainActivity extends Activity {
         errorCard.addView(explanation);
         gap(errorCard, 24);
         errorCard.addView(button("Reconnect", true, v -> {
+            if (preferences.getBoolean("localEngine", false)) startLocalEngine();
             errorCard.setVisibility(View.GONE);
             String saved = preferences.getString("lastUrl", origin);
-            browser.loadUrl(WorkspaceAddress.contains(origin, saved) ? saved : origin);
+            loadWorkspaceUrl(saved);
         }));
         webArea.addView(errorCard, new FrameLayout.LayoutParams(-1, -1));
     }
@@ -662,6 +892,7 @@ public final class MainActivity extends Activity {
         errorCard = null;
     }
     @Override protected void onDestroy() {
+        if (pairingResult != null) pairingResult.cancel();
         healthGeneration.incrementAndGet();
         network.shutdownNow();
         ui.removeCallbacksAndMessages(null);

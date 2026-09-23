@@ -7,8 +7,8 @@ android {
         applicationId 'com.adamgoodwin.galaxyworkspace'
         minSdk 33
         targetSdk 36
-        versionCode 3
-        versionName '0.3.0'
+        versionCode 4
+        versionName '0.4.0'
     }
     buildFeatures { buildConfig true }
     compileOptions {
@@ -18,4 +18,7 @@ android {
     lint { abortOnError true }
 }
 
-dependencies { testImplementation 'junit:junit:4.13.2' }
+dependencies {
+    implementation 'androidx.core:core:1.17.0'
+    testImplementation 'junit:junit:4.13.2'
+}

@@ -3,6 +3,11 @@ set -euo pipefail
 umask 077
 cd /data/data/com.termux/files/home/galaxy-workspace
 mkdir -p .local
+if [[ "${1:-}" == "--pair" ]]; then
+  export GALAXY_RUNTIME=android GALAXY_ORIGIN=http://localhost:4318
+  exec node scripts/tablet-pair.ts
+fi
+[[ $# == 0 ]] || exit 2
 exec 9>.local/engine.lock
 flock -n 9 || exit 0
 export GALAXY_RUNTIME=android

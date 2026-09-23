@@ -2,7 +2,17 @@
 
 Last Updated: 2026-09-22
 
-Status: assessed implementation plan; the proposed features below are not installed.
+Status: 0.4.0 delivers the continuity and core Office handoff increments below. The remaining roadmap is still planned.
+
+## Delivered in 0.4.0
+
+Unsent chat/attachments and unfinished report edits now have acknowledged SQLite recovery, browser fallback and per-conversation isolation. Report edits preserve their base hash/path and reject stale saves. Engine startup failures stay distinct from pairing; the native launcher can re-pair locally without terminal codes.
+
+Workspace originals and exports support native Open, Save a copy and Share a copy. Confirmed saves offer Open/Share and a Last saved file launcher entry. Files show friendly names and grouped extraction details. Durable export history retains earlier versions and destination receipts. XLSX/PPTX can be imported, read by typed document tools and opened in the installed Office apps; extracted views label formula/cache and visual-content limits.
+
+Not delivered: complete long-PDF/page coverage, OCR, Office revision association, automatic Office writeback, Android Share intake, recent/pinned folders, destination defaults, archive controls, portable workspaces and user-facing backup/restore. Office revisions currently return through Add material. Formatted spreadsheets/decks are edited or created in the existing Office apps.
+
+The original assessment below is retained as the roadmap; the delivered-status section above supersedes its earlier gap statements.
 
 ## Product outcome
 
@@ -11,8 +21,8 @@ combine correspondence and documents, revise a report, and leave with a saved
 document he can find on Windows. The tablet runs independently. Windows, Linux
 and eventually Mac remain the places for heavier work.
 
-Galaxy owns gathering, source-aware discussion, drafting and continuity. Word
-owns Office layout and editing; OneDrive owns cloud filing and sharing; Outlook
+Galaxy owns gathering, source-aware discussion, drafting and continuity. Word,
+Excel and PowerPoint own Office layout, calculations, presentations and editing; OneDrive owns cloud filing and sharing; Outlook
 owns email and calendar actions; Samsung My Files owns ordinary device-file
 management. Use the installed PDF and note applications where they help.
 

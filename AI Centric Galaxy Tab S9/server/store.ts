@@ -56,6 +56,8 @@ export class Store {
       CREATE INDEX IF NOT EXISTS events_conversation ON events(conversationId, seq);
       CREATE TABLE IF NOT EXISTS submissions (id TEXT PRIMARY KEY, conversationId TEXT NOT NULL REFERENCES conversations(id), text TEXT NOT NULL, state TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS recovery (key TEXT PRIMARY KEY, value TEXT NOT NULL, revision INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS accounts (slot INTEGER PRIMARY KEY CHECK(slot BETWEEN 1 AND 3), label TEXT NOT NULL, homeId TEXT, username TEXT, status TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS imports (projectId TEXT NOT NULL REFERENCES projects(id), localName TEXT NOT NULL, slot INTEGER NOT NULL, driveId TEXT NOT NULL, itemId TEXT NOT NULL, etag TEXT NOT NULL, webUrl TEXT NOT NULL, originalName TEXT NOT NULL, homeId TEXT NOT NULL, PRIMARY KEY(projectId, localName));
       CREATE TABLE IF NOT EXISTS material_batches (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
@@ -63,6 +65,23 @@ export class Store {
       CREATE TABLE IF NOT EXISTS exports (id TEXT PRIMARY KEY, conversationId TEXT NOT NULL REFERENCES conversations(id), filename TEXT NOT NULL, format TEXT NOT NULL, hash TEXT NOT NULL, cloudState TEXT NOT NULL DEFAULT '', webUrl TEXT NOT NULL DEFAULT '');
       CREATE TABLE IF NOT EXISTS tablet_actions (id TEXT PRIMARY KEY, conversationId TEXT NOT NULL REFERENCES conversations(id), serial TEXT NOT NULL, setting TEXT NOT NULL, beforeValue TEXT NOT NULL, afterValue TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL, createdAt INTEGER NOT NULL, result TEXT NOT NULL);
     `);
+    this.db
+      .prepare("INSERT OR IGNORE INTO metadata VALUES ('instanceId', ?)")
+      .run(randomUUID());
+    const exportColumns = new Set(
+      this.db
+        .prepare("PRAGMA table_info(exports)")
+        .all()
+        .map((c) => c.name),
+    );
+    for (const [name, type] of Object.entries({
+      createdAt: "TEXT NOT NULL DEFAULT ''",
+      destination: "TEXT NOT NULL DEFAULT ''",
+      deviceDestination: "TEXT NOT NULL DEFAULT ''",
+      deviceSavedAt: "TEXT NOT NULL DEFAULT ''",
+    }))
+      if (!exportColumns.has(name))
+        this.db.exec(`ALTER TABLE exports ADD COLUMN ${name} ${type}`);
     for (let slot = 1; slot <= 3; slot++)
       this.db
         .prepare("INSERT OR IGNORE INTO accounts VALUES (?, ?, NULL, NULL, ?)")
@@ -77,8 +96,7 @@ export class Store {
   }
   project(id: string): Project {
     const p = this.db.prepare("SELECT * FROM projects WHERE id=?").get(id) as
-      | Project
-      | undefined;
+      Project | undefined;
     if (!p) throw new Error("Workspace not found.");
     return p;
   }
