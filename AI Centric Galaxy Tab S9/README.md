@@ -20,6 +20,8 @@ The installed packages are Galaxy Workspace **0.3.0**, Galaxy Device Tools **0.2
 
 Read the [user guide](docs/2026-09-22%20-%20User%20Guide.md), [deployment runbook](docs/2026-09-22%20-%20Runbook.md), [Android implementation](docs/2026-09-22%20-%20Android%20App.md), [design and boundaries](docs/2026-09-22%20-%20Design%20and%20Boundaries.md), and [verification record](docs/2026-09-22%20-%20Verification.md).
 
+The [executive workflow plan](docs/2026-09-22%20-%20Executive%20Workflow%20Plan.md) maps meeting preparation, document editing, filing, sharing and Windows handoff against the current implementation. It prioritizes unsaved-text recovery, native document handoffs, complete document reading and portable workspaces. These are planned increments, not installed capabilities; use the guide's existing-app fallbacks meanwhile.
+
 ## Develop and verify
 
 The workstation remains the build surface. Use Node 24.14 or later; npm dependencies are locked. Android builds discover the existing SDK and use the checksum-pinned Gradle wrapper.

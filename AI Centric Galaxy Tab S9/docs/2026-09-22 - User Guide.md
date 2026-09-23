@@ -32,6 +32,33 @@ A saved brief appears as a named workspace. Reopen it and say “Make the openin
 
 Imports are snapshots, not continuous synchronization. Re-import if cloud originals change. A batch supports up to 50 source files: Word/PDF up to 20 MB each, other files up to 8 MB each, and 25 MB total. Word/PDF text, plain text, Markdown, CSV/TSV, JSON and saved `.eml` messages are supported; OCR, `.msg` and full spreadsheet editing are not.
 
+## Work with Word, PDFs and the file manager
+
+Word, Excel, PowerPoint, OneDrive, Outlook, Samsung My Files and Xodo are already installed. Galaxy's preview is for reading extracted text. Use the existing document apps for formatting, spreadsheet work and PDF layout. Their editing/sign-in state has not been verified by this workflow review. Word editing on a large tablet depends on the signed-in account's [Microsoft 365 entitlement](https://support.microsoft.com/en-us/microsoft-365-activation-licensing/mobile/what-you-can-do-in-the-microsoft-365-apps-on-mobile-devices-with-a-microsoft-365-subscription).
+
+For an existing OneDrive document:
+
+1. Use **Open original**, or find the same account and file in the OneDrive app. The link may open a browser; it does not guarantee Word will launch.
+2. To keep a device copy, use OneDrive's file menu **More → Save** and choose a folder. Find it in **My Files** and open it with Word or your PDF app. This is Microsoft's documented [download flow](https://support.microsoft.com/en-us/onedrive/how-to-download-onedrive-files-to-your-mobile); app wording or organizational restrictions may differ.
+3. If making a separate assessment, save a working copy before changing the original. Finish the edit and confirm where the document was saved.
+4. Back in Galaxy, use **Add material** to import the revised file. Say which version to use. Galaxy does not automatically receive changes made in Word or OneDrive.
+
+For a Galaxy report, first **Save draft text**, then **Export a copy → Word → Prepare export → Download to this device**. Choose a memorable destination in Android's save picker, then open the file through My Files. Galaxy currently shows a save notification; it has no direct **Open in Word** or **Share** button after download.
+
+The exported Word document and Galaxy's report draft are separate copies. Bringing a revised DOCX back adds a source document; it does not replace the text in the report editor. Ask for proposed changes or a new report revision explicitly. Word formatting is not preserved by Galaxy's text editor.
+
+## File, share and continue on Windows
+
+Use OneDrive for cloud folders and My Files for device folders. Keep using your existing filing structure. Galaxy does not currently provide folder bookmarks, cloud filename search, moving/renaming originals or automatic folder synchronization.
+
+To send a finished report, download it and attach it in Outlook, or use the OneDrive app's sharing controls. Choose the sender account, recipients and permissions there, then send from that app. Galaxy does not send mail or create follow-up calendar events/tasks.
+
+For Windows, save the finished file into the intended OneDrive account/folder, or transfer the downloaded copy normally. Open it on Windows to confirm it arrived. After further edits, re-import the new version on the tablet. Galaxy's conversations and private workspaces do not synchronize to Windows, and pushing the app's Git repository does not back them up.
+
+Before changing conversations or closing the app, save report edits and copy any important unsent text elsewhere: automatic recovery of unsaved text is not implemented. Before going offline, export and open the brief and original documents you need. Local saved work remains on the tablet, but offline cold-start and a full meeting without network are still acceptance tests; AI replies need internet. A long or scanned agenda may not be fully readable by Galaxy even when its original opens in a PDF app.
+
+The [executive workflow plan](2026-09-22%20-%20Executive%20Workflow%20Plan.md) records the gaps and the intended app handoffs. Its proposed buttons and features are not installed yet.
+
 ## Connections and folders
 
 Open **Connections → Browse files** and open a folder. **Tap a document's name to read its text**. Choose **Select for workspace** in the preview, or use the checkboxes beside filenames to select several documents. Name the collection and tap **Open as a workspace**; when adding to existing work, tap **Add to workspace**. In the workspace, open **Files**, tap a document, and choose **Use in conversation** to discuss it. Word/PDF previews show extracted text; use **Open original** for the original document. Long previews are labelled when shortened.
