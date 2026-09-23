@@ -1,7 +1,33 @@
 # Voice-first Assistant and Windows handoff
 
 Last Updated: 2026-09-23
-Status: implementation plan and development handoff; these changes are not yet installed
+Status: implementation plan and development handoff; 0.4.1 voice preview installed beside 0.4.0
+
+September 23 Windows continuation: the Galaxy 0.4.1 source now has an in-composer
+Talk action using Android's speech recognition intent, a Type toggle, and an
+authenticated local handoff bound to the session, conversation recovery key and
+saved draft revision. It never sends the transcript automatically. The web and
+Android builds, Android unit tests/lint, and focused voice session tests pass on
+Windows. The full npm suite has unrelated Windows toolchain failures (Python,
+POSIX shell and document converters). This laptop's debug certificate differs
+from the installed 0.4.0 certificate. A separate `Galaxy Voice Preview`
+(`com.adamgoodwin.galaxyworkspace.voicepreview`, 0.4.1-preview) was built with
+`-PgalaxyPreview=true` and installed beside 0.4.0. Its native launcher paired
+with the same local Termux engine and preserved the existing saved work. The
+engine received only `server/main.ts`, `server/voice.ts` and `dist`; private
+`.local/`, dependencies, scripts and documents were not replaced. A private
+pre-update backup is at
+`/data/data/com.termux/files/home/galaxy-backups/2026-09-23-voice-preview/before-code-and-state.tar.gz`.
+
+Tablet checks: the preview showed Talk and Type in portrait and landscape;
+tapping the field in portrait left the on-screen keyboard closed; Talk opened
+Google's speech panel; backing out returned to the unchanged draft without
+relaunching the panel. A first native parser build treated JSON `null` as the
+string `"null"` and reopened speech repeatedly; this was corrected and the
+preview reinstalled. A spoken transcript has not yet been verified on the
+tablet. The original 0.4.0 remains installed and the new controls are gated to
+0.4.1 or later. Updating that original package still requires its old signing
+key. Never uninstall it or replace Termux's private state to bypass signing.
 Baseline: Galaxy Workspace 0.4.0, commit `d1abc1c`+
 ## What Adam wants
 
@@ -243,15 +269,15 @@ Suggested prompt for the next coding session:
 > conversation-first navigation. Keep the minister-meeting-to-OneDrive workflow
 > as the acceptance story. Inspect Windows tooling and app signing before updates.
 
-## Handoff verification and scope
+## Original handoff verification and scope
 
-This handoff changes documentation only. The application remains 0.4.0; there is
-no claim that voice, conversational OneDrive filing or Windows parity was built
-in the ten-minute handoff. Baseline verification records 64 app tests, eight
+The original ten-minute handoff changed documentation only. At that point the
+application remained 0.4.0 and voice, conversational OneDrive filing and Windows
+parity were not built. Baseline verification records 64 app tests, eight
 Android tests, builds/lint and actual tablet Office/recovery checks in the
 [September 22 verification record](2026-09-22%20-%20Verification.md).
 
-Fresh handoff checks on September 23: governance preflight passed (246 tests,
+Original handoff checks on September 23: governance preflight passed (246 tests,
 one skipped, two subtests); all 64 Galaxy tests passed; TypeScript/Vite build
 passed and produced the unchanged `index-CGukaKgj.js` bundle; all eight local
 Markdown links in this document and README resolve. No Android source changed,

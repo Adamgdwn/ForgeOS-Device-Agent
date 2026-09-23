@@ -25,6 +25,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.speech.RecognizerIntent;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -94,6 +95,10 @@ public final class MainActivity extends Activity {
     private boolean firstHome = true;
     private static final int PICK_FILES = 41;
     private static final int SAVE_REPORT = 42;
+    private static final int VOICE_INPUT = 44;
+    private boolean foreground;
+    private String voiceRequestId;
+    private final Runnable voicePoll = this::pollVoice;
     private ValueCallback<Uri[]> fileSelection;
     private String selectionOrigin;
     private byte[] reportDownload;
@@ -490,6 +495,7 @@ public final class MainActivity extends Activity {
         if (workspace == null) createWorkspace();
         else if (loadFailed) loadWorkspaceUrl(preferences.getString("lastUrl", origin));
         workspace.setVisibility(View.VISIBLE);
+        scheduleVoicePoll();
     }
 
     @SuppressLint("SetJavaScriptEnabled") // The controlled React workspace requires JS; no native bridge is exposed.
@@ -549,6 +555,7 @@ public final class MainActivity extends Activity {
                 progress.setVisibility(View.INVISIBLE);
                 if (!loadFailed) rememberUrl(url);
                 CookieManager.getInstance().flush();
+                scheduleVoicePoll();
             }
             @Override public void doUpdateVisitedHistory(WebView view, String url, boolean reload) { rememberUrl(url); }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
@@ -774,9 +781,92 @@ public final class MainActivity extends Activity {
             });
         });
     }
+    private void scheduleVoicePoll() {
+        ui.removeCallbacks(voicePoll);
+        if (foreground && showingWorkspace && browser != null && !loadFailed
+                && WorkspaceAddress.USB.equals(origin) && voiceRequestId == null)
+            ui.postDelayed(voicePoll, 900);
+    }
+    private void pollVoice() {
+        if (!foreground || !showingWorkspace || browser == null || loadFailed
+                || !WorkspaceAddress.USB.equals(origin) || voiceRequestId != null) return;
+        String cookie = CookieManager.getInstance().getCookie(origin);
+        if (cookie == null || !cookie.contains("galaxy_session=")) { scheduleVoicePoll(); return; }
+        network.execute(() -> {
+            String id = null;
+            HttpURLConnection request = null;
+            try {
+                request = (HttpURLConnection) new URL(WorkspaceAddress.USB + "/api/voice/next").openConnection();
+                request.setConnectTimeout(2000); request.setReadTimeout(2000);
+                request.setInstanceFollowRedirects(false); request.setUseCaches(false);
+                request.setRequestProperty("Cookie", cookie);
+                if (request.getResponseCode() == 200) {
+                    try (java.io.InputStream input = request.getInputStream()) {
+                        byte[] bytes = input.readNBytes(256);
+                        Object next = new JSONObject(new String(bytes, StandardCharsets.UTF_8)).opt("id");
+                        if (next instanceof String && !((String) next).isEmpty()) id = (String) next;
+                    }
+                }
+            } catch (Exception ignored) { }
+            finally { if (request != null) request.disconnect(); }
+            String claimed = id;
+            ui.post(() -> {
+                if (isDestroyed()) return;
+                if (claimed != null && !claimed.isEmpty()) {
+                    if (!foreground || !showingWorkspace || !WorkspaceAddress.USB.equals(origin)) {
+                        postVoiceResult(claimed, "canceled", "");
+                    } else {
+                        voiceRequestId = claimed;
+                        try {
+                            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Galaxy");
+                            startActivityForResult(intent, VOICE_INPUT);
+                        } catch (ActivityNotFoundException | SecurityException ignored) {
+                            voiceRequestId = null;
+                            postVoiceResult(claimed, "error", "");
+                        }
+                    }
+                }
+                scheduleVoicePoll();
+            });
+        });
+    }
+    private void postVoiceResult(String id, String status, String transcript) {
+        if (!WorkspaceAddress.USB.equals(origin)) return;
+        String cookie = CookieManager.getInstance().getCookie(origin);
+        if (cookie == null || !cookie.contains("galaxy_session=")) return;
+        network.execute(() -> {
+            HttpURLConnection request = null;
+            try {
+                request = (HttpURLConnection) new URL(WorkspaceAddress.USB + "/api/voice/result").openConnection();
+                request.setConnectTimeout(3000); request.setReadTimeout(3000);
+                request.setInstanceFollowRedirects(false); request.setUseCaches(false);
+                request.setRequestMethod("POST"); request.setDoOutput(true);
+                request.setRequestProperty("Cookie", cookie);
+                request.setRequestProperty("Content-Type", "application/json");
+                request.setRequestProperty("Origin", WorkspaceAddress.USB);
+                request.setRequestProperty("X-Galaxy-Request", "1");
+                byte[] bytes = new JSONObject().put("id", id).put("status", status)
+                    .put("text", transcript).toString().getBytes(StandardCharsets.UTF_8);
+                try (java.io.OutputStream output = request.getOutputStream()) { output.write(bytes); }
+                request.getResponseCode();
+            } catch (Exception ignored) { }
+            finally { if (request != null) request.disconnect(); }
+        });
+    }
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_FILES) {
+        if (requestCode == VOICE_INPUT) {
+            String id = voiceRequestId;
+            voiceRequestId = null;
+            if (id == null) return;
+            java.util.ArrayList<String> matches = resultCode == RESULT_OK && data != null
+                ? data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS) : null;
+            String transcript = matches != null && !matches.isEmpty() ? matches.get(0) : "";
+            postVoiceResult(id, resultCode == RESULT_OK ? (transcript.trim().isEmpty() ? "error" : "complete") : "canceled", transcript);
+            scheduleVoicePoll();
+        } else if (requestCode == PICK_FILES) {
             ValueCallback<Uri[]> callback = fileSelection; fileSelection = null;
             if (callback == null) return;
             java.util.List<Uri> selected = new java.util.ArrayList<>();
@@ -864,10 +954,14 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        foreground = true;
         if (browser != null) browser.onResume();
         if (!showingWorkspace) checkConnection();
+        scheduleVoicePoll();
     }
     @Override protected void onPause() {
+        foreground = false;
+        ui.removeCallbacks(voicePoll);
         if (browser != null) browser.onPause();
         CookieManager.getInstance().flush();
         super.onPause();

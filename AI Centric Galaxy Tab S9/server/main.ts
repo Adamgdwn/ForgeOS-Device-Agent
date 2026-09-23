@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { ROOT, PORT, ORIGIN, TABLET_RUNTIME, readSettings } from "./config.ts";
 import { Store, redact } from "./store.ts";
 import { Auth } from "./auth.ts";
+import { VoiceHandoff } from "./voice.ts";
 import { AgentHost } from "./codex.ts";
 import { ensureTabletWorkspace } from "./tablet.ts";
 import { ensureAssistantWorkspace, assistantKind } from "./assistant.ts";
@@ -72,7 +73,8 @@ export function application(
 ) {
   const auth = new Auth(store),
     locks = new Set<string>(),
-    streams = new Set<ServerResponse>();
+    streams = new Set<ServerResponse>(),
+    voice = new VoiceHandoff();
   store.recover();
   store.db
     .prepare(
@@ -162,6 +164,32 @@ export function application(
         if (path === "/api/session" && method === "DELETE") {
           auth.logout(req, res);
           json(res, { ok: true });
+          return;
+        }
+        if (path.startsWith("/api/voice/")) {
+          if (!TABLET_RUNTIME || ORIGIN !== "http://localhost:4318")
+            throw new Error("Talk is available in the tablet workspace.");
+          const cookie = auth.cookie(req);
+          if (path === "/api/voice/start" && method === "POST") {
+            const data = await body(req);
+            const [, kind, projectId, conversationId] = String(data.key).split(":");
+            if (kind !== "chat" || (conversationId !== "new" &&
+                store.conversation(conversationId).projectId !== projectId))
+              throw new Error("Choose a conversation before using Talk.");
+            if (recovery(store, data.key).revision !== data.revision)
+              throw new Error("The draft changed. Tap Talk again.");
+            json(res, voice.start(cookie, data.key, data.revision));
+          }
+          else if (path === "/api/voice/next" && method === "GET")
+            json(res, voice.next(cookie));
+          else if (path === "/api/voice/result" && method === "POST") {
+            const result = await body(req, 10_000);
+            json(res, voice.finish(cookie, result.id, result.status, result.text));
+          } else if (path === "/api/voice/status" && method === "GET")
+            json(res, voice.status(cookie, url.searchParams.get("id")));
+          else if (path === "/api/voice/cancel" && method === "POST")
+            json(res, voice.cancel(cookie, (await body(req)).id));
+          else json(res, { error: "This voice action is unavailable." }, 404);
           return;
         }
         if (path === "/api/bootstrap" && method === "GET") {

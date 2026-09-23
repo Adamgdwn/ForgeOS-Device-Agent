@@ -14,14 +14,18 @@ import {
   Terminal,
   CircleHelp,
   FileText,
+  Mic,
+  Keyboard,
 } from "lucide-react";
 import { api, type Activity, type Conversation, type Project } from "./api.ts";
 import { documentLink } from "./document-links.ts";
+import { insertTranscript, nativeVoiceAvailable } from "./voice-draft.ts";
 import { TabletActions } from "./Tablet.tsx";
 import { useRecovery } from "./use-recovery.ts";
 import {
   emptyChat,
   recoverySnapshot,
+  recoveryRevision,
   writeRecovery,
   flushRecovery,
   type ChatDraft,
@@ -125,17 +129,104 @@ export function Chat({
       (recoverySnapshot(key).value as ChatDraft | null) || emptyChat;
     return writeRecovery(key, { ...latest, ...patch });
   }
-  const setText = (text: string) => updateDraft({ text });
+  const setText = (text: string) => {
+    editVersion.current += 1;
+    updateDraft({ text });
+  };
   const setAttachments = (attachments: string[]) =>
     updateDraft({ attachments });
   const setReplyStyle = (replyStyle: ChatDraft["replyStyle"]) =>
     updateDraft({ replyStyle });
   const [sending, setSending] = useState(false),
-    [showActivity, setShowActivity] = useState(false);
+    [showActivity, setShowActivity] = useState(false),
+    [typing, setTyping] = useState(false),
+    [voiceMessage, setVoiceMessage] = useState("");
+  const tabletShell = nativeVoiceAvailable(navigator.userAgent, window.location.origin);
+  const voiceSession = useRef<{ id: string; key: string; text: string; start: number; end: number; edit: number; revision?: number } | null>(null);
+  const voiceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editVersion = useRef(0);
   const sendingRef = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null),
+    cursor = useRef<{ text: string; start: number; end: number } | null>(null),
     bottom = useRef<HTMLDivElement>(null),
     keepFollowing = useRef(true);
+  function cancelVoice() {
+    if (voiceTimer.current) clearTimeout(voiceTimer.current);
+    voiceTimer.current = null;
+    const active = voiceSession.current;
+    voiceSession.current = null;
+    if (active?.id) void api("/voice/cancel", "POST", { id: active.id }).catch(() => {});
+  }
+  useEffect(() => () => cancelVoice(), [recoveryKey]);
+  async function pollVoice(id: string) {
+    const active = voiceSession.current;
+    if (!active || active.id !== id) return;
+    try {
+      const result = await api<{ state: string; key?: string; revision?: number; text?: string }>(`/voice/status?id=${encodeURIComponent(id)}`);
+      if (voiceSession.current !== active) return;
+      if (result.state === "waiting" || result.state === "listening") {
+        setVoiceMessage(result.state === "waiting" ? "Opening voice input…" : "Listening…");
+        voiceTimer.current = setTimeout(() => void pollVoice(id), 800);
+        return;
+      }
+      voiceSession.current = null;
+      if (result.state === "complete" && result.key === recoveryKey && result.text) {
+        const current = (recoverySnapshot(recoveryKey).value as ChatDraft | null) || emptyChat;
+        if (current.text !== active.text || editVersion.current !== active.edit ||
+            recoveryRevision(recoveryKey) !== active.revision || result.revision !== active.revision) {
+          setVoiceMessage("Draft changed while listening. Tap Talk to dictate again.");
+          return;
+        }
+        try {
+          const { text: next, caret } = insertTranscript(active.text, active.start, active.end, result.text);
+          if (!updateDraft({ text: next })) throw new Error("Draft could not be saved. Try Talk again.");
+          cursor.current = { text: next, start: caret, end: caret };
+          requestAnimationFrame(() => textarea.current?.setSelectionRange(caret, caret));
+          setVoiceMessage("Transcript added. Review it before sending.");
+        } catch (error) { setVoiceMessage((error as Error).message); }
+      } else if (result.state === "canceled") setVoiceMessage("Voice input canceled. Draft kept.");
+      else if (result.state === "error") setVoiceMessage("Voice input did not finish. Try Talk again.");
+      else setVoiceMessage("Voice input expired. Try Talk again.");
+    } catch (error) {
+      if (voiceSession.current === active) {
+        cancelVoice();
+        setVoiceMessage((error as Error).message);
+      }
+    }
+  }
+  async function startVoice() {
+    if (!tabletShell || !connected || !recovery.ready || voiceSession.current) return;
+    const current = (recoverySnapshot(recoveryKey).value as ChatDraft | null) || emptyChat;
+    const lastCursor = cursor.current?.text === current.text ? cursor.current : null;
+    const start = lastCursor?.start ?? current.text.length;
+    const end = lastCursor?.end ?? start;
+    const capture: { id: string; key: string; text: string; start: number; end: number; edit: number; revision?: number } =
+      { id: "", key: recoveryKey, text: current.text, start, end, edit: editVersion.current };
+    voiceSession.current = capture;
+    setVoiceMessage("Opening voice input…");
+    try {
+      await flushRecovery(recoveryKey);
+      if (voiceSession.current !== capture) return;
+      if (editVersion.current !== capture.edit) {
+        voiceSession.current = null;
+        setVoiceMessage("Draft changed. Tap Talk again.");
+        return;
+      }
+      capture.revision = recoveryRevision(recoveryKey);
+      const result = await api<{ id: string }>("/voice/start", "POST", { key: recoveryKey, revision: capture.revision });
+      if (voiceSession.current !== capture) {
+        void api("/voice/cancel", "POST", { id: result.id }).catch(() => {});
+        return;
+      }
+      capture.id = result.id;
+      void pollVoice(result.id);
+    } catch (error) {
+      if (voiceSession.current === capture) {
+        voiceSession.current = null;
+        setVoiceMessage((error as Error).message);
+      }
+    }
+  }
   const followActions = useCallback(() => {
     if (keepFollowing.current)
       bottom.current?.scrollIntoView({ behavior: "instant", block: "end" });
@@ -217,6 +308,8 @@ export function Chat({
       (busy && style !== "standard")
     )
       return;
+    editVersion.current += 1;
+    cancelVoice();
     if (draft.pending) {
       notify(
         "Check the previous send before sending another request. Your text is kept here.",
@@ -740,13 +833,21 @@ export function Chat({
               ))}
             </div>
           ) : null}
+          <div className="composer-input-row">
           <textarea
             id="galaxy-question"
             disabled={!recovery.ready}
             ref={textarea}
             aria-label="Message Galaxy"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            inputMode={tabletShell && !typing ? "none" : "text"}
+            onChange={(e) => {
+              setText(e.target.value);
+              cursor.current = { text: e.target.value, start: e.target.selectionStart, end: e.target.selectionEnd };
+            }}
+            onSelect={(e) => {
+              cursor.current = { text: e.currentTarget.value, start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd };
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
@@ -756,11 +857,37 @@ export function Chat({
             placeholder={
               busy
                 ? "Add context or steer this request…"
-                : "Ask a question, or dictate with your keyboard’s microphone…"
+                : tabletShell
+                  ? "Ask a question. Tap Talk to dictate…"
+                  : "Ask a question, or dictate with your keyboard’s microphone…"
             }
             rows={2}
             maxLength={14000}
           />
+          {tabletShell ? (
+            <div className="composer-input-actions">
+              <button type="button" className="composer-talk" aria-label="Talk to Galaxy"
+                disabled={!connected || !recovery.ready || !!voiceSession.current}
+                onClick={() => void startVoice()}><Mic size={19} /><span>Talk</span></button>
+              <button type="button" className="composer-type" aria-label={typing ? "Hide keyboard" : "Show keyboard"}
+                onClick={() => {
+                  if (typing) { setTyping(false); textarea.current?.blur(); }
+                  else {
+                    setTyping(true);
+                    if (textarea.current) textarea.current.inputMode = "text";
+                    textarea.current?.focus();
+                  }
+                }}><Keyboard size={18} /><span>{typing ? "Hide" : "Type"}</span></button>
+            </div>
+          ) : null}
+          </div>
+          {tabletShell && voiceMessage ? <div className="voice-status" role="status">
+            <span>{voiceMessage}</span>
+            {voiceSession.current ? <button type="button" onClick={() => {
+              cancelVoice();
+              setVoiceMessage("Voice input canceled. Draft kept.");
+            }}>Cancel</button> : null}
+          </div> : null}
           <div className="composer-footer">
             <label className="answer-style">
               <span className="sr-only">Answer style</span>

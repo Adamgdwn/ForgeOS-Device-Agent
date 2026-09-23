@@ -17,6 +17,7 @@ const listeners = new Set<() => void>();
 const loads = new Map<string, Promise<void>>(),
   saves = new Map<string, Promise<void>>();
 const versions = new Map<string, number>();
+export const recoveryRevision = (key: string) => versions.get(key);
 const prefix = "galaxy-recovery-v1:";
 const enabled = () => typeof window !== "undefined";
 const notify = () => {
