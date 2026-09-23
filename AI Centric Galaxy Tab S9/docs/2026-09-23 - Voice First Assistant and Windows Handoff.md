@@ -3,6 +3,11 @@
 Last Updated: 2026-09-23
 Status: implementation plan and development handoff; 0.4.1 voice preview active, original 0.4.0 disabled on this tablet
 
+For the current installed state and next-session steps, read the
+[tablet code harness turnover](2026-09-23%20-%20Tablet%20Code%20Harness%20Turnover.md)
+first. The original implementation order later in this document predates the
+on-tablet Code workspace.
+
 September 23 Windows continuation: the Galaxy 0.4.1 source now has an in-composer
 Talk action using Android's speech recognition intent, a Type toggle, and an
 authenticated local handoff bound to the session, conversation recovery key and
