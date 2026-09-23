@@ -3,6 +3,46 @@ spec=importlib.util.spec_from_file_location('reader','scripts/outlook-ui.py');m=
 def node(**changes):
  attrs={'package':m.PACKAGE,'enabled':'true','clickable':'true','bounds':'[200,300][1000,500]','resource-id':m.PREFIX+'message_snippet_frontview','content-desc':'Council meeting','class':'android.view.View'};attrs.update(changes);return E.Element('node',attrs)
 class ReaderTests(unittest.TestCase):
+ def test_account_picker_exposes_only_visible_mailbox_choices(self):
+  root=E.Element('hierarchy')
+  root.append(node(**{'resource-id':m.PREFIX+'account_spinner','content-desc':'Currently selected: Adam.Goodwin@reddeer.ca, Select account to search'}))
+  popup=E.SubElement(root,'node',{'package':m.PACKAGE,'class':'android.widget.ListView'})
+  city=E.SubElement(popup,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true','content-desc':'Adam.Goodwin@reddeer.ca, Adam Goodwin'})
+  E.SubElement(city,'node',{'resource-id':m.PREFIX+'title','text':'Adam.Goodwin@reddeer.ca'})
+  unrelated=E.SubElement(root,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true','content-desc':'other@example.com, Sender'})
+  E.SubElement(unrelated,'node',{'resource-id':m.PREFIX+'title','text':'other@example.com'})
+  self.assertEqual(m.selected_account(root),'Adam.Goodwin@reddeer.ca')
+  self.assertEqual(list(m.account_choices(root)),['adam.goodwin@reddeer.ca'])
+  self.assertIs(m.account_choices(root)['adam.goodwin@reddeer.ca'][1],city)
+ def test_account_picker_waits_for_late_mailbox_rows(self):
+  empty=E.Element('hierarchy');ready=E.Element('hierarchy')
+  popup=E.SubElement(ready,'node',{'package':m.PACKAGE,'class':'android.widget.ListView'})
+  city=E.SubElement(popup,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true','content-desc':'Adam.Goodwin@reddeer.ca, Adam Goodwin'})
+  E.SubElement(city,'node',{'resource-id':m.PREFIX+'title','text':'Adam.Goodwin@reddeer.ca'})
+  snapshots=iter([empty,empty,ready]);r=m.Reader('fixture');r.snapshot=lambda:next(snapshots)
+  _,choices=r.picker_choices('Adam.Goodwin@reddeer.ca')
+  self.assertIs(choices['adam.goodwin@reddeer.ca'][1],city)
+ def test_account_listing_waits_for_late_mailbox_rows(self):
+  empty=E.Element('hierarchy');ready=E.Element('hierarchy')
+  popup=E.SubElement(ready,'node',{'package':m.PACKAGE,'class':'android.widget.ListView'})
+  city=E.SubElement(popup,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true','content-desc':'Adam.Goodwin@reddeer.ca, Adam Goodwin'})
+  E.SubElement(city,'node',{'resource-id':m.PREFIX+'title','text':'Adam.Goodwin@reddeer.ca'})
+  snapshots=iter([empty,empty,empty,empty,ready,ready]);r=m.Reader('fixture');r.snapshot=lambda:next(snapshots)
+  _,choices=r.picker_choices()
+  self.assertIn('adam.goodwin@reddeer.ca',choices)
+ def test_search_preserves_selected_mailbox(self):
+  r=m.Reader('fixture');r.warnings.add('Please sign in to another account');root=E.Element('hierarchy')
+  root.append(node(**{'resource-id':'','content-desc':'Search'}))
+  root.append(node(**{'resource-id':m.PREFIX+'account_spinner','content-desc':'Currently selected: Adam.Goodwin@reddeer.ca, Select account to search'}))
+  root.append(node(**{'resource-id':m.PREFIX+'search_edit_text','text':'itinerary','content-desc':''}))
+  calls=[];r.foreground=lambda:None;r.snapshot=lambda:root;r.root=lambda section:root
+  r.tap=lambda n:calls.append(('tap',n.get('content-desc'),n.get('resource-id')))
+  r.shell=lambda *args:calls.append(args) or '2026-09-23T12:00:00-0600'
+  result=r.execute({'operation':'search','query':'itinerary','account':'Adam.Goodwin@reddeer.ca'})
+  self.assertEqual(result['selectedAccount'],'Adam.Goodwin@reddeer.ca')
+  self.assertNotIn('Please sign in to another account',result['warnings'])
+  self.assertFalse(any('All Accounts' in str(call) for call in calls))
+  self.assertFalse(any('account_spinner' in str(call) for call in calls))
  def test_readable_limits(self):
   self.assertTrue(m.readable(node()))
   self.assertFalse(m.readable(node(**{'resource-id':m.PREFIX+'send','content-desc':'Send'})))
@@ -25,7 +65,7 @@ class ReaderTests(unittest.TestCase):
   r=m.Reader('fixture');r.foreground=lambda:None;r.shell=lambda *args:'INSTRUMENTATION_RESULT: galaxy_error=locked'
   with self.assertRaisesRegex(ValueError,'locked'):r.snapshot()
   with self.assertRaises(ValueError):r.execute({'operation':'send'})
-  for data in [{'operation':'search','query':'$(id)'},{'operation':'calendar','dayOffset':100},{'operation':'open','ref':'Send'},{'operation':'scroll','direction':'left'}]:
+  for data in [{'operation':'search','query':'$(id)'},{'operation':'search','query':'City','account':'$(id)'},{'operation':'calendar','dayOffset':100},{'operation':'open','ref':'Send'},{'operation':'scroll','direction':'left'}]:
    with self.assertRaises(ValueError):r.execute(data)
  def test_read_keeps_current_outlook_activity(self):
   r=m.Reader('fixture');calls=[];root=E.Element('hierarchy');root.append(node())

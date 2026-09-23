@@ -21,6 +21,7 @@ PACKAGE = 'com.microsoft.office.outlook'
 PREFIX = PACKAGE + ':id/'
 GALAXY = 'com.adamgoodwin.galaxyworkspace/.MainActivity'
 DAYS = r'(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)'
+EMAIL = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 
 
 def bounds(node):
@@ -89,6 +90,32 @@ def summary(root, clock):
             'coverage': 'Visible Outlook screen only; current account/calendar selection and cached data. Not a complete mailbox or calendar export. Search results and message bodies may require more scrolling.'}
 
 
+def account_choices(root):
+    """Only choices inside Outlook's visible search-account popup are eligible."""
+    choices = {}
+    for listing in root.iter('node'):
+        if listing.get('package') != PACKAGE or listing.get('class') != 'android.widget.ListView':
+            continue
+        for row in listing.iter('node'):
+            if row.get('package') != PACKAGE or row.get('class') != 'android.widget.LinearLayout' or row.get('clickable') != 'true':
+                continue
+            titles = [n.get('text', '') for n in row.iter('node') if n.get('resource-id') == PREFIX + 'title']
+            if len(titles) != 1 or (titles[0] != 'All Accounts' and not EMAIL.fullmatch(titles[0])):
+                continue
+            choices[titles[0].casefold()] = (titles[0], row)
+    return choices
+
+
+def selected_account(root):
+    spinners = [n for n in root.iter('node') if n.get('package') == PACKAGE and n.get('resource-id') == PREFIX + 'account_spinner']
+    if len(spinners) != 1:
+        raise ValueError('Outlook did not show its search account. Open Mail search and try again.')
+    match = re.fullmatch(r'Currently selected: (.*?), Select account to search', spinners[0].get('content-desc', ''))
+    if not match:
+        raise ValueError('Outlook did not identify the selected search account.')
+    return match.group(1)
+
+
 class Reader:
     def __init__(self, serial):
         if not re.fullmatch(r'[A-Za-z0-9._:-]{1,100}', serial):
@@ -145,6 +172,19 @@ class Reader:
         self.shell('input', 'tap', (x1+x2)//2, (y1+y2)//2)
         time.sleep(.25)
 
+    def picker_choices(self, expected=None):
+        # Outlook populates its account popup after the opening animation.
+        # Keep the wait bounded; a missing account remains an explicit gap.
+        root, choices = None, {}
+        for attempt in range(6):
+            root = self.snapshot()
+            choices = account_choices(root)
+            if expected and expected.casefold() in choices:
+                break
+            if attempt < 5:
+                time.sleep(.35)
+        return root, choices
+
     def root(self, section):
         root = self.snapshot()
         for _ in range(5):
@@ -193,12 +233,14 @@ class Reader:
             except ValueError:return {'returned': False}
             self.shell('am','start','--activity-reorder-to-front','--activity-single-top','-n',GALAXY)
             return {'returned': True}
-        if op not in ['calendar','search','read','open','scroll','back']:
+        if op not in ['accounts','calendar','search','read','open','scroll','back']:
             raise ValueError('Unsupported Outlook reading action.')
         if op == 'calendar' and (type(data.get('dayOffset',0)) != int or not -7 <= data.get('dayOffset',0) <= 14):
             raise ValueError('Choose a day from last week through the next two weeks.')
         if op == 'search' and (not isinstance(data.get('query'),str) or not re.fullmatch(r'[A-Za-z0-9 @._:+\-]{1,120}',data['query']) or not data['query'].strip()):
             raise ValueError('Use a short search with letters, numbers, spaces, @, dots, colons or hyphens.')
+        if op == 'search' and 'account' in data and (not isinstance(data['account'], str) or (data['account'] != 'all' and not EMAIL.fullmatch(data['account']))):
+            raise ValueError('Choose an exact Outlook account address or all accounts.')
         if op == 'open' and (not isinstance(data.get('ref'),str) or not re.fullmatch(r'[a-f0-9]{24}',data['ref'])):
             raise ValueError('Use a fresh item reference from the Outlook reader.')
         if op == 'scroll' and data.get('direction') not in ['up','down']:
@@ -227,17 +269,40 @@ class Reader:
             found = [n for n in root.iter('node') if n.get('clickable')=='true' and re.sub(r'^Events on ', '', n.get('content-desc','')).split(', today')[0].split(', Selected')[0] == label]
             if len(found)!=1:raise ValueError('That date is outside the visible Outlook date picker. Select the day in Outlook and use Read current screen.')
             self.tap(found[0]);root=self.snapshot()
+        elif op == 'accounts':
+            root = self.root('Mail')
+            self.tap(self.find(root,'content-desc','Search'));root=self.snapshot()
+            current = selected_account(root)
+            self.tap(self.find(root,'resource-id',PREFIX+'account_spinner'))
+            root, choices = self.picker_choices()
+            if not choices:raise ValueError('Outlook did not show readable account choices. Select an account in Outlook and try again.')
+            return {'accounts': [email for email, _ in choices.values() if email != 'All Accounts'],
+                    'selectedAccount': current, 'text': 'Visible Outlook search accounts: ' + ', '.join(email for email, _ in choices.values() if email != 'All Accounts'),
+                    'coverage': 'Visible account choices in Outlook Mail search; other accounts may require scrolling.',
+                    'warnings': []}
         elif op == 'search':
             query=data.get('query','')
             if not isinstance(query,str) or not re.fullmatch(r'[A-Za-z0-9 @._:+\-]{1,120}',query) or not query.strip():
                 raise ValueError('Use a short search with letters, numbers, spaces, @, dots, colons or hyphens.')
             root=self.root('Mail')
-            # Select All Accounts in the existing drawer, when offered.
-            all_accounts=[n for n in root.iter('node') if n.get('content-desc')=='All Accounts']
-            if len(all_accounts)==1:self.tap(all_accounts[0]);root=self.snapshot()
             self.tap(self.find(root,'content-desc','Search'));root=self.snapshot()
             clear=[n for n in root.iter('node') if n.get('resource-id')==PREFIX+'search_cancel_btn']
             if clear:self.tap(clear[0]);root=self.snapshot()
+            requested=data.get('account')
+            if requested:
+                target='All Accounts' if requested=='all' else requested
+                if selected_account(root).casefold()!=target.casefold():
+                    self.tap(self.find(root,'resource-id',PREFIX+'account_spinner'))
+                    root,choices=self.picker_choices(target)
+                    choice=choices.get(target.casefold())
+                    if not choice:raise ValueError('The requested Outlook account is not visible in the search picker. Choose it in Outlook and try again.')
+                    self.tap(choice[1]);root=self.snapshot()
+                if selected_account(root).casefold()!=target.casefold():
+                    raise ValueError('Outlook did not switch to the requested account. No search was submitted.')
+            scope=selected_account(root)
+            # Warnings seen while navigating from a different mailbox do not
+            # describe the account whose search is about to run.
+            if requested:self.warnings.clear()
             self.tap(self.find(root,'resource-id',PREFIX+'search_edit_text'))
             self.shell('input','text',query.replace(' ','%s'));self.shell('input','keyevent','66');root=self.snapshot()
             if self.find(root,'resource-id',PREFIX+'search_edit_text').get('text')!=query:raise ValueError('Outlook did not accept the exact search. No results were captured.')
@@ -271,6 +336,7 @@ class Reader:
         if op=='calendar':result['requestedDate']=target.isoformat()
         if op=='search':
             result['query']=query
+            result['selectedAccount']=scope
             result['searchSubmitted']=not any(n.get('resource-id')==PREFIX+'suggestion_text' and n.get('text')=='Search for "'+query+'"' for n in root.iter('node'))
             if not result['searchSubmitted']:result['warnings'].append('Outlook still shows a search suggestion. The search has not completed; these are not search results.')
         return result

@@ -27,7 +27,7 @@ import java.util.concurrent.*;
 
 /** Authenticated, loopback-only device tools. No remote listener or shell. */
 public final class DeviceBridge extends AccessibilityService {
-    private static final String OUTLOOK="com.microsoft.office.outlook", GALAXY="com.adamgoodwin.galaxyworkspace";
+    private static final String OUTLOOK="com.microsoft.office.outlook", GALAXY="com.adamgoodwin.galaxyworkspace", GALAXY_PREVIEW="com.adamgoodwin.galaxyworkspace.voicepreview";
     private final Handler main=new Handler(Looper.getMainLooper());
     private volatile ServerSocket server;
     private volatile boolean closing;
@@ -126,8 +126,10 @@ public final class DeviceBridge extends AccessibilityService {
         }
         if(op.equals("return")) {
             try { outlook(); }catch(IllegalStateException e){return r.put("returned",false);}
-            Intent i=getPackageManager().getLaunchIntentForPackage(GALAXY);
-            if(i!=null){i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);startActivity(i);}
+            Intent i=getPackageManager().getLaunchIntentForPackage(GALAXY_PREVIEW);
+            if(i==null)i=getPackageManager().getLaunchIntentForPackage(GALAXY);
+            if(i==null)throw new IllegalStateException("Open Galaxy Workspace to continue.");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);startActivity(i);
             return r.put("returned",true);
         }
         if(op.equals("snapshot")) {
@@ -204,12 +206,27 @@ public final class DeviceBridge extends AccessibilityService {
     }
     private boolean allowed(AccessibilityNodeInfo n) {
         String id=text(n.getViewIdResourceName()).replace(OUTLOOK+":id/",""),desc=text(n.getContentDescription()),label=text(n.getText());
-        if(Arrays.asList("message_snippet_frontview","menu_calendar_views","calendar_month_title_button","search_cancel_btn","search_edit_text").contains(id))return true;
+        if(Arrays.asList("message_snippet_frontview","menu_calendar_views","calendar_month_title_button","search_cancel_btn","search_edit_text","account_spinner").contains(id))return true;
+        if(accountChoice(n,desc))return true;
         if(id.equals("message_open_details") && desc.equals("Open full message"))return true;
         if(id.equals("message_header") && desc.startsWith("Message "))return true;
         if(Arrays.asList("Mail","Calendar","All Accounts","Open Navigation Drawer","Search","All").contains(desc) || label.equals("Agenda"))return true;
         if(desc.matches("Suggested search , Text, Search for \"[A-Za-z0-9 @._:+\\-]{1,120}\""))return true;
         return desc.matches("(?:Events on )?(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), .*") && !desc.contains("Work location:");
+    }
+    private boolean accountChoice(AccessibilityNodeInfo n,String desc) {
+        AccessibilityNodeInfo parent=n.getParent();
+        if(!"android.widget.LinearLayout".contentEquals(n.getClassName()) || parent==null ||
+           !"android.widget.ListView".contentEquals(parent.getClassName()))return false;
+        boolean picker=false;
+        for(AccessibilityNodeInfo item:parent.findAccessibilityNodeInfosByViewId(OUTLOOK+":id/title"))
+            if(text(item.getText()).equals("All Accounts")){picker=true;break;}
+        if(!picker)return false;
+        List<AccessibilityNodeInfo> titles=n.findAccessibilityNodeInfosByViewId(OUTLOOK+":id/title");
+        if(titles.size()!=1)return false;
+        String title=text(titles.get(0).getText());
+        if(title.equals("All Accounts"))return desc.equals("Currently selected: All Accounts, All Accounts") || desc.equals("All Accounts");
+        return title.matches("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}") && desc.startsWith(title+", ");
     }
     private void writeNode(XmlSerializer xml,AccessibilityNodeInfo n,int depth) throws Exception {
         if(++nodes>1800 || depth>70)throw new IllegalStateException("Outlook screen exceeded the reader limit.");

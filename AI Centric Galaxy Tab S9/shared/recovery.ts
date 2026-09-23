@@ -24,7 +24,7 @@ export const emptyChat: ChatDraft = {
   kind: "chat",
   text: "",
   attachments: [],
-  replyStyle: "quick",
+  replyStyle: "standard",
 };
 export function validRecovery(value: any): value is Draft {
   if (!value || typeof value.text !== "string" || value.text.length > 500_000)

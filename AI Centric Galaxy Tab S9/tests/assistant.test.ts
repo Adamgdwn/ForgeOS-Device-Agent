@@ -8,7 +8,7 @@ const root = mkdtempSync(resolve(tmpdir(), "galaxy-assistant-test-"));
 process.env.GALAXY_STATE_DIR = resolve(root, "state");
 const { Store } = await import("../server/store.ts");
 const { Tablet } = await import("../server/tablet.ts");
-const { Assistant, ensureAssistantWorkspace, normalizeBriefLinks } =
+const { Assistant, ensureAssistantWorkspace, normalizeBriefLinks, assistantTools, assistantRequest } =
   await import("../server/assistant.ts");
 const { report } = await import("../server/reports.ts");
 const { newStage, installMaterials } = await import("../server/materials.ts");
@@ -22,6 +22,26 @@ test("Meeting brief citations resolve from Reports while literal examples stay u
   assert.match(text, /\[Existing\]\(\.\.\/Sources\/notes.txt\)/);
   assert.match(text, /https:\/\/example.com/);
   assert.match(text, /`\[Literal\]\(Sources\/example\)`/);
+});
+test("Assistant exposes visible account discovery and keeps a named Outlook search scoped", async () => {
+  const search = assistantTools.find((entry) => entry.name === "outlook_search");
+  assert.ok(search);
+  assert.ok("account" in search.inputSchema.properties);
+  assert.match(assistantRequest("Check the City inbox", "quick"), /Investigate the request fully/);
+  const f = fixture();
+  try {
+    await f.assistant.tool(f.c.id, "outlook_accounts", {});
+    await f.assistant.tool(f.c.id, "outlook_search", {
+      query: "itinerary",
+      account: "Adam.Goodwin@reddeer.ca",
+    });
+    assert.equal(f.calls[0].operation, "accounts");
+    assert.equal(f.calls[1].operation, "search");
+    assert.equal(f.calls[1].account, "Adam.Goodwin@reddeer.ca");
+  } finally {
+    await f.assistant.release(f.c.id);
+    f.store.close();
+  }
 });
 function fixture() {
   const store = new Store(":memory:"),
@@ -170,7 +190,7 @@ test("Selected materials can be added to a saved meeting without copying onto th
 });
 test("Outlook reader only exposes message/event opens and refuses credentials; changed content invalidates references", () => {
   execFileSync(
-    "python3",
+    process.platform === "win32" ? "python" : "python3",
     [
       "-m",
       "unittest",
@@ -208,7 +228,7 @@ test("Assistant worker uses typed tools and disabled shell on start and resume",
       assert.equal(f.store.conversation(f.c.id).status, "complete");
     }
     const starts = calls.filter((c) => c.method.startsWith("thread/"));
-    assert.equal(starts[0].params.dynamicTools.length, 8);
+    assert.equal(starts[0].params.dynamicTools.length, 9);
     assert.equal(starts[1].method, "thread/resume");
     for (const start of starts) {
       assert.equal(start.params.config["features.shell_tool"], false);

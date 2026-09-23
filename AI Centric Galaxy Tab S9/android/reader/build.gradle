@@ -4,10 +4,20 @@ android {
     compileSdk 36
     defaultConfig {
         applicationId 'com.adamgoodwin.galaxyreader'
+        manifestPlaceholders = [readerLabel: 'Galaxy Device Tools']
         minSdk 33
         targetSdk 36
-        versionCode 2
-        versionName '0.2.0'
+        versionCode 3
+        versionName '0.3.0'
+    }
+    buildTypes {
+        debug {
+            if (providers.gradleProperty('galaxyPreview').orNull == 'true') {
+                applicationIdSuffix '.voicepreview'
+                versionNameSuffix '-preview'
+                manifestPlaceholders = [readerLabel: 'Galaxy Device Tools Preview']
+            }
+        }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     lint { abortOnError true }

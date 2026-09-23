@@ -34,6 +34,57 @@ On September 23, after both apps appeared in recent apps, the original
 preview was brought to the front, and it remained running with Talk and Type
 visible and the keyboard closed. The old package and its data remain installed;
 `adb shell pm enable com.adamgoodwin.galaxyworkspace` reverses the change.
+
+Later September 23 Assistant continuation: Adam's live test asked for City inbox
+itinerary and plans for Thursday and Friday. The conversation used the default
+Quick answers style. Outlook search forced All Accounts, surfaced a sign-in
+warning for a different account (`connect@adamgoodwin.ca`), and the turn hit its
+ten-minute limit without a complete answer. Adam clarified that his City account
+is `Adam.Goodwin@reddeer.ca`; the Outlook search picker visibly lists it. The
+installed Codex client reported GPT-6 Astra at medium reasoning effort. The
+failure was in account selection, evidence handling and response flow. New chats
+now default to Full conversation. Assistant tools discover visible Outlook
+accounts and accept an exact account for search; the reader verifies and returns
+the selected scope. The instructions require account-specific evidence, correct
+handling of warnings from other accounts, both requested dates and a timely
+summary when coverage is incomplete. Focused Assistant/Python tests and the web
+build pass. The full npm suite still fails on unrelated Windows prerequisites
+such as `python3`, POSIX `sh` and document converters.
+The picker now waits for late account rows; a scoped search discards warnings
+seen before switching accounts and confirms the selected account before entering
+the query. The latest reader preview APK was reinstalled successfully. The
+updated Python reader script was copied to Termux and its SHA-256 matched the
+host copy.
+The parent governance preflight was attempted on Windows through temporary LF
+copies of its CRLF shell scripts. Its Python test phase showed Windows failures
+and was stopped after prolonged execution; the earlier governance preflight
+pass and the previously accepted Windows tooling gap remain the basis for this
+pilot change. No project-control exceptions are open.
+
+This laptop also cannot update the existing Device Tools 0.2.0 APK because its
+debug signature differs. `Galaxy Device Tools Preview` 0.3.0-preview
+(`com.adamgoodwin.galaxyreader.voicepreview`) is installed beside it with the
+same reviewed typed operations and the search-account picker. The old Device
+Tools package was disabled for Android user 0; its data remains installed.
+An earlier setup diagnostic accidentally printed the old loopback key in tool
+output. It was rotated immediately; the replacement was installed in
+Termux and both private helper stores, and the tablet identity binding updated.
+Do not restore the older September 23 backup's bridge key over this setup. The
+private backup taken after rotation and before the Assistant code update is at
+`/data/data/com.termux/files/home/galaxy-backups/2026-09-23-account-scope/before-code-and-state.tar.gz`.
+The tablet engine received only `server/assistant.ts`, `scripts/outlook-ui.py`,
+`shared/recovery.ts` and `dist`; private `.local/` and workspaces were preserved.
+Accessibility for the new helper is enabled. Samsung froze it while its Battery
+setting remained Optimized, so the live City search is pending the user's
+manual switch to Unrestricted and a read-back check. The tablet is on that
+Battery page. The preview helper received the old helper's system-setting grants
+for its existing reviewed tools. Its battery exemption is pending; the old
+package remains disabled.
+The tablet then reported 5% battery. It detected USB power through the computer,
+but its battery charge was flat or falling; Adam was asked to move it to a USB-C
+wall charger. Live scoped-search verification remains pending adequate power and
+the helper's Unrestricted battery setting. Do not infer that the City search now
+returns a complete itinerary from the focused tests alone.
 Baseline: Galaxy Workspace 0.4.0, commit `d1abc1c`+
 ## What Adam wants
 

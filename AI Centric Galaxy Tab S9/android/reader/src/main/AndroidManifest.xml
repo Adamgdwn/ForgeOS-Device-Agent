@@ -5,12 +5,12 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <!-- System workspace explicitly inventories installed applications; this APK is locally installed. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
-    <queries><package android:name="com.microsoft.office.outlook" /><package android:name="com.adamgoodwin.galaxyworkspace" /></queries>
-    <application android:label="Galaxy Device Tools" android:icon="@android:drawable/ic_menu_view" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
+    <queries><package android:name="com.microsoft.office.outlook" /><package android:name="com.adamgoodwin.galaxyworkspace" /><package android:name="com.adamgoodwin.galaxyworkspace.voicepreview" /></queries>
+    <application android:label="${readerLabel}" android:icon="@android:drawable/ic_menu_view" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
         <service android:name=".DeviceBridge" android:exported="true" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service" />
         </service>
     </application>
-    <instrumentation android:name=".OutlookSnapshot" android:targetPackage="com.adamgoodwin.galaxyreader" android:functionalTest="true" />
+    <instrumentation android:name=".OutlookSnapshot" android:targetPackage="${applicationId}" android:functionalTest="true" />
 </manifest>
