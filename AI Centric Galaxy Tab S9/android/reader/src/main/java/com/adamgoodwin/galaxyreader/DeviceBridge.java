@@ -155,6 +155,12 @@ public final class DeviceBridge extends AccessibilityService {
             if(n==null || !allowed(n))throw new IllegalStateException("That Outlook control moved or is not a reading control. Read the screen again.");
             if(!n.performAction(AccessibilityNodeInfo.ACTION_CLICK))throw new IllegalStateException("Outlook did not open that control.");return r;
         }
+        if(op.equals("account_scroll")) {
+            AccessibilityNodeInfo root=outlook();
+            List<AccessibilityNodeInfo> lists=new ArrayList<>();accountLists(root,lists,0);
+            if(lists.size()!=1)throw new IllegalStateException("Outlook did not show one readable account picker.");
+            return r.put("scrolled",lists.get(0).performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD));
+        }
         if(op.equals("scroll")) {
             boolean down="down".equals(data.optString("direction"));
             if(!down && !"up".equals(data.optString("direction")))throw new IllegalStateException("Choose up or down.");
@@ -214,17 +220,30 @@ public final class DeviceBridge extends AccessibilityService {
         if(desc.matches("Suggested search , Text, Search for \"[A-Za-z0-9 @._:+\\-]{1,120}\""))return true;
         return desc.matches("(?:Events on )?(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), .*") && !desc.contains("Work location:");
     }
+    private boolean accountList(AccessibilityNodeInfo list) {
+        if(!OUTLOOK.equals(text(list.getPackageName())) ||
+           !"android.widget.ListView".equals(text(list.getClassName())) || !list.isVisibleToUser())return false;
+        for(AccessibilityNodeInfo title:list.findAccessibilityNodeInfosByViewId(OUTLOOK+":id/title")) {
+            String value=text(title.getText());
+            if(value.equals("All Accounts") || value.matches("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"))return true;
+        }
+        return false;
+    }
+    private void accountLists(AccessibilityNodeInfo node,List<AccessibilityNodeInfo> lists,int depth) {
+        if(depth>70)return;
+        if(accountList(node) && node.isScrollable())lists.add(node);
+        for(int i=0;i<node.getChildCount();i++) {
+            AccessibilityNodeInfo child=node.getChild(i);
+            if(child!=null)accountLists(child,lists,depth+1);
+        }
+    }
     private boolean accountChoice(AccessibilityNodeInfo n,String desc) {
         AccessibilityNodeInfo parent=n.getParent();
-        if(!"android.widget.LinearLayout".contentEquals(n.getClassName()) || parent==null ||
-           !"android.widget.ListView".contentEquals(parent.getClassName()))return false;
-        boolean picker=false;
-        for(AccessibilityNodeInfo item:parent.findAccessibilityNodeInfosByViewId(OUTLOOK+":id/title"))
-            if(text(item.getText()).equals("All Accounts")){picker=true;break;}
-        if(!picker)return false;
+        if(!"android.widget.LinearLayout".contentEquals(n.getClassName()) || parent==null || !accountList(parent))return false;
         List<AccessibilityNodeInfo> titles=n.findAccessibilityNodeInfosByViewId(OUTLOOK+":id/title");
-        if(titles.size()!=1)return false;
+        if(titles.isEmpty())return false;
         String title=text(titles.get(0).getText());
+        for(AccessibilityNodeInfo item:titles)if(!title.equals(text(item.getText())))return false;
         if(title.equals("All Accounts"))return desc.equals("Currently selected: All Accounts, All Accounts") || desc.equals("All Accounts");
         return title.matches("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}") && desc.startsWith(title+", ");
     }

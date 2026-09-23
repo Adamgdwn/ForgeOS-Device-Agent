@@ -9,11 +9,24 @@ class ReaderTests(unittest.TestCase):
   popup=E.SubElement(root,'node',{'package':m.PACKAGE,'class':'android.widget.ListView'})
   city=E.SubElement(popup,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true','content-desc':'Adam.Goodwin@reddeer.ca, Adam Goodwin'})
   E.SubElement(city,'node',{'resource-id':m.PREFIX+'title','text':'Adam.Goodwin@reddeer.ca'})
+  nested=E.SubElement(city,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true'})
+  E.SubElement(nested,'node',{'resource-id':m.PREFIX+'title','text':'Adam.Goodwin@reddeer.ca'})
   unrelated=E.SubElement(root,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true','content-desc':'other@example.com, Sender'})
   E.SubElement(unrelated,'node',{'resource-id':m.PREFIX+'title','text':'other@example.com'})
   self.assertEqual(m.selected_account(root),'Adam.Goodwin@reddeer.ca')
   self.assertEqual(list(m.account_choices(root)),['adam.goodwin@reddeer.ca'])
   self.assertIs(m.account_choices(root)['adam.goodwin@reddeer.ca'][1],city)
+ def test_account_picker_scrolls_to_named_mailbox(self):
+  first=E.Element('hierarchy');second=E.Element('hierarchy')
+  for root,address in [(first,'other@example.com'),(second,'Adam.Goodwin@reddeer.ca')]:
+   popup=E.SubElement(root,'node',{'package':m.PACKAGE,'class':'android.widget.ListView','scrollable':'true'})
+   row=E.SubElement(popup,'node',{'package':m.PACKAGE,'class':'android.widget.LinearLayout','clickable':'true','content-desc':address+', User'})
+   E.SubElement(row,'node',{'resource-id':m.PREFIX+'title','text':address})
+  snapshots=iter([first]*6+[second]);r=m.Reader('fixture');r.snapshot=lambda:next(snapshots)
+  scrolls=[];r.scroll_account_picker=lambda root:scrolls.append(root) or True
+  _,choices=r.picker_choices('Adam.Goodwin@reddeer.ca')
+  self.assertEqual(len(scrolls),1)
+  self.assertIn('adam.goodwin@reddeer.ca',choices)
  def test_account_picker_waits_for_late_mailbox_rows(self):
   empty=E.Element('hierarchy');ready=E.Element('hierarchy')
   popup=E.SubElement(ready,'node',{'package':m.PACKAGE,'class':'android.widget.ListView'})
@@ -30,6 +43,13 @@ class ReaderTests(unittest.TestCase):
   snapshots=iter([empty,empty,empty,empty,ready,ready]);r=m.Reader('fixture');r.snapshot=lambda:next(snapshots)
   _,choices=r.picker_choices()
   self.assertIn('adam.goodwin@reddeer.ca',choices)
+ def test_mail_search_waits_for_outlook_toolbar(self):
+  empty=E.Element('hierarchy');ready=E.Element('hierarchy')
+  search=node(**{'resource-id':'','content-desc':'Search'})
+  ready.append(search)
+  r=m.Reader('fixture');r.root=lambda section:empty;r.snapshot=lambda:ready
+  _,button=r.search_button()
+  self.assertIs(button,search)
  def test_search_preserves_selected_mailbox(self):
   r=m.Reader('fixture');r.warnings.add('Please sign in to another account');root=E.Element('hierarchy')
   root.append(node(**{'resource-id':'','content-desc':'Search'}))

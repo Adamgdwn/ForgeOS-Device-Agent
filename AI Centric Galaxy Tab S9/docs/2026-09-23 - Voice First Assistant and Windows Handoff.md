@@ -75,16 +75,51 @@ private backup taken after rotation and before the Assistant code update is at
 The tablet engine received only `server/assistant.ts`, `scripts/outlook-ui.py`,
 `shared/recovery.ts` and `dist`; private `.local/` and workspaces were preserved.
 Accessibility for the new helper is enabled. Samsung froze it while its Battery
-setting remained Optimized, so the live City search is pending the user's
-manual switch to Unrestricted and a read-back check. The tablet is on that
-Battery page. The preview helper received the old helper's system-setting grants
-for its existing reviewed tools. Its battery exemption is pending; the old
-package remains disabled.
-The tablet then reported 5% battery. It detected USB power through the computer,
-but its battery charge was flat or falling; Adam was asked to move it to a USB-C
-wall charger. Live scoped-search verification remains pending adequate power and
-the helper's Unrestricted battery setting. Do not infer that the City search now
-returns a complete itinerary from the focused tests alone.
+setting remained Optimized. Adam manually selected Unrestricted; Android's
+device-idle whitelist read-back showed the new helper in the user whitelist.
+The existing frozen process was then unfrozen with `cmd activity unfreeze` and
+the helper answered an authenticated identity probe. The preview helper
+received the old helper's system-setting grants for its existing reviewed tools;
+the old package remains disabled.
+The tablet briefly reported 5% battery while connected through the computer;
+subsequent readings showed positive charging current. Paired wireless ADB
+connected to the same tablet so the USB cable can be moved to a wall charger.
+The user's Google voice input and the Galaxy engine do not require ADB.
+
+Live Outlook verification exposed an account picker that shows only the first
+four email rows until scrolled. When the picker is open, Outlook removes its
+search-account spinner from the accessibility tree. The reader now scrolls only
+the verified account ListView and selects only an exact email row inside it,
+then checks the selected scope before submitting a search. A live on-tablet
+probe listed `Adam.Goodwin@reddeer.ca`, selected that exact account and submitted
+`itinerary`; it reported zero visible result items and one unrelated account
+sign-in warning, with no City sign-in warning. This proves account scoping and
+submission, not that the requested Thursday/Friday itinerary was found. The
+updated reader APK and Python script were installed; their host/device script
+hashes matched. The idle engine was restarted through Galaxy's native Open
+workspace action; the UI showed Running on this tablet and On-device tools
+connected. No user conversation or message was submitted by the probe.
+
+Adam clarified the product direction after this test: Galaxy should be a thin
+on-tablet Codex harness with persistent conversations, selected directories,
+workspaces and a few tablet/Office tools. Codex should be able to edit files and
+run workspace commands, as in its terminal or VS Code interface. The present
+tablet worker does not meet that expectation: it disables shell tools and
+confines edits to a small set of typed draft/report operations. Assistant's
+meeting-specific flow must become an optional specialization rather than the
+main interaction model. Voice is an input method for this general conversation.
+
+Do not equate an Android `workspaceWrite` policy value with a working sandbox.
+The installed Codex bundles Bubblewrap, but an on-tablet probe of Bubblewrap
+failed because Android denied `/proc/sys/kernel/overflowuid`; a read-only
+Landlock ABI probe returned ENOSYS. PRoot is only a resolver compatibility
+layer. Termux also holds Codex and Microsoft sessions.
+The command/edits requirement therefore needs an execution boundary or an
+explicitly reviewed trust model before shell tools are enabled. Preserve the
+existing Assistant/System read-only behavior while that design is implemented
+and tested. The tablet and Windows laptop share a local subnet; paired wireless
+ADB connected successfully to the same serial, allowing wall charging during
+development without changing Galaxy's independent runtime.
 Baseline: Galaxy Workspace 0.4.0, commit `d1abc1c`+
 ## What Adam wants
 

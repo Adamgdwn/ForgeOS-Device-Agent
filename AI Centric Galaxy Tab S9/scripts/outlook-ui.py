@@ -96,13 +96,16 @@ def account_choices(root):
     for listing in root.iter('node'):
         if listing.get('package') != PACKAGE or listing.get('class') != 'android.widget.ListView':
             continue
-        for row in listing.iter('node'):
+        for row in listing.findall('node'):
             if row.get('package') != PACKAGE or row.get('class') != 'android.widget.LinearLayout' or row.get('clickable') != 'true':
                 continue
-            titles = [n.get('text', '') for n in row.iter('node') if n.get('resource-id') == PREFIX + 'title']
-            if len(titles) != 1 or (titles[0] != 'All Accounts' and not EMAIL.fullmatch(titles[0])):
+            titles = {n.get('text', '') for n in row.iter('node') if n.get('resource-id') == PREFIX + 'title'}
+            if len(titles) != 1:
                 continue
-            choices[titles[0].casefold()] = (titles[0], row)
+            title = next(iter(titles))
+            if title != 'All Accounts' and not EMAIL.fullmatch(title):
+                continue
+            choices[title.casefold()] = (title, row)
     return choices
 
 
@@ -174,16 +177,45 @@ class Reader:
 
     def picker_choices(self, expected=None):
         # Outlook populates its account popup after the opening animation.
-        # Keep the wait bounded; a missing account remains an explicit gap.
-        root, choices = None, {}
-        for attempt in range(6):
-            root = self.snapshot()
-            choices = account_choices(root)
-            if expected and expected.casefold() in choices:
+        # The selected account may also be below the visible picker rows.
+        root, choices, seen = None, {}, {}
+        for page in range(3):
+            for attempt in range(6):
+                root = self.snapshot()
+                choices = account_choices(root)
+                seen.update(choices)
+                if expected and expected.casefold() in choices:
+                    return root, choices
+                if attempt < 5:
+                    time.sleep(.35)
+            if page == 2 or not self.scroll_account_picker(root):
                 break
-            if attempt < 5:
+        return root, choices if expected else seen
+
+    def scroll_account_picker(self, root):
+        lists = [n for n in root.iter('node') if n.get('package') == PACKAGE and
+                 n.get('class') == 'android.widget.ListView' and n.get('scrollable') == 'true' and
+                 account_choices(n)]
+        if len(lists) != 1:
+            return False
+        x1, y1, x2, y2 = bounds(lists[0])
+        if x2-x1 < 100 or y2-y1 < 200:
+            return False
+        self.foreground()
+        self.shell('input', 'swipe', (x1+x2)//2, y2-80, (x1+x2)//2, y1+80, 320)
+        time.sleep(.35)
+        return True
+
+    def search_button(self):
+        root = self.root('Mail')
+        for attempt in range(5):
+            buttons = [n for n in root.iter('node') if n.get('package') == PACKAGE and n.get('content-desc') == 'Search']
+            if len(buttons) == 1:
+                return root, buttons[0]
+            if attempt < 4:
                 time.sleep(.35)
-        return root, choices
+                root = self.snapshot()
+        raise ValueError('Outlook Mail did not show Search. Keep the tablet unlocked and try again.')
 
     def root(self, section):
         root = self.snapshot()
@@ -270,8 +302,8 @@ class Reader:
             if len(found)!=1:raise ValueError('That date is outside the visible Outlook date picker. Select the day in Outlook and use Read current screen.')
             self.tap(found[0]);root=self.snapshot()
         elif op == 'accounts':
-            root = self.root('Mail')
-            self.tap(self.find(root,'content-desc','Search'));root=self.snapshot()
+            root, button = self.search_button()
+            self.tap(button);root=self.snapshot()
             current = selected_account(root)
             self.tap(self.find(root,'resource-id',PREFIX+'account_spinner'))
             root, choices = self.picker_choices()
@@ -284,8 +316,8 @@ class Reader:
             query=data.get('query','')
             if not isinstance(query,str) or not re.fullmatch(r'[A-Za-z0-9 @._:+\-]{1,120}',query) or not query.strip():
                 raise ValueError('Use a short search with letters, numbers, spaces, @, dots, colons or hyphens.')
-            root=self.root('Mail')
-            self.tap(self.find(root,'content-desc','Search'));root=self.snapshot()
+            root, button = self.search_button()
+            self.tap(button);root=self.snapshot()
             clear=[n for n in root.iter('node') if n.get('resource-id')==PREFIX+'search_cancel_btn']
             if clear:self.tap(clear[0]);root=self.snapshot()
             requested=data.get('account')
@@ -380,6 +412,11 @@ class NativeReader(Reader):
 
     def scroll(self,root,direction):
         self.call('scroll',direction=direction);time.sleep(.25)
+
+    def scroll_account_picker(self,root):
+        scrolled=self.call('account_scroll').get('scrolled',False)
+        if scrolled:time.sleep(.35)
+        return scrolled
 
     def shell(self,*args):
         if args[0]=='date':return dt.datetime.now().astimezone().strftime(args[1].removeprefix('+'))
