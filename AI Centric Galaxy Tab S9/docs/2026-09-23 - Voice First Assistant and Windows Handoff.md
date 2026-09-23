@@ -1,7 +1,7 @@
 # Voice-first Assistant and Windows handoff
 
 Last Updated: 2026-09-23
-Status: implementation plan and development handoff; 0.4.1 voice preview installed beside 0.4.0
+Status: implementation plan and development handoff; 0.4.1 voice preview active, original 0.4.0 disabled on this tablet
 
 September 23 Windows continuation: the Galaxy 0.4.1 source now has an in-composer
 Talk action using Android's speech recognition intent, a Type toggle, and an
@@ -28,6 +28,12 @@ preview reinstalled. A spoken transcript has not yet been verified on the
 tablet. The original 0.4.0 remains installed and the new controls are gated to
 0.4.1 or later. Updating that original package still requires its old signing
 key. Never uninstall it or replace Termux's private state to bypass signing.
+On September 23, after both apps appeared in recent apps, the original
+`com.adamgoodwin.galaxyworkspace` package was disabled for Android user 0 with
+`adb shell pm disable-user --user 0 com.adamgoodwin.galaxyworkspace`. The
+preview was brought to the front, and it remained running with Talk and Type
+visible and the keyboard closed. The old package and its data remain installed;
+`adb shell pm enable com.adamgoodwin.galaxyworkspace` reverses the change.
 Baseline: Galaxy Workspace 0.4.0, commit `d1abc1c`+
 ## What Adam wants
 
