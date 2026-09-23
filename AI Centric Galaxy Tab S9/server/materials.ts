@@ -65,6 +65,16 @@ export function createCollection(store: Store, name: string) {
     description: "Gathered documents and emails · originals stay in place",
   });
 }
+export function createCodeWorkspace(store: Store, name: string) {
+  const path = resolve(STATE, "workspaces", randomUUID());
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  return store.addProject({
+    name,
+    path,
+    kind: "code",
+    description: "On-tablet files and reviewed workspace commands",
+  });
+}
 export function materialReplay(store: Store, id: string, fingerprint: string) {
   if (!/^[0-9a-f-]{36}$/i.test(id))
     throw new Error("A valid import request ID is required.");

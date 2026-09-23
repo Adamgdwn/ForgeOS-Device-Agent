@@ -1208,6 +1208,24 @@ pre {
   margin: 20px auto;
   max-width: 760px;
 }
+.command-card pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.85rem;
+  background: var(--surface, #111827);
+  color: #f8fafc;
+  border-radius: 0.7rem;
+}
+.command-card p {
+  overflow-wrap: anywhere;
+}
+.command-buttons {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
 .question-card > strong {
   display: flex;
   align-items: center;

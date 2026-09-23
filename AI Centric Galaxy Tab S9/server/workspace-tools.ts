@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, renameSync, lstatSync, unlinkSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
+import { createPatch } from "diff";
 import { privateWrite } from "./config.ts";
 import { listFiles, readDocument, safePath, digest } from "./files.ts";
 import { prepareReport, report, saveReport } from "./reports.ts";
@@ -52,6 +54,26 @@ export const workspaceTools = [
     ["path", "text", "expectedHash"],
   ),
 ];
+export const codeWorkspaceTools = [
+  workspaceTools[0],
+  workspaceTools[1],
+  tool(
+    "workspace_edit",
+    "Create or replace one plain-text file in this code workspace. Read its current hash first; use an empty expectedHash for a new file. Returns the actual diff and new hash. Paths outside this workspace, hidden files, symlinks and credential files are blocked.",
+    {
+      path: { type: "string" },
+      text: { type: "string" },
+      expectedHash: { type: "string" },
+    },
+    ["path", "text", "expectedHash"],
+  ),
+  tool(
+    "workspace_command",
+    "Propose one terminal command for the selected code workspace. The exact command is displayed to the user and never runs until they tap Approve and run. Commands run as Termux and can access other Termux files, sign-ins and the network; they are not sandboxed. Prefer workspace_files/workspace_read for inspection and workspace_edit for file changes.",
+    { command: { type: "string" } },
+    ["command"],
+  ),
+];
 export class WorkspaceTools {
   store: Store;
   busy = false;
@@ -93,6 +115,44 @@ export class WorkspaceTools {
             ? undefined
             : digest(readFileSync(safePath(c.workspace, input.path))),
         };
+      }
+      if (name === "workspace_edit") {
+        if (project.kind !== "code")
+          throw new Error("Direct edits belong in a code workspace.");
+        if (typeof input.path !== "string" || !input.path ||
+            typeof input.text !== "string" || input.text.includes("\0") ||
+            Buffer.byteLength(input.text) > 100_000 ||
+            typeof input.expectedHash !== "string" ||
+            !/^(?:[a-f0-9]{64})?$/.test(input.expectedHash))
+          throw new Error("Provide a text file under 100 KB and its current hash.");
+        const path = safePath(c.workspace, input.path);
+        if (existsSync(path) && !lstatSync(path).isFile())
+          throw new Error("Choose a regular text file.");
+        const existed = existsSync(path);
+        const mode = existed ? lstatSync(path).mode & 0o777 : 0o600;
+        const before = existed ? readFileSync(path) : Buffer.alloc(0);
+        if (before.includes(0)) throw new Error("This file is not plain text.");
+        let beforeText: string;
+        try { beforeText = new TextDecoder("utf-8", { fatal: true }).decode(before); }
+        catch { throw new Error("This file is not UTF-8 text."); }
+        const previousHash = existed ? digest(before) : "";
+        if (previousHash !== input.expectedHash)
+          throw new Error("The file changed. Read it again before editing.");
+        if (!active()) throw new Error("This request was stopped.");
+        mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+        const temporary = `${path}.galaxy-${randomUUID()}`;
+        try {
+          privateWrite(temporary, input.text);
+          chmodSync(temporary, mode);
+          if (!active()) throw new Error("This request was stopped.");
+          renameSync(temporary, path);
+        } finally {
+          try { if (existsSync(temporary)) unlinkSync(temporary); } catch { /* no temporary file */ }
+        }
+        const diff = createPatch(input.path, beforeText, input.text);
+        return { saved: true, path: input.path, hash: digest(input.text),
+                 diff: diff.slice(0, 20_000), diffTruncated: diff.length > 20_000,
+                 location: "code workspace" };
       }
       if (name === "workspace_prepare_report") {
         if (!active()) throw new Error("This request was stopped.");

@@ -120,6 +120,36 @@ existing Assistant/System read-only behavior while that design is implemented
 and tested. The tablet and Windows laptop share a local subnet; paired wireless
 ADB connected successfully to the same serial, allowing wall charging during
 development without changing Galaxy's independent runtime.
+
+Later September 23 code workspace continuation: Adam explicitly asked to
+proceed with the on-tablet Codex harness. An opt-in Code workspace is now
+created from the Galaxy UI under Termux's private `.local/workspaces` folder.
+Its Codex worker keeps the built-in shell disabled. Typed tools provide file
+listing/reading, hash-checked direct plain-text edits under visible paths, and
+terminal command proposals. A proposed exact command is persisted to the chat
+and requires a fresh in-app Approve and run tap; decline, stop and restart
+resolve it without execution. Approved commands run as Termux through a
+60-second `timeout` supervisor, with minimal environment and bounded captured
+output. This is an explicit trust model, not an OS sandbox: a command can read
+Termux's private work and sign-ins and can use the network. The approval card
+states that risk. `workspace_edit` cannot access hidden, credential-named or
+symlinked paths. Assistant, System and document workspaces retain their prior
+tools and restrictions. The subproject risk tier was reassessed as high.
+
+The Windows build and focused code/Assistant/recovery tests passed. The full
+npm suite still has pre-existing Windows failures for symlinks and missing
+POSIX/Python/document tools. The source and built web assets were copied to the
+tablet after an idle-state check and private SQLite backup; hashes for the key
+server files and entry HTML matched. The native Galaxy launcher restarted the
+engine. Through the live UI, `Tablet Code` was created; Codex used the
+`workspace_edit` tool to create `README.md` and completed the turn. A second
+turn proposed `pwd` and waited. Adam tapped Approve and run; the recorded
+command result had exit code 0 and stdout equal to the selected workspace
+path. Codex took several minutes after the command result and finished only
+after a short user steer asking it to conclude; the Code workspace instructions
+now ask it to answer promptly after a simple command. This verifies one code
+edit and one approved terminal command on-device, while response latency and
+more complex command workflows remain field tests.
 Baseline: Galaxy Workspace 0.4.0, commit `d1abc1c`+
 ## What Adam wants
 

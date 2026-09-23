@@ -18,6 +18,7 @@ import { documentEntries, documentDownload } from "./documents.ts";
 import { recovery, saveRecovery } from "./recovery.ts";
 import {
   createCollection,
+  createCodeWorkspace,
   stageUploads,
   installMaterials,
   materialReplay,
@@ -266,9 +267,15 @@ export function application(
           return;
         }
         if (path === "/api/workspaces" && method === "POST") {
+          const data = await body(req);
+          const name = string(data.name, 80);
+          if (data.kind !== undefined && data.kind !== "code")
+            throw new Error("Choose a supported workspace type.");
           json(
             res,
-            createCollection(store, string((await body(req)).name, 80)),
+            data.kind === "code"
+              ? createCodeWorkspace(store, name)
+              : createCollection(store, name),
           );
           return;
         }
@@ -561,7 +568,7 @@ export function application(
           return;
         }
         const conversationMatch =
-          /^\/api\/conversations\/([^/]+)(?:\/(events|messages|stop|draft|changes|apply|save|answer|preview|files|download|report|export|exports))?$/.exec(
+          /^\/api\/conversations\/([^/]+)(?:\/(events|messages|stop|draft|changes|apply|save|answer|command|preview|files|download|report|export|exports))?$/.exec(
             path,
           );
         if (conversationMatch) {
@@ -755,6 +762,17 @@ export function application(
                 data.answers || {},
               );
               json(res, { answered: true });
+              return;
+            }
+            if (action === "command") {
+              if (project.kind !== "code")
+                throw new Error("Choose a code workspace for commands.");
+              await host.resolveCommand(
+                id,
+                string(data.requestId, 100),
+                data.decision,
+              );
+              json(res, { resolved: true });
               return;
             }
             if (

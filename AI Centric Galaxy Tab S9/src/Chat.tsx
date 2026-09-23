@@ -104,6 +104,35 @@ function Question({
     </form>
   );
 }
+function CommandApproval({ event, conversationId, notify }: {
+  event: Activity;
+  conversationId: string;
+  notify: Props["notify"];
+}) {
+  const [busy, setBusy] = useState(false);
+  async function resolve(decision: "approve" | "decline") {
+    setBusy(true);
+    try {
+      await api(`/conversations/${conversationId}/command`, "POST", {
+        requestId: event.data.requestId,
+        decision,
+      });
+    } catch (error) {
+      notify((error as Error).message);
+      setBusy(false);
+    }
+  }
+  return <section className="question-card command-card" aria-label="Terminal command approval">
+    <strong><Terminal size={18} /> Review terminal command</strong>
+    <p>Workspace: {event.data.workspace}</p>
+    <pre>{event.data.command}</pre>
+    <p>This runs as Termux on the tablet. It can access Termux files, saved sign-ins and the network.</p>
+    <div className="command-buttons">
+      <button type="button" className="secondary" disabled={busy} onClick={() => void resolve("decline")}>Decline</button>
+      <button type="button" className="primary" disabled={busy} onClick={() => void resolve("approve")}>Approve and run</button>
+    </div>
+  </section>;
+}
 export function Chat({
   recoveryKey,
   recoveryScope,
@@ -121,6 +150,7 @@ export function Chat({
 }: Props) {
   const system = project.kind === "system";
   const assistant = project.kind === "assistant" || project.kind === "meeting";
+  const code = project.kind === "code";
   const recovery = useRecovery<ChatDraft>(recoveryKey);
   const draft = recovery.value || emptyChat;
   const { text, attachments, replyStyle } = draft;
@@ -232,7 +262,7 @@ export function Chat({
       bottom.current?.scrollIntoView({ behavior: "instant", block: "end" });
   }, []);
   const busy = busyStates.has(conversation?.status || "");
-  const { messages, activity, questions } = useMemo(() => {
+  const { messages, activity, questions, commands } = useMemo(() => {
     const messages: {
         id: string;
         role: string;
@@ -243,6 +273,7 @@ export function Chat({
       byId = new Map<string, number>(),
       activity: Activity[] = [];
     const questions = new Map<string, Activity>();
+    const commands = new Map<string, Activity>();
     for (const e of events) {
       if (e.type === "user")
         messages.push({
@@ -267,9 +298,11 @@ export function Chat({
       } else if (e.type === "question") questions.set(e.data.requestId, e);
       else if (e.type === "question-resolved")
         questions.delete(e.data.requestId);
+      else if (e.type === "command-proposal") commands.set(e.data.requestId, e);
+      else if (e.type === "command-resolved") commands.delete(e.data.requestId);
       else if (e.type !== "usage" && e.type !== "diff") activity.push(e);
     }
-    return { messages, activity, questions: [...questions.values()] };
+    return { messages, activity, questions: [...questions.values()], commands: [...commands.values()] };
   }, [events]);
   useEffect(() => {
     if (events.length === 0)
@@ -645,7 +678,7 @@ export function Chat({
                       <CircleHelp size={15} /> Explain further
                     </button>
                     <button
-                      hidden={system || assistant}
+                      hidden={system || assistant || code}
                       className="secondary compact"
                       disabled={sending || !connected}
                       onClick={() => onAddToReport(message.text)}
@@ -675,6 +708,12 @@ export function Chat({
               notify={notify}
             />
           ))}
+        {conversation && commands.map((command) => <CommandApproval
+          key={command.seq}
+          event={command}
+          conversationId={conversation.id}
+          notify={notify}
+        />)}
         {busy ? (
           <div className="working">
             <span className="pulse-dot" />
@@ -701,7 +740,15 @@ export function Chat({
                   <div className="activity-row" key={e.seq}>
                     <Check size={14} />
                     <div>
-                      {e.type === "item" ? (
+                      {e.type === "command-result" ? (
+                        <>
+                          <strong>{e.data.command}</strong>
+                          <span>{e.data.error || (e.data.timedOut ? "Timed out" : `Exit ${e.data.exitCode}`)}</span>
+                          {e.data.stdout ? <pre>{e.data.stdout}</pre> : null}
+                          {e.data.stderr ? <pre>{e.data.stderr}</pre> : null}
+                          {e.data.truncated ? <span>Output was truncated.</span> : null}
+                        </>
+                      ) : e.type === "item" ? (
                         <>
                           <strong>
                             {e.data.type === "commandExecution"

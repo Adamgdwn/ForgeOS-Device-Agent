@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Check,
   Tablet as TabletIcon,
+  Terminal,
 } from "lucide-react";
 import {
   api,
@@ -199,6 +200,7 @@ export function App() {
   const system = project?.kind === "system";
   const assistant =
     project?.kind === "assistant" || project?.kind === "meeting";
+  const code = project?.kind === "code";
   const chatScope = `${data?.instanceId || "opening"}:chat:${project?.id || ""}:`;
   const chatKey = chatScope + (conversation?.id || "new");
   const chatRecovery = useRecovery<ChatDraft>(chatKey);
@@ -632,6 +634,8 @@ export function App() {
                 <MessageSquare size={16} />
               ) : p.kind === "system" ? (
                 <TabletIcon size={16} />
+              ) : p.kind === "code" ? (
+                <Terminal size={16} />
               ) : p.kind === "onedrive" ? (
                 <Cloud size={16} />
               ) : (
@@ -817,11 +821,13 @@ export function App() {
                     ? "This tablet"
                     : assistant
                       ? "Meeting preparation"
+                      : code
+                        ? "Code workspace"
                       : conversation?.mode === "draft"
                         ? "Draft changes"
                         : "Explore"}
                 </span>
-                {!system && !assistant && conversation?.mode !== "draft" ? (
+                {!system && !assistant && !code && conversation?.mode !== "draft" ? (
                   <button
                     className="secondary compact"
                     disabled={busy || draftBusy}
@@ -837,7 +843,7 @@ export function App() {
               <TabletStatus />
             ) : assistant ? (
               <TabletStatus assistant warnings={outlookWarnings(events)} />
-            ) : (
+            ) : code ? null : (
               <div className="workflow-bar" aria-label="Workspace actions">
                 <button
                   className="secondary compact"
@@ -899,14 +905,14 @@ export function App() {
                     <span>{files.length}</span>
                   </button>
                   <button
-                    hidden={system || assistant}
+                    hidden={system || assistant || code}
                     className={tab === "review" ? "active" : ""}
                     onClick={() => setTab("review")}
                   >
                     Review
                   </button>
                   <button
-                    hidden={system}
+                    hidden={system || code}
                     className={tab === "report" ? "active" : ""}
                     onClick={() => setTab("report")}
                   >
@@ -1028,7 +1034,7 @@ export function App() {
                       </p>
                     </div>
                     <button
-                      hidden={system || project.kind === "assistant"}
+                      hidden={system || project.kind === "assistant" || code}
                       className="connect-shortcut"
                       onClick={() => setMaterials("current")}
                     >
@@ -1137,6 +1143,8 @@ export function App() {
                     ? "Tablet shared storage · originals stay in place"
                     : assistant
                       ? "Meeting files · saved in this workspace"
+                      : code
+                        ? "Files save here · each terminal command needs your approval"
                       : conversation?.mode === "draft"
                         ? "Editing a separate draft"
                         : "Exploring your original files"}

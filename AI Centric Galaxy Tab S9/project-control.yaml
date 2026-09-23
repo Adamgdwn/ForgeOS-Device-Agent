@@ -1,7 +1,7 @@
 project_name: AI Centric Galaxy Tab S9
 project_type: application
-risk_tier: medium
-governance_level: 2
+risk_tier: high
+governance_level: 3
 status: local-pilot
 owner: Adam Goodwin
 data_classification:
@@ -11,7 +11,7 @@ agent_controls:
   autonomy_level: A1
   max_concurrent_turns: 1
   turn_timeout_seconds: 600
-  source_edits: isolated-drafts
+  source_edits: document-isolated-drafts-and-code-workspace-hash-checked-direct
   external_publication: user-selected-new-report-exports
   system_workspace: galaxy-tablet-only
   system_worker_shell: disabled
@@ -19,6 +19,8 @@ agent_controls:
   tablet_transport: authenticated-loopback-native-helper
   runtime: on-tablet-termux-with-local-codex-login
   android_worker_shell: disabled
+  code_workspace_commands: exact-command-user-approval-under-termux-uid
+  code_workspace_command_sandbox: none
   assistant_workspace: meeting-preparation-from-existing-outlook-ui
   outlook_access: visible-screen-reading-with-bounded-navigation
   outlook_side_effects: opening-mail-may-mark-read

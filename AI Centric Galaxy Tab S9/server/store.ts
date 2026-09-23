@@ -9,7 +9,7 @@ export type Project = {
   id: string;
   name: string;
   path: string;
-  kind: "local" | "onedrive" | "system" | "assistant" | "meeting";
+  kind: "local" | "onedrive" | "system" | "assistant" | "meeting" | "code";
   description: string;
 };
 export type Conversation = {
@@ -226,6 +226,17 @@ export class Store {
       .run();
     for (const c of this.conversations())
       if (["running", "starting", "stopping", "waiting"].includes(c.status)) {
+        const pending = new Set<string>();
+        const commandEvents = this.db.prepare(
+          "SELECT type, data FROM events WHERE conversationId=? AND type IN ('command-proposal','command-resolved') ORDER BY seq",
+        ).all(c.id) as { type: string; data: string }[];
+        for (const row of commandEvents) {
+          const requestId = JSON.parse(row.data).requestId;
+          if (row.type === "command-proposal") pending.add(requestId);
+          else pending.delete(requestId);
+        }
+        for (const requestId of pending)
+          this.event(c.id, "command-resolved", { requestId, decision: "interrupted" });
         this.update(c.id, { status: "interrupted", turnId: null });
         this.event(c.id, "status", {
           status: "interrupted",

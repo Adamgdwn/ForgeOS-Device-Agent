@@ -30,6 +30,12 @@ A saved brief appears as a named workspace. Reopen it and say “Make the openin
 
 **Quick answers** keeps responses brief and document tools read-only. **Brief me** requests a short assessment. **Explain further** expands an answer. **Add to report** appends an answer in the editor for you to review and save.
 
+## Work with code on this tablet
+
+Tap **+** beside **Your workspaces**, name the folder, then choose **Create code workspace**. It remains available across conversations on this tablet. Choose **Full conversation** and ask Codex to create, read or edit plain-text files. Galaxy checks the current file hash before each edit and shows the resulting diff in Activity & evidence. Quick answers cannot change files or run commands.
+
+When Codex needs a terminal command, Galaxy displays its exact text and waits. Read the command and choose **Approve and run** or **Decline**. An approved command runs once, with a 60-second limit and captured exit code/output. This command runs as Termux, which also holds Galaxy's saved work and sign-ins; it can access files outside the selected workspace and the network. Approval is per command. Stopping or restarting the conversation never retries a pending command. Code workspace files live in Termux's private app storage, so keep Termux installed and back it up before moving devices.
+
 Imports are snapshots, not continuous synchronization. Re-import if originals change. A batch supports up to 50 source files: DOCX, XLSX, PPTX and PDF up to 20 MB each, other supported files up to 8 MB each, and 25 MB total. Plain text, Markdown, CSV/TSV, JSON and saved `.eml` messages are also supported. Convert old `.doc`, `.xls` or `.ppt` files to modern formats first; `.msg`, macros and OCR are not supported.
 
 ## Word, Excel, PowerPoint and PDFs

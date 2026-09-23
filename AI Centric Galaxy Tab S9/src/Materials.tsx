@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Cloud, FilePlus2, Mail, X } from "lucide-react";
+import { Cloud, FilePlus2, Mail, Terminal, X } from "lucide-react";
 import { api, type Project } from "./api.ts";
 import {
   documentByteLimit,
@@ -100,6 +100,15 @@ export function Materials({
           {conversationId ? " and this conversation" : ""}
         </p>
       )}
+      {!project ? (
+        <button
+          className="secondary wide-button"
+          disabled={busy || !name.trim()}
+          onClick={() => void run(async () => done(await api<Project>("/workspaces", "POST", { name, kind: "code" })))}
+        >
+          <Terminal size={18} /> Create code workspace
+        </button>
+      ) : null}
       <button
         className="secondary wide-button"
         disabled={busy || (!project && !name.trim())}

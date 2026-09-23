@@ -25,7 +25,7 @@ export type Project = {
   id: string;
   name: string;
   path: string;
-  kind: "local" | "onedrive" | "system" | "assistant" | "meeting";
+  kind: "local" | "onedrive" | "system" | "assistant" | "meeting" | "code";
   description: string;
 };
 export type Conversation = {
