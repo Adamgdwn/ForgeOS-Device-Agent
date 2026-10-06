@@ -1,7 +1,7 @@
 import unittest,importlib.util,xml.etree.ElementTree as E
 spec=importlib.util.spec_from_file_location('reader','scripts/outlook-ui.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 def node(**changes):
- attrs={'package':m.PACKAGE,'enabled':'true','clickable':'true','bounds':'[200,300][1000,500]','resource-id':m.PREFIX+'message_snippet_frontview','content-desc':'Council meeting','class':'android.view.View'};attrs.update(changes);return E.Element('node',attrs)
+ attrs={'package':m.PACKAGE,'enabled':'true','clickable':'true','bounds':'[200,300][1000,500]','resource-id':m.PREFIX+'message_snippet_frontview','content-desc':'Board meeting','class':'android.view.View'};attrs.update(changes);return E.Element('node',attrs)
 class ReaderTests(unittest.TestCase):
  def test_readable_limits(self):
   self.assertTrue(m.readable(node()))
@@ -11,13 +11,13 @@ class ReaderTests(unittest.TestCase):
   self.assertFalse(m.readable(node(**{'resource-id':m.PREFIX+'message_open_details','content-desc':'Edit RSVP'})))
   self.assertFalse(m.readable(node(package='other.app')))
   self.assertFalse(m.readable(node(bounds='[10,10][12,12]')))
-  self.assertTrue(m.readable(node(**{'resource-id':'','content-desc':'Tuesday, September 22, 10:00 a.m. to 11:00 a.m., Council'})))
+  self.assertTrue(m.readable(node(**{'resource-id':'','content-desc':'Tuesday, September 22, 10:00 a.m. to 11:00 a.m., Board'})))
   self.assertFalse(m.readable(node(**{'resource-id':'','content-desc':'Tuesday, September 22, Work location: Home'})))
  def test_reference_changes(self):
   a=node();self.assertNotEqual(m.ref(a),m.ref(node(**{'content-desc':'Changed message'})));self.assertNotEqual(m.ref(a),m.ref(node(bounds='[200,500][1000,700]')))
  def test_password_and_warnings(self):
-  root=E.Element('hierarchy');root.append(node(**{'text':'Please sign in to Council.','content-desc':''}))
-  self.assertIn('Please sign in to Council.',m.summary(root,'now')['warnings'])
+  root=E.Element('hierarchy');root.append(node(**{'text':'Please sign in to Board.','content-desc':''}))
+  self.assertIn('Please sign in to Board.',m.summary(root,'now')['warnings'])
   root.append(node(password='true'))
   with self.assertRaises(ValueError):m.summary(root,'now')
  def test_bad_inputs_and_fresh_snapshot(self):
@@ -44,10 +44,10 @@ class NativeReaderTests(unittest.TestCase):
   for args in [('sh','-c','id'),('am','start','-n','other.app'),('input','tap','1','2')]:
    with self.assertRaises(ValueError):r.shell(*args)
   r.shell('am','start','-n',m.PACKAGE+'/.MainActivity')
-  r.shell('input','text','Council%smeeting')
+  r.shell('input','text','Board%smeeting')
   r.shell('input','keyevent','66')
   self.assertEqual([c[0] for c in calls],['open','search_text','enter'])
-  self.assertEqual(calls[1][1],{'query':'Council meeting'})
+  self.assertEqual(calls[1][1],{'query':'Board meeting'})
  def test_native_snapshot_checks_passwords_and_preserves_warning(self):
   r=m.NativeReader('native');root=E.Element('hierarchy');root.append(node(text='Please sign in again'))
   r.call=lambda *args,**kw:{'xml':E.tostring(root).decode()}

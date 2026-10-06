@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-sdk_dir=${ANDROID_SDK_ROOT:-/home/adamgoodwin/Android/Sdk}
+sdk_dir=${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}
 tools_dir="$sdk_dir/build-tools/35.0.0"
 android_jar="$sdk_dir/platforms/android-35/android.jar"
 out_dir="$root_dir/output/forge-surface"

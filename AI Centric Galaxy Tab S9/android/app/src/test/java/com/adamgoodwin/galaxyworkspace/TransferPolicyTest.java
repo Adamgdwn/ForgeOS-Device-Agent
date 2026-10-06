@@ -15,7 +15,7 @@ public class TransferPolicyTest {
         String slides = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
         assertEquals(excel, TransferPolicy.mime(excel));
         assertEquals("Budget.xlsx", TransferPolicy.filename("attachment; filename*=UTF-8''Budget.xlsx", excel));
-        assertEquals("Council slides.pptx", TransferPolicy.filename("attachment; filename*=UTF-8''Council%20slides.pptx", slides));
+        assertEquals("Board slides.pptx", TransferPolicy.filename("attachment; filename*=UTF-8''Board%20slides.pptx", slides));
         assertNull(TransferPolicy.mime("application/javascript"));
     }
     @Test public void onlyExactOriginExportEndpointsCanDownload() {

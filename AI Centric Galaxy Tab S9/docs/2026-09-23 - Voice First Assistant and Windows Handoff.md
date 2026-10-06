@@ -14,7 +14,7 @@ documents always available. Avoid adding a dashboard full of controls.
 The representative request is:
 
 > I have a meeting tomorrow with Minister Newdorf. Compile the relevant material,
-> put it in an appropriate folder in my OneDrive under City Council work and
+> put it in an appropriate folder in my OneDrive under Board work and
 > meetings, and let's discuss how we want the meeting to go.
 
 This is a product example, not an instruction to read live mail or publish files
@@ -56,11 +56,11 @@ date and timezone at that time; do not bake this document's date into the featur
 3. Galaxy identifies the relevant calendar event and reads related visible mail.
    It reports missing access or partial coverage in ordinary language. Ask one
    focused question only when a material ambiguity prevents progress.
-4. Find candidate Council folders in authorized OneDrive connections. Show the
+4. Find candidate Board folders in authorized OneDrive connections. Show the
    actual account and folder breadcrumb in the conversation, with a short reason
-   for the suggested destination. Reuse a previously chosen Council folder when
-   its identity and permissions still match. Do not infer Council ownership from
-   an account card called Personal or from the unused campaign account.
+   for the suggested destination. Reuse a previously chosen Board folder when
+   its identity and permissions still match. Do not infer Board ownership from
+   an account card called Personal or from the unused secondary account.
 5. Gather relevant documents into an isolated local work folder with source links
    and capture/version details. Produce a first brief: purpose, useful background,
    proposed outcomes, questions and unresolved points. Save useful partial work
@@ -156,7 +156,7 @@ Word, Excel, PowerPoint and PDF material really reaches the meeting brief, rathe
 than only exposing new buttons. Keep extraction coverage warnings and existing
 100,000-character limits visible until long-document reading is implemented.
 
-Done when the request finds an authorized existing Council location and relevant
+Done when the request finds an authorized existing Board location and relevant
 materials, asks only for a real ambiguity, creates one local assignment and can
 cite its imported sources. An unavailable IT-restricted account never causes a
 silent fallback into another account.

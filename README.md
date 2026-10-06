@@ -102,7 +102,7 @@ python -m app.main
 
 ## Operator Guide
 
-For launch, testing, and first-device workflow instructions, see [USER_GUIDE.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/USER_GUIDE.md).
+For launch, testing, and first-device workflow instructions, see [USER_GUIDE.md](USER_GUIDE.md).
 
 ## Current Scope
 
@@ -177,6 +177,6 @@ Latest end-of-day testing note:
 
 ## Release Notes
 
-- Runtime-first architecture overview: [docs/runtime-architecture.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/docs/runtime-architecture.md)
-- Sprint-ready roadmap: [docs/sprint-plan.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/docs/sprint-plan.md)
-- Changelog: [CHANGELOG.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/CHANGELOG.md)
+- Runtime-first architecture overview: [docs/runtime-architecture.md](docs/runtime-architecture.md)
+- Sprint-ready roadmap: [docs/sprint-plan.md](docs/sprint-plan.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)

@@ -37,8 +37,8 @@ function fixture() {
   const assistant = new Assistant(store, tablet, async (data) => {
     calls.push(data);
     return {
-      text: "Council meeting\nAgenda: infrastructure",
-      warnings: ["Please sign in to Council."],
+      text: "Board meeting\nAgenda: infrastructure",
+      warnings: ["Please sign in to Board."],
       deviceTime: "2026-09-21T22:00:00-0600",
       items: [],
       coverage: "Visible screen only",
@@ -66,8 +66,8 @@ test("Assistant keeps conversations isolated and saves a persistent meeting fold
     const original = await f.assistant.tool(f.c.id, "meeting_sources", {});
     assert.equal((original as any).report.hash, "");
     const saved: any = await f.assistant.tool(f.c.id, "meeting_save_brief", {
-      title: "Council meeting",
-      text: "# Council\n\nProposed questions. Sources incomplete.",
+      title: "Board meeting",
+      text: "# Board\n\nProposed questions. Sources incomplete.",
       expectedHash: "",
     });
     const c = f.store.conversation(f.c.id);
@@ -77,15 +77,15 @@ test("Assistant keeps conversations isolated and saves a persistent meeting fold
     assert.equal(report(f.store, c.id).exists, true);
     await assert.rejects(
       f.assistant.tool(c.id, "meeting_save_brief", {
-        title: "Council",
+        title: "Board",
         text: "overwrite",
         expectedHash: "",
       }),
       /changed/,
     );
     await f.assistant.tool(c.id, "meeting_save_brief", {
-      title: "Council",
-      text: "# Council\nRevised",
+      title: "Board",
+      text: "# Board\nRevised",
       expectedHash: saved.hash,
     });
     assert.equal(

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-compiler=/home/adamgoodwin/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
+compiler=$HOME/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
 # Match the proven native binaries: dead libc TLS sections must be discarded.
 flags=(-Os -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections -static -Wl,--gc-sections -s)
 probe_seconds=${1:-900}

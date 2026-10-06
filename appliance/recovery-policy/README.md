@@ -10,7 +10,7 @@ Build the deterministic component ZIP from the repository root:
 
 ```bash
 python3 appliance/recovery-policy/build_recovery_policy_zip.py \
-  /home/adamgoodwin/.local/share/forgeos-tablet-revival/2026-09-06/clean-candidate/forgeos-gteslte-debug-policy.zip
+  ~/.local/share/forgeos-tablet-revival/2026-09-06/clean-candidate/forgeos-gteslte-debug-policy.zip
 ```
 
 Run after clean crDroid and MindTheGapps installation, before first system boot.

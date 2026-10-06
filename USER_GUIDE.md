@@ -136,7 +136,7 @@ Use it like this:
 
 By default, live destructive execution is still blocked by policy in:
 
-- [default_policy.json](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/master/policies/default_policy.json)
+- [default_policy.json](master/policies/default_policy.json)
 
 That policy must be changed deliberately before the GUI will allow a live wipe-and-flash attempt.
 
@@ -197,7 +197,7 @@ The GUI `4. Build Artifacts` panel shows:
 
 The launcher is installed into your local applications directory:
 
-- [forgeos.desktop](/home/adamgoodwin/.local/share/applications/forgeos.desktop)
+- `~/.local/share/applications/forgeos.desktop`
 
 If you move the repo or want to refresh the launcher:
 
@@ -319,8 +319,8 @@ The runtime now moves through persisted states such as:
 
 Check it here:
 
-- [session_manager.py](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/app/core/session_manager.py)
-- [state_machine.py](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/app/core/state_machine.py)
+- [session_manager.py](app/core/session_manager.py)
+- [state_machine.py](app/core/state_machine.py)
 
 ### 8. Read The Assessment Result
 
@@ -375,32 +375,32 @@ This updates:
 
 Each device has its own workspace under:
 
-- [devices/](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/devices)
+- [devices/](devices)
 
 ### Audit Logs
 
 Tool executions are recorded under:
 
-- [logs/](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/logs)
+- [logs/](logs)
 
 ### Bootstrap Reports
 
 Host bootstrap reports are stored under:
 
-- [output/](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/output)
+- [output/](output)
 
 ### Master Framework
 
 Reusable policy and strategy assets live under:
 
-- [master/](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/master)
+- [master/](master)
 
 ### Knowledge And Promotion
 
 ForgeOS now improves through controlled evidence capture.
 
-- [knowledge/](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/knowledge) stores session outcomes and the support matrix
-- [promotion/](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/promotion) stores promotion rules and review-required master update candidates
+- [knowledge/](knowledge) stores session outcomes and the support matrix
+- [promotion/](promotion) stores promotion rules and review-required master update candidates
 
 This means the system can get better at recommendations over time without silently changing risky behavior.
 
@@ -456,13 +456,13 @@ command -v code
 
 Review:
 
-- [adb_watcher.py](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/app/watchers/adb_watcher.py)
-- [fastboot_watcher.py](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/app/watchers/fastboot_watcher.py)
-- [orchestrator.py](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/app/core/orchestrator.py)
+- [adb_watcher.py](app/watchers/adb_watcher.py)
+- [fastboot_watcher.py](app/watchers/fastboot_watcher.py)
+- [orchestrator.py](app/core/orchestrator.py)
 
 Then check audit logs in:
 
-- [logs/](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/logs)
+- [logs/](logs)
 
 ## Current Limits You Should Expect
 
@@ -485,7 +485,7 @@ It is still intentionally incomplete for:
 
 Those live integration tasks are tracked in:
 
-- [NEXT_STEPS.md](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/NEXT_STEPS.md)
+- [NEXT_STEPS.md](NEXT_STEPS.md)
 
 ## Best Next Move With Your Test Phone
 

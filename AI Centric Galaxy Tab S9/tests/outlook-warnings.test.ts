@@ -6,13 +6,13 @@ import type { Activity } from "../src/api.ts";
 test("Outlook sign-in warnings survive disappearing snackbars and clear on a new successful reading pass", () => {
   const events = [
     { type: "user", data: {} },
-    { type: "notice", data: { warnings: ["Please sign in to Council."] } },
+    { type: "notice", data: { warnings: ["Please sign in to Board."] } },
     { type: "notice", data: { warnings: ["Message collapsed"] } },
     { type: "notice", data: { warnings: [] } },
   ] as Activity[];
-  assert.deepEqual(outlookWarnings(events), ["Please sign in to Council."]);
+  assert.deepEqual(outlookWarnings(events), ["Please sign in to Board."]);
   events.push({ type: "user", data: {} } as Activity);
-  assert.deepEqual(outlookWarnings(events), ["Please sign in to Council."]);
+  assert.deepEqual(outlookWarnings(events), ["Please sign in to Board."]);
   events.push({
     type: "notice",
     data: { warnings: [] },

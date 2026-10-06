@@ -129,7 +129,7 @@ def test_malformed_xwd_and_armv7_static_compile(tmp_path: Path) -> None:
         int main(int argc, char **argv) { ForgeSurface s = FORGE_SURFACE_INIT; (void)argc; assert(forge_surface_open(&s, argv[1], "/tmp/no") < 0); assert(errno == EPROTO); return 0; }''')
     _compile(source, tmp_path / "bad")
     subprocess.run([str(tmp_path / "bad"), str(bad)], check=True)
-    ndk = Path("/home/adamgoodwin/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang")
+    ndk = Path.home() / Path("Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang")
     subprocess.run([str(ndk), "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror", "-I", str(ROOT), "-c", str(source), "-o", str(tmp_path / "surface-arm.o")], check=True)
 
 

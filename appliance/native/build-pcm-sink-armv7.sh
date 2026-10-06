@@ -2,7 +2,7 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-ndk=${ANDROID_NDK_HOME:-/home/adamgoodwin/Android/Sdk/ndk/27.1.12297006}
+ndk=${ANDROID_NDK_HOME:-$HOME/Android/Sdk/ndk/27.1.12297006}
 cc="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang"
 out="$repo_dir/output/native-arm/forge-pcm-sink"
 

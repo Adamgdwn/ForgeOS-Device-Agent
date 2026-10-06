@@ -323,7 +323,7 @@ export function Chat({
           title: "Prepare for tomorrow",
           detail: "Calendar, related mail and a working brief",
           prompt:
-            "Check tomorrow’s Outlook calendar for my Council meeting. Read the relevant event and search related emails. Save a meeting brief with proposed outcomes, questions and source links. Clearly flag anything unavailable or uncertain.",
+            "Check tomorrow’s Outlook calendar for my Board meeting. Read the relevant event and search related emails. Save a meeting brief with proposed outcomes, questions and source links. Clearly flag anything unavailable or uncertain.",
         },
         {
           icon: FileSearch,

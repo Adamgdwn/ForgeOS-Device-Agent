@@ -44,7 +44,7 @@ ForgeOS is a device rehabilitation agent with a GUI, not a GUI with some agent f
 
 Mermaid source for the current end-to-end flow lives in:
 
-- [process-flows.mmd](/home/adamgoodwin/code/agents/ForgeOS%20Device%20Agent/docs/process-flows.mmd)
+- [process-flows.mmd](process-flows.mmd)
 
 ## Worker Routing Model
 

@@ -84,7 +84,7 @@ button labels.
 
 ## Six everyday workflows
 
-### 1. Prepare for Council or an operations meeting
+### 1. Prepare for Board or an operations meeting
 
 1. Ask Assistant to identify the event and relevant correspondence. Confirm the
    returned event belongs to the intended calendar and date.
@@ -194,12 +194,12 @@ tooling itself has not been verified by this assessment.
 Respect existing OneDrive trees. Start with shortcuts to verified existing
 folders, not a new universal filing tree or a bulk move. The previously visited
 audit-meeting folder is useful navigation evidence, but it does not establish
-the intended root for every Council assignment. Keep actual account/folder IDs
+the intended root for every Board assignment. Keep actual account/folder IDs
 in private settings, never in a public handoff or guessed from labels.
 
 | Workspace context | Destination rule |
 | --- | --- |
-| Council | Select the authorized Council destination explicitly once; the unused campaign account is excluded. Do not infer Council storage from a Personal card label. |
+| Board | Select the authorized Board destination explicitly once; the unused secondary account is excluded. Do not infer Board storage from a Personal card label. |
 | Operations | Bind a user-selected existing business folder only when that account is authorized; an unavailable/IT-restricted connection is not a writable destination. |
 | Personal / other work | Use the selected account's actual identity and folder, keeping unrelated material separate by default. |
 | System | Permanent tablet workspace; no business-document filing role. |
