@@ -16,7 +16,7 @@
     "pair": "node scripts/pair.ts"
   },
   "dependencies": {
-    "@azure/msal-node": "^5.0.0",
+    "@azure/msal-node": "^7.1.0",
     "diff": "^8.0.0",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.11.0",
